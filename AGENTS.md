@@ -20,6 +20,7 @@ bd sync               # Sync with git
     - _Anti-Pattern_: "I ran the command, so it must be done." -> **WRONG**.
 2.  **Visual Evidence**: When modifying UI, you MUST update visual artifacts (Golden files, VHS tapes) to prove it looks correct.
 3.  **Follow the Vision**: Before major refactors, consult `planning/architecture-vision.md` to ensure alignment with the long-term plan (Unified Binary, Dummy Testing).
+4.  **Preserve History**: Use `git mv` when renaming or moving files to maintain git history. Do not use `rm` or `mv` alone for versioned files.
 
 ## Landing the Plane (Session Completion)
 
