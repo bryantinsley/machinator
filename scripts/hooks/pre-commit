@@ -12,16 +12,10 @@ if command -v bd &> /dev/null; then
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 2. Bazel mod tidy (updates MODULE.bazel.lock)
+# 2. Note: bazel mod tidy is NOT run automatically - it can remove needed deps
+#    Run manually when you update go.mod: bazel mod tidy
 # ═══════════════════════════════════════════════════════════════════════════════
-if command -v bazel &> /dev/null; then
-    echo "🔧 Running bazel mod tidy..."
-    bazel mod tidy 2>/dev/null || true
-    # Stage any changes to MODULE.bazel.lock
-    if [ -f "MODULE.bazel.lock" ]; then
-        git add MODULE.bazel.lock 2>/dev/null || true
-    fi
-fi
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 3. Go mod tidy (updates go.mod and go.sum)
