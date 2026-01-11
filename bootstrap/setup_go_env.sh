@@ -7,7 +7,7 @@ export GOMODCACHE="$(pwd)/.go-cache/pkg/mod"
 export PATH="$(pwd)/.go-cache/bin:$PATH"
 
 # Ensure directories exist
-mkdir -p "$GOPATH" "$GOCACHE" "$GOMODCACHE"
+mkdir -p "$GOPATH" "$(pwd)/.go-cache/bin" "$GOCACHE" "$GOMODCACHE"
 
 echo "✅ Go environment configured for local caching:"
 echo "   GOPATH=$GOPATH"

@@ -17,7 +17,7 @@ export GOPATH="$(pwd)/.go-cache"
 export GOCACHE="$(pwd)/.go-build-cache"
 export GOMODCACHE="$(pwd)/.go-cache/pkg/mod"
 export PATH="$(pwd)/.go-cache/bin:$PATH"
-mkdir -p "$GOPATH" "$GOCACHE" "$GOMODCACHE"
+mkdir -p "$GOPATH" "$(pwd)/.go-cache/bin" "$GOCACHE" "$GOMODCACHE"
 ENVEOF
 ```
 

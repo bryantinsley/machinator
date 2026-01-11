@@ -32,7 +32,8 @@ bd sync               # Sync with git
 export GOPATH="$(pwd)/.go-cache"
 export GOCACHE="$(pwd)/.go-build-cache"
 export GOMODCACHE="$(pwd)/.go-cache/pkg/mod"
-mkdir -p "$GOPATH" "$GOCACHE" "$GOMODCACHE"
+export PATH="$(pwd)/.go-cache/bin:$PATH"
+mkdir -p "$GOPATH" "$(pwd)/.go-cache/bin" "$GOCACHE" "$GOMODCACHE"
 ```
 
 **Why?** The default Go cache locations (`~/Library/Caches/go-build`, etc.) are blocked by macOS security restrictions in sandboxed environments. Using project-local directories avoids these permission errors.
