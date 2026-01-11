@@ -46,8 +46,8 @@ fi
 if command -v vhs &> /dev/null; then
     echo "  ✅ vhs found: $(vhs --version | head -n 1)"
 else
-    echo "  ⚠️  vhs not found (required for E2E tape tests)"
-    echo "     Install with: brew install vhs"
+    echo "  ⚠️  vhs not found. Install with: brew install vhs"
+    echo "     vhs is required for E2E tape tests."
 fi
 
 # Check for ttyd (required by vhs)
