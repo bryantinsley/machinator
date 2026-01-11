@@ -255,3 +255,70 @@ func TestMainScreenGolden(t *testing.T) {
 	}
 	teatest.RequireEqualOutput(t, out)
 }
+
+func TestProjectDetailModalGolden(t *testing.T) {
+	m := initialModel()
+	m.width = 80
+	m.height = 24
+	m.screen = screenProjectDetail
+	m.projectsLoaded = true
+	m.projects = []ProjectConfig{
+		{ID: 1, Name: "Test Project", AgentCount: 1, RepoURL: "git@github.com:test/repo.git"},
+	}
+	m.selectedProject = 0
+	m.detailCursor = 0
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	tm.Send(tea.Quit())
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
+}
+
+func TestEditFieldModalGolden(t *testing.T) {
+	m := initialModel()
+	m.width = 80
+	m.height = 24
+	m.screen = screenEditProjectName
+	m.projectsLoaded = true
+	m.projects = []ProjectConfig{
+		{ID: 1, Name: "Test Project", AgentCount: 1, RepoURL: "git@github.com:test/repo.git"},
+	}
+	m.selectedProject = 0
+	m.editBuffer = "New Project Name"
+	m.editCursor = 0
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	tm.Send(tea.Quit())
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
+}
+
+func TestDeleteConfirmationModalGolden(t *testing.T) {
+	m := initialModel()
+	m.width = 80
+	m.height = 24
+	m.screen = screenConfirmDeleteProject
+	m.projectsLoaded = true
+	m.projects = []ProjectConfig{
+		{ID: 1, Name: "Test Project", AgentCount: 1, RepoURL: "git@github.com:test/repo.git"},
+	}
+	m.selectedProject = 0
+	m.dialogCursor = 1 // Default to No
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	tm.Send(tea.Quit())
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
+}
