@@ -42,6 +42,22 @@ else
     echo "     Install with: brew install buildifier"
 fi
 
+# Check for vhs
+if command -v vhs &> /dev/null; then
+    echo "  ✅ vhs found: $(vhs --version | head -n 1)"
+else
+    echo "  ⚠️  vhs not found (required for E2E tape tests)"
+    echo "     Install with: brew install vhs"
+fi
+
+# Check for ttyd (required by vhs)
+if command -v ttyd &> /dev/null; then
+    echo "  ✅ ttyd found: $(ttyd --version | head -n 1)"
+else
+    echo "  ⚠️  ttyd not found. Install with: brew install ttyd"
+    echo "     ttyd is required for VHS terminal recording."
+fi
+
 # Configure git to use project hooks directory
 echo ""
 echo "Configuring git hooks..."
