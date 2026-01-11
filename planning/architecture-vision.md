@@ -104,6 +104,8 @@ If the environment is so broken that you cannot run `bd` (e.g., File system Read
 
 The Orchestrator monitors stdout for this pattern and will intervene externally.
 
+> **Note**: The Orchestrator also monitors for repeated "Command could not be safely parsed" errors, which indicate an agent has lost the ability to speak the tool protocol. This counts as an implicit Emergency Signal.
+
 The Orchestrator will watch for these signals and dispatch the appropriate specialist.
 
 ---
