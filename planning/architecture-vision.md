@@ -163,6 +163,9 @@ This roadmap guides the "Scrum Master" agent in prioritizing future beads.
 
 - [ ] Replace `orchestrator` entry point with `machinator`.
 - [ ] Deprecate standalone `setup` binary.
+- [ ] Implement **Config Pool Isolation**:
+  - Create isolated config directories (e.g., `.machinator/pool/agent_N/`).
+  - Force agents to use these via `GEMINI_CONFIG_DIR` to prevent pollution of user's `~/.gemini`.
 
 ---
 
