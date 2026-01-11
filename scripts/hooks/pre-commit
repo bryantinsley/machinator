@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pre-commit hook - runs beads sync and buildifier formatting
+# Pre-commit hook - runs beads sync, formatting, and tidy commands
 # Enable: git config core.hooksPath scripts/hooks
 
 set -e
@@ -12,7 +12,28 @@ if command -v bd &> /dev/null; then
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 2. Format Bazel files with buildifier
+# 2. Bazel mod tidy (updates MODULE.bazel.lock)
+# ═══════════════════════════════════════════════════════════════════════════════
+if command -v bazel &> /dev/null; then
+    echo "🔧 Running bazel mod tidy..."
+    bazel mod tidy 2>/dev/null || true
+    # Stage any changes to MODULE.bazel.lock
+    if [ -f "MODULE.bazel.lock" ]; then
+        git add MODULE.bazel.lock 2>/dev/null || true
+    fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 3. Go mod tidy (updates go.mod and go.sum)
+# ═══════════════════════════════════════════════════════════════════════════════
+if [ -f "go.mod" ] && command -v go &> /dev/null; then
+    echo "🔧 Running go mod tidy..."
+    go mod tidy 2>/dev/null || true
+    git add go.mod go.sum 2>/dev/null || true
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 4. Format Bazel files with buildifier
 # ═══════════════════════════════════════════════════════════════════════════════
 BAZEL_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(BUILD|WORKSPACE|\.bzl)$' || true)
 
@@ -30,3 +51,23 @@ if [ -n "$BAZEL_FILES" ]; then
         echo "⚠️  buildifier not found. Install: brew install buildifier"
     fi
 fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 5. Format Go files with gofmt
+# ═══════════════════════════════════════════════════════════════════════════════
+GO_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+
+if [ -n "$GO_FILES" ]; then
+    if command -v gofmt &> /dev/null; then
+        echo "🔧 Formatting Go files..."
+        for file in $GO_FILES; do
+            if [ -f "$file" ]; then
+                gofmt -w "$file"
+                git add "$file"
+            fi
+        done
+        echo "✅ Go files formatted"
+    fi
+fi
+
+echo "✅ Pre-commit checks complete"
