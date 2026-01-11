@@ -55,30 +55,26 @@ The `pre-commit` hook will be updated to:
 
 # Execution Plan (Beads)
 
-The following beads will be created to implement this strategy:
+## Status Summary (as of January 2026)
 
-## Bead 1: TUI Golden File Infrastructure
+| Component                  | Status        | Notes                                                      |
+| -------------------------- | ------------- | ---------------------------------------------------------- |
+| Golden File Infrastructure | ✅ Complete   | 4 golden files in `orchestrator/pkg/setup/testdata/`       |
+| VHS Tapes                  | ✅ Complete   | `crud.tape`, `navigation.tape` exist                       |
+| VHS GIF Generation         | ❌ Incomplete | Tapes exist but GIFs never generated. See `machinator-9yr` |
+| Pre-commit Governance      | ✅ Complete   | `scripts/hooks/pre-commit` runs UI tests                   |
+| Update Helper Script       | ✅ Complete   | `scripts/update-ui.sh` exists                              |
 
-**Objective**: Enhance `main_test.go` to support proper Golden File testing.
+## Remaining Work
 
-- [ ] Refactor `main_test.go` to use `teatest.RequireEqualOutput` with golden file storage.
-- [ ] Generate initial golden files for: Main Screen, Project Detail, Edit Modal, Agent Count, Delete Confirmation.
-- [ ] Verify `go test -update` workflow works.
+### machinator-9yr: Fix: Generate Missing VHS GIFs
 
-## Bead 2: VHS End-to-End Suite
+Run the existing VHS tapes to generate the actual GIF artifacts.
 
-**Objective**: Create `vhs` tape scripts for core workflows.
+### machinator-4kx: Gov: Pre-commit VHS Freshness Check
 
-- [ ] Install `vhs` (or assume available).
-- [ ] Create `orchestrator/e2e/add_project.tape`.
-- [ ] Create `orchestrator/e2e/edit_project.tape`.
-- [ ] Create `orchestrator/e2e/delete_project.tape`.
-- [ ] Configure output to `docs/ui-history/`.
+Add timestamp comparison to warn when GIFs are older than their source tapes.
 
-## Bead 3: Governance & Documentation
+### machinator-8cx: Doc: VHS Tape for Orchestrator Running
 
-**Objective**: Codify the rules so agents follow them.
-
-- [ ] Update `AGENTS.md` with "Visual Evidence" rules.
-- [ ] Create `scripts/update-ui-artifacts.sh` helper helper script (runs tests --update and regenerates tapes).
-- [ ] Update `scripts/hooks/pre-commit` to ensure tests passing.
+Create a new tape showing the orchestrator (not just setup) in action.
