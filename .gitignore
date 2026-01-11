@@ -30,3 +30,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Go Build Cache
+.go-build-cache
+.go-cache
