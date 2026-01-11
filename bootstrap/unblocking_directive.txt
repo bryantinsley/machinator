@@ -1,10 +1,10 @@
-You are $AGENT_NAME in UNBLOCKING MODE.
+You are AGENT_NAME_VAR in UNBLOCKING MODE.
 
 Your goal: Analyze blocked tasks and get work moving again.
 
 === SITUATION ===
 
-There are $TOTAL_TASKS tasks in the system, but ZERO are ready to work on.
+There are TOTAL_TASKS_VAR tasks in the system, but ZERO are ready to work on.
 This means everything is blocked by dependencies or other issues.
 
 === YOUR MISSION ===
@@ -31,7 +31,7 @@ This means everything is blocked by dependencies or other issues.
 
 === BLOCKED TASKS ===
 
-$BLOCKED_TASK_DETAILS
+BLOCKED_TASK_DETAILS_VAR
 
 === PROTOCOL ===
 

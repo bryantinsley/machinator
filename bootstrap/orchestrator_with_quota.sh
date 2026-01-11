@@ -13,7 +13,7 @@ GEMINI_PANE="${BD_GEMINI_PANE}"
 
 # Valid local CLI path was removed by user, sticking to system gemini but with args
 GEMINI_CMD_BASE="gemini"
-GEMINI_ARGS="--yolo"
+GEMINI_ARGS="--yolo --output-format=text"
 
 # Sandbox Configuration
 SANDBOX_POLICY="/Users/bryantinsley/Code/machinator/.gemini/sandbox-macos-custom.sb"
@@ -111,11 +111,11 @@ while [ $count -lt $MAX_CYCLES ]; do
             BLOCKED_TASK_DETAILS=$(bd blocked 2>/dev/null || echo "Unable to fetch blocked tasks")
             
             # Build unblocking directive
-            DIRECTIVE_FILE=$(mktemp)
+            DIRECTIVE_FILE=".gemini/tmp/unblocking_${TOTAL_TASKS}.txt"
             cat bootstrap/unblocking_directive.txt | \
-                sed -e "s/\$AGENT_NAME/$AGENT_NAME/g" \
-                    -e "s/\$TOTAL_TASKS/$TOTAL_TASKS/g" \
-                    -e "s|\$BLOCKED_TASK_DETAILS|$BLOCKED_TASK_DETAILS|g" \
+                sed -e "s/AGENT_NAME_VAR/$AGENT_NAME/g" \
+                    -e "s/TOTAL_TASKS_VAR/$TOTAL_TASKS/g" \
+                    -e "s|BLOCKED_TASK_DETAILS_VAR|$BLOCKED_TASK_DETAILS|g" \
                 > "$DIRECTIVE_FILE"
             
             # Launch Gemini in unblocking mode
@@ -123,7 +123,7 @@ while [ $count -lt $MAX_CYCLES ]; do
             if [ -n "$GEMINI_PANE" ]; then
                 send_to_gemini "clear"
                 sleep 1
-                GEMINI_CMD="cat $DIRECTIVE_FILE | $GEMINI_CMD_BASE $GEMINI_ARGS"
+                GEMINI_CMD="$GEMINI_CMD_BASE $GEMINI_ARGS \"$DIRECTIVE_FILE\""
                 send_to_gemini "$GEMINI_CMD"
                 
                 log "⏳ Monitoring unblocking agent..."
@@ -166,17 +166,18 @@ while [ $count -lt $MAX_CYCLES ]; do
 
     # 4. Construct the system directive
     log "📝 Building system directive..."
-    DIRECTIVE_FILE=$(mktemp)
+    # Use deterministic path in project structure to avoid sandbox issues
+    DIRECTIVE_FILE=".gemini/tmp/directive_${TASK_ID}.txt"
     
     # Get context
     TASK_CONTEXT=$(echo "$TASK_INFO" | jq -r '.[0].description // "No description"' | tr '\n' ' ' | sed 's/"/\\"/g')
     PROJECT_CONTEXT="See AGENTS.md for full project context."
 
     cat bootstrap/directive_template.txt | \
-        sed -e "s/\$AGENT_NAME/$AGENT_NAME/g" \
-            -e "s/\$TASK_ID/$TASK_ID/g" \
-            -e "s|\$TASK_CONTEXT|$TASK_CONTEXT|g" \
-            -e "s|\$PROJECT_CONTEXT|$PROJECT_CONTEXT|g" \
+        sed -e "s/AGENT_NAME_VAR/$AGENT_NAME/g" \
+            -e "s/TASK_ID_VAR/$TASK_ID/g" \
+            -e "s|TASK_CONTEXT_VAR|$TASK_CONTEXT|g" \
+            -e "s|PROJECT_CONTEXT_VAR|$PROJECT_CONTEXT|g" \
         > "$DIRECTIVE_FILE"
     
     if [ -n "$GEMINI_PANE" ]; then
@@ -184,9 +185,8 @@ while [ $count -lt $MAX_CYCLES ]; do
         send_to_gemini "clear"
         sleep 1
         
-        # Send the Gemini command with directive via stdin
-        # Pipe the directive file to gemini with --yolo for auto-approval
-        GEMINI_CMD="cat $DIRECTIVE_FILE | $GEMINI_CMD_BASE $GEMINI_ARGS"
+        # Send the Gemini command with directive as an argument
+        GEMINI_CMD="$GEMINI_CMD_BASE $GEMINI_ARGS \"$DIRECTIVE_FILE\""
         send_to_gemini "$GEMINI_CMD"
         
         log "✅ Gemini command sent to pane $GEMINI_PANE"

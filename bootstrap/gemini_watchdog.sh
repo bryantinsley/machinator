@@ -3,7 +3,7 @@
 # Gemini watchdog - kills stuck Gemini processes
 # Monitors log files for activity and kills Gemini if no progress for 10 minutes
 
-TIMEOUT_SECONDS=600  # 10 minutes
+TIMEOUT_SECONDS=120  # 2 minutes
 LOG_PATTERN="/Users/bryantinsley/.gemini/tmp/**/*.json"
 
 log() {
@@ -12,7 +12,7 @@ log() {
 
 log "🐕 Gemini watchdog starting..."
 log "📊 Monitoring: $LOG_PATTERN"
-log "⏱️  Timeout: ${TIMEOUT_SECONDS}s (10 minutes)"
+log "⏱️  Timeout: ${TIMEOUT_SECONDS} seconds"
 
 while true; do
     # Get the most recent modification time of any log file
@@ -32,7 +32,7 @@ while true; do
     log "📝 Latest activity: $(date -r $LATEST_TIME '+%H:%M:%S') (${TIME_DIFF}s ago)"
     
     # Check if Gemini is running
-    GEMINI_PID=$(pgrep -f "gemini --yolo" 2>/dev/null)
+    GEMINI_PID=$(pgrep -f "gemini --yolo --output-format=text .gemini/tmp/directive_machinator" 2>/dev/null)
     
     if [ -n "$GEMINI_PID" ]; then
         if [ $TIME_DIFF -gt $TIMEOUT_SECONDS ]; then
@@ -47,5 +47,5 @@ while true; do
     fi
     
     # Check every minute
-    sleep 60
+    sleep 30
 done

@@ -1,0 +1,44 @@
+(version 1)
+
+;; 1. Allow everything by default (network, process, read, etc.)
+(allow default)
+
+;; 2. Set the default policy for WRITES to DENY.
+;;    (Note: This is different from denying "/" specifically. It sets the baseline for the operation.)
+(deny file-write*)
+
+;; 3. Whitelist specific WRITE paths
+(allow file-write*
+    ;; Project
+    (subpath "/Users/bryantinsley/Code/machinator")
+    
+    ;; Configuration & State
+    (subpath "/Users/bryantinsley/.gemini")
+    (subpath "/Users/bryantinsley/.config")
+    (subpath "/Users/bryantinsley/.cache")
+    (subpath "/Users/bryantinsley/Library/Caches")
+    (subpath "/Users/bryantinsley/Library/Logs")
+
+    ;; System Temp
+    (subpath "/tmp")
+    (subpath "/private/tmp")
+    (subpath "/var/tmp")
+    (subpath "/private/var/tmp")
+    (subpath "/var/folders")
+    (subpath "/private/var/folders")
+    
+    ;; Devices
+    (literal "/dev/null")
+    (literal "/dev/zero")
+    (literal "/dev/dtracehelper")
+    (literal "/dev/tty")
+    (literal "/dev/stdin")
+    (literal "/dev/stdout")
+    (literal "/dev/stderr")
+    (literal "/dev/ptmx")
+)
+
+;; 4. Explicitly allow READ everywhere (redundant with allow default, but safely explicit)
+(allow file-read*
+    (subpath "/")
+)
