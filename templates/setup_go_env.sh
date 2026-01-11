@@ -4,6 +4,7 @@
 export GOPATH="$(pwd)/.go-cache"
 export GOCACHE="$(pwd)/.go-build-cache"
 export GOMODCACHE="$(pwd)/.go-cache/pkg/mod"
+export PATH="$(pwd)/.go-cache/bin:$PATH"
 
 # Ensure directories exist
 mkdir -p "$GOPATH" "$GOCACHE" "$GOMODCACHE"

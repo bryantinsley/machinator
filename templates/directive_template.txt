@@ -16,6 +16,7 @@ cat > /tmp/setup_go_env_$$.sh << 'ENVEOF'
 export GOPATH="$(pwd)/.go-cache"
 export GOCACHE="$(pwd)/.go-build-cache"
 export GOMODCACHE="$(pwd)/.go-cache/pkg/mod"
+export PATH="$(pwd)/.go-cache/bin:$PATH"
 mkdir -p "$GOPATH" "$GOCACHE" "$GOMODCACHE"
 ENVEOF
 ```
