@@ -58,9 +58,13 @@ This prevents Go from writing to ~/Library/Caches which is blocked by security r
 4. **PROTOCOL: FAILURE & BLOCKING**
    - If stuck or blocked, document the blocker and EXIT.
 
-5. **PROTOCOL: SESSION COMPLETION**
+5. **PROTOCOL: SESSION COMPLETION** (MANDATORY)
+   - BEFORE EXITING, you MUST:
+     1. `git add -A && git commit -m "<message>" && git push`
+     2. `bd close TASK_ID_VAR` (if task is complete)
+        OR `bd update TASK_ID_VAR --status=blocked` (if stuck)
+   - NEVER exit without updating the task status!
    - Follow the "Landing the Plane" checklist from AGENTS.md
-   - git status, git add, git commit, git push
 
 === CURRENT TASK CONTEXT ===
 
@@ -73,4 +77,9 @@ PROJECT_CONTEXT_VAR
 === INSTRUCTIONS ===
 
 Begin execution on Task TASK_ID_VAR. Follow all protocols strictly.
+
+**REMINDER**: Before exiting, you MUST run:
+- `bd close TASK_ID_VAR` (if complete)
+- OR `bd update TASK_ID_VAR --status=blocked` (if stuck)
+
 If you need to exit early, explain why clearly before stopping.
