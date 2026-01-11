@@ -322,3 +322,21 @@ func TestDeleteConfirmationModalGolden(t *testing.T) {
 	}
 	teatest.RequireEqualOutput(t, out)
 }
+
+func TestInitScreenGolden(t *testing.T) {
+	m := initialModel()
+	m.width = 80
+	m.height = 24
+	m.screen = screenInit
+	m.machinatorExists = false
+	m.machinatorDir = "/tmp/.machinator"
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	tm.Send(tea.Quit())
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
+}

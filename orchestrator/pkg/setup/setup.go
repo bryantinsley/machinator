@@ -119,119 +119,8 @@ var (
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Data Types
+// Model Methods
 // ═══════════════════════════════════════════════════════════════════════════════
-
-type ProjectConfig struct {
-	ID         int    `json:"id"`
-	Name       string `json:"name"`
-	RepoURL    string `json:"repo_url"`
-	AgentCount int    `json:"agent_count"`
-	HasBeads   bool   `json:"has_beads"`
-	TasksReady int    `json:"tasks_ready"`
-	TasksOpen  int    `json:"tasks_open"`
-	TasksDone  int    `json:"tasks_done"`
-	TasksTotal int    `json:"tasks_total"`
-	CreatedAt  string `json:"created_at"`
-}
-
-type GlobalSettings struct {
-	GeminiCLIPath string `json:"gemini_cli_path"`
-	GeminiCLIRepo string `json:"gemini_cli_repo"`
-	InitializedAt string `json:"initialized_at"`
-	NextProjectID int    `json:"next_project_id"`
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Model
-// ═══════════════════════════════════════════════════════════════════════════════
-
-type screen int
-
-const (
-	screenInit screen = iota
-	screenMain
-	screenProjectDetail
-	screenAddProject
-	screenAddProjectInput
-	screenAddProjectCloning
-	screenEditAgentCount
-	screenEditProjectName
-	screenEditProjectRepo
-	screenApplyingAgents
-	screenConfirmDeleteProject
-	screenConfirmExit
-)
-
-type geminiStatus int
-
-const (
-	geminiUnknown geminiStatus = iota
-	geminiChecking
-	geminiNotInstalled
-	geminiInstalled
-	geminiNeedsUpdate
-	geminiInstalling
-)
-
-type model struct {
-	screen         screen
-	width, height  int
-	cursor         int
-	err            error
-	statusMessages []string
-
-	// Machinator state
-	machinatorExists bool
-	geminiStatus     geminiStatus
-	geminiVersion    string
-
-	// Projects
-	projects          []ProjectConfig
-	projectsLoaded    bool
-	selectedProject   int
-	detailCursor      int // Cursor position in project detail view
-	desiredAgentCount int
-	currentAgentOp    int    // Current agent being processed
-	targetAgentCount  int    // Final target count
-	editBuffer        string // Buffer for editing name/repo
-	dialogCursor      int    // 0=Yes, 1=No for dialogs
-	editCursor        int    // 0=input, 1=save, 2=cancel for edit fields
-	agentCursor       int    // 0=number, 1=apply, 2=cancel for agent count
-
-	// Add project flow
-	inputBuffer    string
-	inputPrompt    string
-	inputHint      string
-	inputStep      int
-	newProjectID   int
-	newProjectName string
-	newRepoURL     string
-	newProjectDir  string
-	newAgentDir    string
-	hasBeads       bool
-	beadsTasks     int
-	beadsOpen      int
-	beadsDone      int
-	beadsTotal     int
-	addWarnings    []string
-	progressMsg    string
-
-	// Paths
-	homeDir       string
-	machinatorDir string
-	resourcesDir  string
-	projectsDir   string
-	geminiCLIDir  string
-	settingsFile  string
-	geminiCLIPath string
-
-	// Result
-	selectedProjectConfig *ProjectConfig
-
-	// Progress channel for async updates
-	progressChan chan string
-}
 
 // Run executes the setup TUI and returns the selected project configuration.
 func Run() (*ProjectConfig, error) {
@@ -248,80 +137,11 @@ func Run() (*ProjectConfig, error) {
 	return nil, nil
 }
 
-// Messages
-type initCheckMsg struct {
-	machinatorExists bool
-	geminiStatus     geminiStatus
-	geminiVersion    string
-	projects         []ProjectConfig
-}
-
-type geminiInstallMsg struct {
-	success bool
-	version string
-	err     error
-}
-
-type cloneDoneMsg struct {
-	success bool
-	message string
-	err     error
-}
-
-type beadsCheckMsg struct {
-	hasBeads   bool
-	tasksReady int
-	tasksOpen  int
-	tasksDone  int
-	tasksTotal int
-}
-
-type projectsReloadedMsg struct {
-	projects []ProjectConfig
-}
-
-type agentActionMsg struct {
-	success    bool
-	action     string // "cloned" or "removed"
-	agentNum   int    // Which agent was processed
-	agentCount int    // Current count after this operation
-	done       bool   // Is this the last operation?
-	err        error
-}
-
-type agentProgressMsg string
-
-type tickMsg time.Time
-
 // Subscription to listen for progress updates
 func listenForProgress(ch chan string) tea.Cmd {
 	return func() tea.Msg {
 		msg := <-ch
 		return agentProgressMsg(msg)
-	}
-}
-
-func initialModel() model {
-	homeDir, _ := os.UserHomeDir()
-	machinatorDir := filepath.Join(homeDir, ".machinator")
-	resourcesDir := filepath.Join(machinatorDir, "resources")
-	projectsDir := filepath.Join(machinatorDir, "projects")
-
-	return model{
-		screen:         screenMain,
-		homeDir:        homeDir,
-		machinatorDir:  machinatorDir,
-		resourcesDir:   resourcesDir,
-		projectsDir:    projectsDir,
-		geminiCLIDir:   filepath.Join(resourcesDir, "gemini-cli-mods"),
-		settingsFile:   filepath.Join(machinatorDir, "settings.json"),
-		geminiCLIPath:  filepath.Join(machinatorDir, "gemini"),
-		geminiStatus:   geminiChecking,
-		statusMessages: []string{},
-		projects:       []ProjectConfig{},
-		addWarnings:    []string{},
-		cursor:         1, // Start on first project or add button
-		progressChan:   make(chan string, 20),
 	}
 }
 
@@ -340,7 +160,7 @@ func (m model) checkInit() tea.Cmd {
 	return func() tea.Msg {
 		var result initCheckMsg
 
-		// Check if ~/.machinator exists
+		// Check if machinator directory exists
 		if _, err := os.Stat(m.machinatorDir); err == nil {
 			result.machinatorExists = true
 		}
@@ -1304,7 +1124,7 @@ func (m model) viewInitLeft() string {
 	b.WriteString("\n\n")
 
 	if !m.machinatorExists {
-		b.WriteString(warningStyle.Render("No ~/.machinator directory found.\n\n"))
+		b.WriteString(warningStyle.Render(fmt.Sprintf("No %s directory found.\n\n", m.machinatorDir)))
 		b.WriteString(itemStyle.Render("Create directory and install\ncustom Gemini CLI?\n\n"))
 		b.WriteString(promptStyle.Render("[Y]es  [N]o"))
 	} else if m.geminiStatus == geminiNotInstalled {

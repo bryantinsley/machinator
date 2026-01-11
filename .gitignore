@@ -15,7 +15,7 @@ go.work
 go.work.sum
 
 # Build output
-machinator
+/machinator
 
 # Logs (keep directory, ignore contents)
 logs/*
