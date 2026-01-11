@@ -80,7 +80,28 @@ A dedicated git repository (or a generated temp repo) containing:
 
 ---
 
-## 6. Execution Roadmap (Beads)
+## 6. Agent Lifecycle & "Fail Loud" Protocol
+
+Agents are ephemeral (2-5 min lifespan). They must persist state via Git.
+**Failure is a signal, not a dead end.**
+
+### The Stuck Signal
+
+If an agent cannot proceed (Ambiguity, Sandbox Violation, Technical Blocker):
+
+1.  **Do NOT** spin in circles.
+2.  **Do NOT** exit silently.
+3.  **ACTION**: Update the current Bead status to `blocked`.
+4.  **ACTION**: Add a comment to the Bead with a structured prefix:
+    - `[BLOCKED: AMBIGUITY]`: Instructions unclear. -> Routes to PM Agent.
+    - `[BLOCKED: SANDBOX]`: Permission denied. -> Routes to SysAdmin Agent.
+    - `[BLOCKED: TECHNICAL]`: Test failure / build break. -> Routes to Debugger Agent.
+
+The Orchestrator will watch for these signals and dispatch the appropriate specialist.
+
+---
+
+## 7. Execution Roadmap (Beads)
 
 This roadmap guides the "Scrum Master" agent in prioritizing future beads.
 
@@ -107,7 +128,7 @@ This roadmap guides the "Scrum Master" agent in prioritizing future beads.
 
 ---
 
-## 7. Directives for Future Agents
+## 8. Directives for Future Agents
 
 - **Review this Plan**: Before picking up a bead, verify it aligns with the "Unified Binary" vision.
 - **Don't Fork**: Do not create separate tools. Refactor existing ones into the unified structure.
