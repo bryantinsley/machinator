@@ -58,6 +58,14 @@ else
     echo "     ttyd is required for VHS terminal recording."
 fi
 
+# Check for ffmpeg (required by vhs)
+if command -v ffmpeg &> /dev/null; then
+    echo "  ✅ ffmpeg found: $(ffmpeg -version | head -n 1 | awk '{print $1, $2, $3}')"
+else
+    echo "  ⚠️  ffmpeg not found. Install with: brew install ffmpeg"
+    echo "     ffmpeg is required for VHS terminal recording."
+fi
+
 # Configure git to use project hooks directory
 echo ""
 echo "Configuring git hooks..."
