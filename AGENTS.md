@@ -19,7 +19,7 @@ bd sync               # Sync with git
     - _Example_: If you edit a file, run a build or test to confirm it didn't break.
     - _Anti-Pattern_: "I ran the command, so it must be done." -> **WRONG**.
 2.  **Visual Evidence**: When modifying UI, you MUST update visual artifacts (Golden files, VHS tapes) to prove it looks correct.
-3.  **Follow the Vision**: Before major refactors, consult `.agent/plans/architecture-vision.md` to ensure alignment with the long-term plan (Unified Binary, Dummy Testing).
+3.  **Follow the Vision**: Before major refactors, consult `planning/architecture-vision.md` to ensure alignment with the long-term plan (Unified Binary, Dummy Testing).
 
 ## Landing the Plane (Session Completion)
 
