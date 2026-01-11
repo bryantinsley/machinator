@@ -102,6 +102,20 @@ var (
 	statusLoading = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("39")).
 			Render("◐")
+
+	badgeStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("255")).
+			Padding(0, 1)
+
+	activeBadgeStyle = badgeStyle.Copy().
+				Background(lipgloss.Color("42")) // Green
+
+	idleBadgeStyle = badgeStyle.Copy().
+			Background(lipgloss.Color("214")) // Orange
+
+	pausedBadgeStyle = badgeStyle.Copy().
+				Background(lipgloss.Color("240")) // Gray
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -763,6 +777,11 @@ func (m model) handleProjectDetailKeys(key string) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		if m.detailCursor < maxItems-1 {
 			m.detailCursor++
+		}
+	case "c":
+		if m.selectedProject < len(m.projects) {
+			p := m.projects[m.selectedProject]
+			return m, m.copyToClipboard(m.getProjectRootDir(p))
 		}
 	case "enter":
 		if m.selectedProject >= len(m.projects) {
@@ -1617,7 +1636,8 @@ func (m model) renderProjectDetailModal() string {
 	}
 
 	var lines []string
-	lines = append(lines, titleStyle.Render(p.Name))
+	header := lipgloss.JoinHorizontal(lipgloss.Center, titleStyle.Render(p.Name), " ", m.getProjectStatusBadge(p))
+	lines = append(lines, header)
 	lines = append(lines, "")
 
 	for _, item := range items {
@@ -1629,6 +1649,9 @@ func (m model) renderProjectDetailModal() string {
 		}
 		lines = append(lines, cursor+style.Render(item.label+":")+dimStyle.Render(" "+item.value))
 	}
+
+	// Root directory (not selectable but displayed)
+	lines = append(lines, "  "+dimStyle.Render("Root Dir:")+dimStyle.Render(" "+m.getProjectRootDir(p)))
 
 	lines = append(lines, "")
 
@@ -1655,9 +1678,11 @@ func (m model) renderProjectDetailModal() string {
 	backBtn := lipgloss.NewStyle().Background(backBg).Foreground(lipgloss.Color("255")).Padding(0, 2).Render("Back")
 
 	lines = append(lines, deleteBtn+"  "+backBtn)
+	lines = append(lines, "")
+	lines = append(lines, dimStyle.Render(" (c) copy path"))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return modalStyle.Width(50).Render(content)
+	return modalStyle.Width(60).Render(content)
 }
 
 func (m model) renderEditFieldModal() string {
@@ -1812,6 +1837,37 @@ func (m model) viewStatusPane() string {
 	}
 
 	return b.String()
+}
+
+func (m model) getProjectRootDir(p ProjectConfig) string {
+	return filepath.Join(m.projectsDir, fmt.Sprintf("%d", p.ID))
+}
+
+func (m model) getProjectStatusBadge(p ProjectConfig) string {
+	if !p.HasBeads {
+		return pausedBadgeStyle.Render("NO BEADS")
+	}
+	if p.TasksOpen > 0 {
+		return activeBadgeStyle.Render("ACTIVE")
+	}
+	if p.TasksReady > 0 {
+		return idleBadgeStyle.Render("IDLE")
+	}
+	if p.TasksTotal > 0 {
+		return pausedBadgeStyle.Render("PAUSED")
+	}
+	return pausedBadgeStyle.Render("NEW")
+}
+
+func (m model) copyToClipboard(text string) tea.Cmd {
+	return func() tea.Msg {
+		cmd := exec.Command("pbcopy")
+		cmd.Stdin = strings.NewReader(text)
+		if err := cmd.Run(); err != nil {
+			return agentProgressMsg(fmt.Sprintf("✗ Failed to copy: %v", err))
+		}
+		return agentProgressMsg("✓ Copied path to clipboard")
+	}
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
