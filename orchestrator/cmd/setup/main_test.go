@@ -1,10 +1,13 @@
 package main
 
 import (
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/exp/teatest"
 )
 
 // TestViewRenderingAtDifferentSizes tests layout at various terminal sizes
@@ -229,4 +232,26 @@ func TestNoOutputTruncation(t *testing.T) {
 	if len(lines) < 10 {
 		t.Error("View should have multiple lines")
 	}
+}
+
+func TestMainScreenGolden(t *testing.T) {
+	m := initialModel()
+	m.width = 80
+	m.height = 24
+	m.screen = screenMain
+	m.projectsLoaded = true
+	m.projects = []ProjectConfig{
+		{ID: 1, Name: "Project 1", AgentCount: 1},
+		{ID: 2, Name: "Project 2", AgentCount: 2},
+	}
+	m.cursor = 1
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	tm.Send(tea.Quit())
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
 }
