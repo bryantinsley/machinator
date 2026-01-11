@@ -1,0 +1,32 @@
+# Bazel
+bazel-*
+.bazelrc.user
+MODULE.bazel.lock
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+go.work.sum
+
+# Build output
+machinator
+
+# Logs (keep directory, ignore contents)
+logs/*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

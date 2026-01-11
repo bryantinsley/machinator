@@ -1,0 +1,32 @@
+#!/bin/bash
+# Pre-commit hook - runs beads sync and buildifier formatting
+# Enable: git config core.hooksPath scripts/hooks
+
+set -e
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 1. Run beads pre-commit hook (flushes changes to JSONL)
+# ═══════════════════════════════════════════════════════════════════════════════
+if command -v bd &> /dev/null; then
+    bd hooks run pre-commit "$@" || true
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 2. Format Bazel files with buildifier
+# ═══════════════════════════════════════════════════════════════════════════════
+BAZEL_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(BUILD|WORKSPACE|\.bzl)$' || true)
+
+if [ -n "$BAZEL_FILES" ]; then
+    if command -v buildifier &> /dev/null; then
+        echo "🔧 Formatting Bazel files..."
+        for file in $BAZEL_FILES; do
+            if [ -f "$file" ]; then
+                buildifier -mode=fix "$file"
+                git add "$file"
+            fi
+        done
+        echo "✅ Bazel files formatted"
+    else
+        echo "⚠️  buildifier not found. Install: brew install buildifier"
+    fi
+fi

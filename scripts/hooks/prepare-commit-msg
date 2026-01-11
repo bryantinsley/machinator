@@ -1,0 +1,7 @@
+#!/bin/bash
+# Prepare-commit-msg hook - adds agent identity trailers
+# Enable: git config core.hooksPath scripts/hooks
+
+if command -v bd &> /dev/null; then
+    bd hooks run prepare-commit-msg "$@" || true
+fi

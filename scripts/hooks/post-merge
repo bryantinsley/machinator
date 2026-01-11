@@ -1,0 +1,7 @@
+#!/bin/bash
+# Post-merge hook - imports JSONL after pull/merge
+# Enable: git config core.hooksPath scripts/hooks
+
+if command -v bd &> /dev/null; then
+    bd hooks run post-merge "$@" || true
+fi

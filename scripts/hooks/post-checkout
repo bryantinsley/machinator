@@ -1,0 +1,7 @@
+#!/bin/bash
+# Post-checkout hook - imports JSONL after branch checkout
+# Enable: git config core.hooksPath scripts/hooks
+
+if command -v bd &> /dev/null; then
+    bd hooks run post-checkout "$@" || true
+fi
