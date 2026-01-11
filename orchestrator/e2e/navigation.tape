@@ -8,8 +8,8 @@ Set Height 800
 Set Padding 20
 Set WindowBar Colorful
 
-# Start the application
-Type "go run orchestrator/cmd/setup/main.go"
+# Start the application (pre-built linux binary for docker)
+Type "./setup-tui-linux"
 Enter
 
 # Wait for application to start

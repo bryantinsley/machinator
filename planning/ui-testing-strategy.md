@@ -22,8 +22,8 @@ This strategy ensures the `setup` TUI remains stable, visually consistent, and d
 
 ### C. Visual Integration Flows (`vhs`)
 
-- **Scope**: End-to-End user workflows recorded as GIFs and ASCII output.
-- **Tool**: Charmbracelet `vhs`.
+- **Tool**: Charmbracelet `vhs` (running via Docker container).
+- **Wrapper**: `scripts/vhs-docker.sh`
 - **Goal**: Provide a "Visual History" of the application. Allows a human to quickly scan GIFs to see how the UI looked and behaved at that commit.
 - **Artifacts**: stored in `docs/ui-history/`.
 

@@ -1,10 +1,12 @@
 #!/bin/bash
-if command -v vhs &> /dev/null
+# Check if docker is available for VHS
+if command -v docker &> /dev/null
 then
-    echo "vhs is installed"
-    vhs --version
+    echo "✅ docker is installed"
+    echo "Checking VHS via Docker..."
+    ./scripts/vhs-docker.sh --version
     exit 0
 else
-    echo "Error: vhs is not installed. Please install it (e.g., brew install vhs)."
+    echo "❌ Error: docker is not installed. Please install Docker Desktop (https://docker.io)."
     exit 1
 fi

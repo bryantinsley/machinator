@@ -32,18 +32,22 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "🎥 Regenerating VHS Tapes..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Check if vhs is installed
-if ! command -v vhs &> /dev/null; then
-    echo "❌ Error: vhs is not installed. Please install it (e.g., brew install vhs)."
+# Check if docker is installed
+if ! command -v docker &> /dev/null; then
+    echo "❌ Error: docker is not installed. Please install Docker Desktop from: https://docker.io"
     exit 1
 fi
+
+echo "🏗️  Building Linux binary for VHS container..."
+GOOS=linux go build -o setup-tui-linux ./orchestrator/cmd/setup/main.go
+chmod +x setup-tui-linux
 
 # Find and run all .tape files in orchestrator/e2e
 # We use shell globbing
 for tape in orchestrator/e2e/*.tape; do
     if [ -f "$tape" ]; then
-        echo "▶️  Running $tape..."
-        vhs "$tape"
+        echo "▶️  Running $tape via Docker..."
+        ./scripts/vhs-docker.sh "$tape"
     fi
 done
 
