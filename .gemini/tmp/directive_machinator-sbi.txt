@@ -1,5 +1,5 @@
 You are Gemini-01, an elite autonomous developer working on the filmschoolcontent project.
-Your goal is to execute Beads Task: machinator-em7
+Your goal is to execute Beads Task: machinator-sbi
 
 === ENVIRONMENT SETUP ===
 
@@ -63,7 +63,7 @@ This prevents Go from writing to ~/Library/Caches which is blocked by security r
 
 === CURRENT TASK CONTEXT ===
 
-Goal: Script to generate a temporary git repo with valid Beads state.  File: 'tools/fixture-gen/main.go'  Specs: 1. Function 'GenerateFixture(path string)' 2. Runs 'git init' in target path. 3. Creates '.beads/beads.db' (sqlite) and '.beads/beads.jsonl'. 4. Populates DB with a known graph:    - 'bead-1' (Open)    - 'bead-2' (Blocked by bead-1) 5. Commits everything to git.  Verification: - Run tool -> produces a dir. - Run 'bd list' inside that dir -> shows beads.  Safety: - Do NOT use real user bead DB. Use a temp path. - If sqlite drivers fail, STOP. 
+Create an integration test suite that: 1. Builds the machinator binary (or orchestrator). 2. Generates a fixture repo (using em7). 3. Configures PATH to use Dummy Gemini (2jd). 4. Runs machinator against the fixture. 5. Asserts that beads move to 'closed' state. Reference: planning/architecture-vision.md 
 
 === PROJECT CONTEXT ===
 
@@ -71,5 +71,5 @@ See AGENTS.md for full project context.
 
 === INSTRUCTIONS ===
 
-Begin execution on Task machinator-em7. Follow all protocols strictly.
+Begin execution on Task machinator-sbi. Follow all protocols strictly.
 If you need to exit early, explain why clearly before stopping.

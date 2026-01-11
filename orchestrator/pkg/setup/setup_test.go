@@ -1,4 +1,4 @@
-package main
+package setup
 
 import (
 	"io"
@@ -62,7 +62,7 @@ func TestDeleteDefaultsToNo(t *testing.T) {
 	}
 	m.selectedProject = 0
 	m.screen = screenProjectDetail
-	m.detailCursor = 3 // Delete button
+	m.detailCursor = 4 // Delete button (was 3 before Open button added)
 
 	// Simulate pressing enter on delete
 	newModel, _ := m.handleProjectDetailKeys("enter")

@@ -38,24 +38,37 @@ send_to_gemini() {
     fi
 }
 
-# Function to check quota status using check_quota.sh
-check_quota() {
-    ./bootstrap/check_quota.sh >/dev/null 2>&1
-    return $?
-}
+# Gemini CLI Path
+GEMINI_CLI_PATH="/Users/bryantinsley/Code/gemini-cli/packages/cli/dist/index.js"
 
-# Function to get quota reset time
-get_reset_time() {
-    node /Users/bryantinsley/Code/gemini-cli/packages/cli/dist/index.js --dump-quota 2>/dev/null | \
-        jq -r '.buckets[] | select(.modelId == "gemini-2.5-pro") | .resetTime'
-}
+# Function to check quota for a specific model
+# Returns 0 if available (>2%), 1 if exhausted/error
+check_model_quota() {
+    local model="$1"
+    
+    if [ ! -f "$GEMINI_CLI_PATH" ]; then
+        log "⚠️  Gemini CLI not found at $GEMINI_CLI_PATH"
+        return 1
+    fi
 
-# Function to calculate seconds until reset
-seconds_until_reset() {
-    local reset_time=$1
-    local reset_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$reset_time" +%s 2>/dev/null)
-    local now_epoch=$(date +%s)
-    echo $((reset_epoch - now_epoch))
+    # Get quota data
+    local quota_data
+    quota_data=$(node "$GEMINI_CLI_PATH" --dump-quota 2>/dev/null | jq --arg m "$model" '.buckets[] | select(.modelId == $m)')
+    
+    if [ -z "$quota_data" ]; then
+        log "⚠️  Could not retrieve quota for $model"
+        return 1
+    fi
+    
+    local remaining
+    remaining=$(echo "$quota_data" | jq -r '.remainingFraction')
+    
+    # Check if > 2%
+    if (( $(echo "$remaining > 0.02" | bc -l) )); then
+        return 0
+    else
+        return 1
+    fi
 }
 
 log "🤖 $AGENT_NAME orchestrator starting (quota-aware mode)..."
@@ -69,34 +82,88 @@ while [ $count -lt $MAX_CYCLES ]; do
     log "📊 Cycle $((count + 1))/$MAX_CYCLES"
     log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
-    # Check quota before proceeding
-    if ! check_quota; then
-        RESET_TIME=$(get_reset_time)
-        
-        log "⏸️  QUOTA EXHAUSTED - Entering sleep mode"
-        log "⏰ Quota resets at: $RESET_TIME"
-        log "💤 Checking every 5 minutes for early refresh..."
-        
-        # Check quota every 5 minutes until it's available
-        # Don't log each check - could get surprise early refresh
-        while ! check_quota; do
-            sleep 300
-        done
-        
-        log "✅ Quota refreshed! Resuming operations..."
-    fi
-    
-    # 1. Check for tasks assigned to this agent (in_progress status)
+    # Reset selection
+    TASK_ID=""
+    MODEL_ARGS=""
+
+    # 1. Check for tasks assigned to this agent (in_progress) first
     log "🔍 Checking for in-progress tasks..."
-    CURRENT_TASK=$(bd list --status=in_progress --json 2>/dev/null | jq -r --arg agent "$AGENT_NAME" '.[] | select(.assignee == $agent) | .id' | head -1)
-    
-    if [ -n "$CURRENT_TASK" ]; then
-        log "🔄 Found in-progress task: $CURRENT_TASK"
-        TASK_ID="$CURRENT_TASK"
-    else
-        # 2. If no active task, fetch the next READY task
+    # We grab the full JSON object to check description/complexity
+    IN_PROGRESS_JSON=$(bd list --status=in_progress --json 2>/dev/null | jq --arg agent "$AGENT_NAME" '[.[] | select(.assignee == $agent)]')
+    IN_PROGRESS_COUNT=$(echo "$IN_PROGRESS_JSON" | jq 'length')
+
+    if [ "$IN_PROGRESS_COUNT" -gt 0 ]; then
+        # Check if we can run the first in-progress task
+        CANDIDATE_ID=$(echo "$IN_PROGRESS_JSON" | jq -r '.[0].id')
+        CANDIDATE_DESC=$(echo "$IN_PROGRESS_JSON" | jq -r '.[0].description // ""')
+        
+        # Determine strict requirements
+        if [[ "$CANDIDATE_DESC" == *"CHALLENGE:complex"* ]]; then
+            REQ_MODEL="gemini-3-pro-preview"
+            if check_model_quota "$REQ_MODEL"; then
+                TASK_ID="$CANDIDATE_ID"
+                MODEL_ARGS="--model $REQ_MODEL"
+                log "� Resuming complex task: $TASK_ID (Pro)"
+            else
+                log "⏳ Paasing complex task $CANDIDATE_ID - Pro quota exhausted"
+            fi
+        else
+            # Simple (or default)
+            REQ_MODEL="gemini-3-flash-preview"
+            if check_model_quota "$REQ_MODEL"; then
+                TASK_ID="$CANDIDATE_ID"
+                MODEL_ARGS="--model $REQ_MODEL"
+                log "🔄 Resuming simple task: $TASK_ID (Flash)"
+            elif check_model_quota "gemini-3-pro-preview"; then
+                 TASK_ID="$CANDIDATE_ID"
+                 MODEL_ARGS="--model gemini-3-pro-preview"
+                 log "🔄 Resuming simple task: $TASK_ID (Upgraded to Pro)"
+            else
+                 log "⏳ Pausing simple task $CANDIDATE_ID - All quotas exhausted"
+            fi
+        fi
+    fi
+
+    # 2. If no valid in-progress task selected, check READY tasks
+    if [ -z "$TASK_ID" ]; then
         log "🔍 Checking for ready tasks..."
-        TASK_ID=$(bd ready --json 2>/dev/null | jq -r '.[].id' | head -1)
+        READY_TASKS_JSON=$(bd ready --json 2>/dev/null)
+        READY_COUNT=$(echo "$READY_TASKS_JSON" | jq 'length')
+        
+        if [ "$READY_COUNT" -gt 0 ]; then
+             for i in $(seq 0 $((READY_COUNT - 1))); do
+                  CANDIDATE=$(echo "$READY_TASKS_JSON" | jq ".[$i]")
+                  CID=$(echo "$CANDIDATE" | jq -r '.id')
+                  CDESC=$(echo "$CANDIDATE" | jq -r '.description // ""')
+                  
+                  if [[ "$CDESC" == *"CHALLENGE:complex"* ]]; then
+                      # Complex -> Needs Pro
+                      if check_model_quota "gemini-3-pro-preview"; then
+                          TASK_ID="$CID"
+                          MODEL_ARGS="--model gemini-3-pro-preview"
+                          log "⚡ Selected complex task: $TASK_ID (Pro)"
+                          break
+                      fi
+                  else
+                      # Simple -> Flash preferred, Pro ok
+                      if check_model_quota "gemini-3-flash-preview"; then
+                          TASK_ID="$CID"
+                          MODEL_ARGS="--model gemini-3-flash-preview"
+                          log "⚡ Selected simple task: $TASK_ID (Flash)"
+                          break
+                      elif check_model_quota "gemini-3-pro-preview"; then
+                          TASK_ID="$CID"
+                          MODEL_ARGS="--model gemini-3-pro-preview"
+                          log "⚡ Selected simple task: $TASK_ID (Upgraded to Pro)"
+                          break
+                      fi
+                  fi
+             done
+             
+             if [ -z "$TASK_ID" ] && [ "$READY_COUNT" -gt 0 ]; then
+                 log "⚠️  $READY_COUNT ready tasks exist but none match available quota."
+             fi
+        fi
     fi
 
     # If still empty, check if we should run unblocking agent
@@ -105,7 +172,17 @@ while [ $count -lt $MAX_CYCLES ]; do
         TOTAL_TASKS=$(bd list --json 2>/dev/null | jq '. | length' 2>/dev/null || echo "0")
         
         if [ "$TOTAL_TASKS" -gt 0 ]; then
-            log "🔍 No ready tasks, but $TOTAL_TASKS tasks exist - entering unblocking mode"
+
+            log "🔍 No ready tasks selected, but $TOTAL_TASKS tasks exist - checking unblocking mode"
+            
+            # Check Pro quota for unblocking (reasoning required)
+            if ! check_model_quota "gemini-3-pro-preview"; then
+                 log "💤 Cannot run unblocking - Pro quota exhausted. Sleeping ${SLEEP_DURATION}s..."
+                 sleep "$SLEEP_DURATION"
+                 continue
+            fi
+            
+            log "⚡ Entering UNBLOCKING mode (Pro quota available)"
             
             # Get blocked tasks details
             BLOCKED_TASK_DETAILS=$(bd blocked 2>/dev/null || echo "Unable to fetch blocked tasks")
@@ -123,7 +200,7 @@ while [ $count -lt $MAX_CYCLES ]; do
             if [ -n "$GEMINI_PANE" ]; then
                 send_to_gemini "clear"
                 sleep 1
-                GEMINI_CMD="$GEMINI_CMD_BASE $GEMINI_ARGS \"$DIRECTIVE_FILE\""
+                GEMINI_CMD="$GEMINI_CMD_BASE $GEMINI_ARGS --model gemini-3-pro-preview \"$DIRECTIVE_FILE\""
                 send_to_gemini "$GEMINI_CMD"
                 
                 log "⏳ Monitoring unblocking agent..."
@@ -158,6 +235,9 @@ while [ $count -lt $MAX_CYCLES ]; do
     log "⚡ TASK FOUND: [$TASK_ID] $TASK_TITLE"
     log "📋 Status: $TASK_STATUS"
 
+    # Determine Model based on Challenge Tag
+    # Already handled in selection phase: TASK_ID and MODEL_ARGS are set properly.
+    
     # 3. Update task to in_progress and assign to this agent
     if [ "$TASK_STATUS" != "in_progress" ]; then
         log "📌 Locking task to $AGENT_NAME..."
@@ -186,7 +266,9 @@ while [ $count -lt $MAX_CYCLES ]; do
         sleep 1
         
         # Send the Gemini command with directive as an argument
-        GEMINI_CMD="$GEMINI_CMD_BASE $GEMINI_ARGS \"$DIRECTIVE_FILE\""
+        # Send the Gemini command with directive as an argument
+        GEMINI_CMD="$GEMINI_CMD_BASE $GEMINI_ARGS $MODEL_ARGS \"$DIRECTIVE_FILE\""
+        log "🚀 Launching Gemini with args: $MODEL_ARGS"
         send_to_gemini "$GEMINI_CMD"
         
         log "✅ Gemini command sent to pane $GEMINI_PANE"

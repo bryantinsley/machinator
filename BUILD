@@ -2,8 +2,12 @@
 
 alias(
     name = "tui",
-    actual = "//orchestrator:tui",
-    visibility = ["//visibility:public"],
+    actual = "//orchestrator/cmd/machinator",
+)
+
+alias(
+    name = "machinator",
+    actual = "//orchestrator/cmd/machinator",
 )
 
 # Setup wizard - manage projects and configuration

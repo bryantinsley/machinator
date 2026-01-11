@@ -171,6 +171,7 @@ type model struct {
 	focusPanel      int                  // 0=tasks, 1=activity
 	taskStartTime   time.Time            // When current task started
 	lastEventTime   time.Time            // When last ACP event was received
+	exitOnce        bool                 // Exit after one task completion (for E2E)
 }
 
 func initialModel() model {
@@ -615,6 +616,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addLog(fmt.Sprintf("✓ Task %s finished", m.currentTaskID))
 		m.currentTaskID = ""
 		m.geminiCmd = nil
+
+		if m.exitOnce {
+			m.addLog("🏁 exit-once mode: Task finished, exiting...")
+			return m, tea.Quit
+		}
 
 		// Wait a moment before checking for next task (don't spam)
 		m.addLog("🔍 Checking for next task...")
@@ -1378,6 +1384,8 @@ func getEnvOrDefault(key, defaultValue string) string {
 func main() {
 	// Parse command-line flags
 	debugMode := flag.Bool("debug", false, "Run a single cycle in debug mode (no TUI)")
+	once := flag.Bool("once", false, "Execute one task and exit")
+	headless := flag.Bool("headless", false, "Run without TUI")
 	flag.Parse()
 
 	// Write startup log before bubbletea takes over
@@ -1386,8 +1394,11 @@ func main() {
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err == nil {
 		f.WriteString(fmt.Sprintf("\n=== TUI Started at %s ===\n", time.Now().Format("15:04:05")))
+		f.WriteString("VERSION: HEADLESS-SUPPORT-V1\n")
 		f.WriteString(fmt.Sprintf("originalCwd: %s\n", originalCwd))
 		f.WriteString(fmt.Sprintf("debugMode: %v\n", *debugMode))
+		f.WriteString(fmt.Sprintf("once: %v\n", *once))
+		f.WriteString(fmt.Sprintf("headless: %v\n", *headless))
 		f.Close()
 	}
 
@@ -1454,15 +1465,24 @@ func main() {
 		return
 	}
 
+	m := initialModel()
+	m.exitOnce = *once
+
 	// Use tea.WithInputTTY() to open /dev/tty directly for input,
-	// allowing the TUI to work even when stdin is not a terminal
-	// WithMouseCellMotion enables mouse click and scroll wheel support
-	p := tea.NewProgram(
-		initialModel(),
-		tea.WithAltScreen(),
-		tea.WithInputTTY(),
-		tea.WithMouseCellMotion(),
-	)
+	// allowing the TUI to work even when stdin is not a terminal.
+	// In headless environments (like CI/tests), /dev/tty might not be available or usable.
+	opts := []tea.ProgramOption{}
+
+	if *headless {
+		// Headless mode - explicitly use dummy input and stderr for output
+		// to avoid Bubble Tea trying to open /dev/tty
+		opts = append(opts, tea.WithInput(strings.NewReader("")), tea.WithOutput(os.Stderr))
+	} else if tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0); err == nil {
+		tty.Close()
+		opts = append(opts, tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithInputTTY())
+	}
+
+	p := tea.NewProgram(m, opts...)
 
 	// Log that we're about to start the program
 	f2, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)

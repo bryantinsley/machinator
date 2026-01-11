@@ -11,25 +11,37 @@ if [ ! -f "$GEMINI_CLI" ]; then
     exit 2
 fi
 
-# Get quota for gemini-2.5-pro (the model we're using)
-QUOTA_DATA=$(node "$GEMINI_CLI" --dump-quota 2>/dev/null | jq '.buckets[] | select(.modelId == "gemini-2.5-pro")')
+# Models to check
+MODELS=("gemini-3-flash-preview" "gemini-3-pro-preview")
+ANY_LOW=0
 
-if [ -z "$QUOTA_DATA" ]; then
-    echo "⚠️  Could not retrieve quota data"
-    exit 2
-fi
+for MODEL in "${MODELS[@]}"; do
+    # Get quota for the specific model
+    # Note: select argument needs to match exactly in the JSON output
+    QUOTA_DATA=$(node "$GEMINI_CLI" --dump-quota 2>/dev/null | jq --arg model "$MODEL" '.buckets[] | select(.modelId == $model)')
 
-# Extract remaining fraction
-REMAINING=$(echo "$QUOTA_DATA" | jq -r '.remainingFraction')
-RESET_TIME=$(echo "$QUOTA_DATA" | jq -r '.resetTime')
+    if [ -z "$QUOTA_DATA" ]; then
+        echo "⚠️  Could not retrieve quota data for $MODEL"
+        # Don't fail the whole script if just one data point is missing, but maybe warn
+        continue 
+    fi
 
-# Check if quota is low (less than 2%)
-if (( $(echo "$REMAINING < 0.02" | bc -l) )); then
-    echo "⚠️  Quota exhausted (${REMAINING}% remaining, resets at $RESET_TIME)"
+    # Extract remaining fraction
+    REMAINING=$(echo "$QUOTA_DATA" | jq -r '.remainingFraction')
+    RESET_TIME=$(echo "$QUOTA_DATA" | jq -r '.resetTime')
+    PERCENT=$(echo "$REMAINING * 100" | bc -l | cut -d. -f1)
+
+    # Check if quota is low (less than 2%)
+    if (( $(echo "$REMAINING < 0.02" | bc -l) )); then
+        echo "⚠️  Quota exhausted for $MODEL (${REMAINING}% remaining, resets at $RESET_TIME)"
+        ANY_LOW=1
+    else
+        echo "✅ $MODEL: ${PERCENT}% remaining"
+    fi
+done
+
+if [ "$ANY_LOW" -eq 1 ]; then
     exit 1
 fi
 
-# Quota available
-PERCENT=$(echo "$REMAINING * 100" | bc -l | cut -d. -f1)
-echo "✅ Quota available (${PERCENT}% remaining, resets at $RESET_TIME)"
 exit 0

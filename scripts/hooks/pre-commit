@@ -76,7 +76,7 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════════
 # 5. Run UI tests and check for golden updates
 # ═══════════════════════════════════════════════════════════════════════════════
-SETUP_DIR="orchestrator/cmd/setup"
+SETUP_DIR="orchestrator/pkg/setup"
 UI_CHANGES=$(git diff --cached --name-only --diff-filter=ACM "$SETUP_DIR" | grep '\.go$' || true)
 GOLDEN_CHANGES=$(git diff --cached --name-only --diff-filter=ACM "$SETUP_DIR/testdata" | grep '\.golden$' || true)
 
