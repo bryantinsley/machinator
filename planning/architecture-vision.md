@@ -110,7 +110,36 @@ The Orchestrator will watch for these signals and dispatch the appropriate speci
 
 ---
 
-## 7. Execution Roadmap (Beads)
+The Orchestrator will watch for these signals and dispatch the appropriate specialist.
+
+---
+
+## 7. Specialized Agent Roles
+
+The Orchestrator routes work to these specialists based on context and failure signals.
+
+### A. The Worker (Default)
+
+- **Trigger**: Normal `open` task.
+- **Goal**: Execute code, run tests, commit.
+
+### B. The Forensic Investigator
+
+- **Trigger**: Agent dies via "Command rejected" (Zombie) or `EMERGENCY_SIGNAL`.
+- **Goal**: Analyze logs, identify the malformed tool call or environment break.
+- **Action**:
+  1. Quarantine the bead (mark `blocked`).
+  2. Create a specific fix task (e.g., "Fix prompt syntax in file X").
+
+### C. The Unblocker (Catalyst)
+
+- **Trigger**: `bd ready` is empty, but `bd list` shows open work. (Graph Jam).
+- **Goal**: Restore flow.
+- **Action**: Slice large beads, remove false dependencies, or ask User for clarification.
+
+---
+
+## 8. Execution Roadmap (Beads)
 
 This roadmap guides the "Scrum Master" agent in prioritizing future beads.
 
@@ -137,7 +166,7 @@ This roadmap guides the "Scrum Master" agent in prioritizing future beads.
 
 ---
 
-## 8. Directives for Future Agents
+## 9. Directives for Future Agents
 
 - **Review this Plan**: Before picking up a bead, verify it aligns with the "Unified Binary" vision.
 - **Don't Fork**: Do not create separate tools. Refactor existing ones into the unified structure.
