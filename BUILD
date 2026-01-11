@@ -5,3 +5,10 @@ alias(
     actual = "//orchestrator:tui",
     visibility = ["//visibility:public"],
 )
+
+# Setup wizard - manage projects and configuration
+alias(
+    name = "setup",
+    actual = "//orchestrator/cmd/setup",
+    visibility = ["//visibility:public"],
+)

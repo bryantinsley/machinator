@@ -5,10 +5,13 @@ Machinator is a TUI-based orchestrator that uses Gemini AI to automatically work
 ## Quick Start
 
 ```bash
-# First-time setup
+# First-time setup (dev environment + git hooks)
 ./scripts/dev_setup.sh
 
-# Build and run
+# Initialize custom Gemini CLI (clones, builds, configures)
+bazel run //:init
+
+# Run the TUI
 bazel run //:tui
 ```
 
