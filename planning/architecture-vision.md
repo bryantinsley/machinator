@@ -95,7 +95,14 @@ If an agent cannot proceed (Ambiguity, Sandbox Violation, Technical Blocker):
 4.  **ACTION**: Add a comment to the Bead with a structured prefix:
     - `[BLOCKED: AMBIGUITY]`: Instructions unclear. -> Routes to PM Agent.
     - `[BLOCKED: SANDBOX]`: Permission denied. -> Routes to SysAdmin Agent.
-    - `[BLOCKED: TECHNICAL]`: Test failure / build break. -> Routes to Debugger Agent.
+    * `[BLOCKED: TECHNICAL]`: Test failure / build break. -> Routes to Debugger Agent.
+
+### The Emergency Broadcast (Last Resort)
+
+If the environment is so broken that you cannot run `bd` (e.g., File system Read-Only, Network Down), you must scream into the logs:
+`EMERGENCY_SIGNAL: [Short Description of Blocker]`
+
+The Orchestrator monitors stdout for this pattern and will intervene externally.
 
 The Orchestrator will watch for these signals and dispatch the appropriate specialist.
 
