@@ -22,6 +22,53 @@ bd sync               # Sync with git
 3.  **Follow the Vision**: Before major refactors, consult `planning/architecture-vision.md` to ensure alignment with the long-term plan (Unified Binary, Dummy Testing).
 4.  **Preserve History**: Use `git mv` when renaming or moving files to maintain git history. Do not use `rm` or `mv` alone for versioned files.
 
+## Go Environment Setup
+
+**CRITICAL**: Before running ANY Go commands (`go build`, `go test`, `go mod tidy`, etc.), you MUST configure Go to use local workspace directories for its caches. Failure to do this will result in "operation not permitted" errors on macOS due to sandbox restrictions.
+
+**Run this at the start of every session:**
+
+```bash
+export GOPATH="$(pwd)/.go-cache"
+export GOCACHE="$(pwd)/.go-build-cache"
+export GOMODCACHE="$(pwd)/.go-cache/pkg/mod"
+mkdir -p "$GOPATH" "$GOCACHE" "$GOMODCACHE"
+```
+
+**Why?** The default Go cache locations (`~/Library/Caches/go-build`, etc.) are blocked by macOS security restrictions in sandboxed environments. Using project-local directories avoids these permission errors.
+
+**Directories created:**
+
+- `.go-cache/` - Go module downloads and workspace data
+- `.go-build-cache/` - Compiled build artifacts
+
+These directories are already in `.gitignore`.
+
+## System-Wide Installations (FORBIDDEN)
+
+**Agents are NOT permitted to install anything system-wide.** This includes:
+
+- `brew install ...`
+- `npm install -g ...`
+- `go install ...` (without local GOPATH)
+- `pip install ...` (without virtualenv)
+- Any command requiring `sudo`
+
+**Why?** The sandbox will block these operations and your session will fail.
+
+**If a dependency can ONLY be installed system-wide:**
+
+1. **STOP** - Do not attempt the installation
+2. **Document** - Create a blocking issue explaining what's needed
+3. **Escalate** - The human operator (Bryan) will install it manually
+4. **Wait** - Move to a different task until the blocker is resolved
+
+**Allowed local installations:**
+
+- Go modules via `go get` (with local GOPATH configured)
+- npm packages in `node_modules/` (project-local)
+- Python packages in a virtualenv within the project
+
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.

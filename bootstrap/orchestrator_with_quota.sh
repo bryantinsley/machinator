@@ -200,7 +200,7 @@ while [ $count -lt $MAX_CYCLES ]; do
             if [ -n "$GEMINI_PANE" ]; then
                 send_to_gemini "clear"
                 sleep 1
-                GEMINI_CMD="$GEMINI_CMD_BASE $GEMINI_ARGS --model gemini-3-pro-preview \"$DIRECTIVE_FILE\""
+                GEMINI_CMD="cat $DIRECTIVE_FILE | $GEMINI_CMD_BASE $GEMINI_ARGS --model gemini-3-pro-preview"
                 send_to_gemini "$GEMINI_CMD"
                 
                 log "⏳ Monitoring unblocking agent..."
@@ -265,9 +265,8 @@ while [ $count -lt $MAX_CYCLES ]; do
         send_to_gemini "clear"
         sleep 1
         
-        # Send the Gemini command with directive as an argument
-        # Send the Gemini command with directive as an argument
-        GEMINI_CMD="$GEMINI_CMD_BASE $GEMINI_ARGS $MODEL_ARGS \"$DIRECTIVE_FILE\""
+        # Send the Gemini command with directive via stdin pipe
+        GEMINI_CMD="cat $DIRECTIVE_FILE | $GEMINI_CMD_BASE $GEMINI_ARGS $MODEL_ARGS"
         log "🚀 Launching Gemini with args: $MODEL_ARGS"
         send_to_gemini "$GEMINI_CMD"
         
