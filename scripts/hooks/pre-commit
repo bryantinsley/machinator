@@ -74,6 +74,39 @@ if [ -f "go.mod" ] && command -v go &> /dev/null; then
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 5. Run UI tests and check for golden updates
+# ═══════════════════════════════════════════════════════════════════════════════
+SETUP_DIR="orchestrator/cmd/setup"
+UI_CHANGES=$(git diff --cached --name-only --diff-filter=ACM "$SETUP_DIR" | grep '\.go$' || true)
+GOLDEN_CHANGES=$(git diff --cached --name-only --diff-filter=ACM "$SETUP_DIR/testdata" | grep '\.golden$' || true)
+
+if [ -n "$UI_CHANGES" ]; then
+    echo "🔍 UI changes detected in $SETUP_DIR. Running tests..."
+    
+    # Setup Go environment for the hook
+    if [ -f "bootstrap/setup_go_env.sh" ]; then
+        source bootstrap/setup_go_env.sh > /dev/null
+    else
+        export GOPATH="$(pwd)/.go-cache"
+        export GOCACHE="$(pwd)/.go-build-cache"
+        export GOMODCACHE="$(pwd)/.go-cache/pkg/mod"
+        mkdir -p "$GOPATH" "$GOCACHE" "$GOMODCACHE"
+    fi
+
+    if ! go test "./$SETUP_DIR/..." > /dev/null 2>&1; then
+        echo "❌ UI tests failed in $SETUP_DIR. Golden files may need update."
+        echo "   Run: go test ./$SETUP_DIR/... -update"
+        FAILED=1
+    elif [ -z "$GOLDEN_CHANGES" ]; then
+        echo "❌ UI changes detected in $SETUP_DIR but no golden files staged."
+        echo "   Visual artifacts must be updated to prove the UI still looks correct."
+        echo "   Run: go test ./$SETUP_DIR/... -update"
+        echo "   Then: git add $SETUP_DIR/testdata/*.golden"
+        FAILED=1
+    fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Result
 # ═══════════════════════════════════════════════════════════════════════════════
 if [ $FAILED -eq 1 ]; then
