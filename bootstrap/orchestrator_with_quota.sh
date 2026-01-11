@@ -10,6 +10,20 @@ QUOTA_CHECK_INTERVAL="${BD_QUOTA_CHECK_INTERVAL:-300}"  # Check quota every 5 mi
 LOG_FILE="${BD_LOG_FILE:-/tmp/bd_orchestrator_${AGENT_NAME}.log}"
 GEMINI_PANE="${BD_GEMINI_PANE}"
 
+
+# Valid local CLI path was removed by user, sticking to system gemini but with args
+GEMINI_CMD_BASE="gemini"
+GEMINI_ARGS="--yolo"
+
+# Sandbox Configuration
+SANDBOX_POLICY="/Users/bryantinsley/Code/machinator/.gemini/sandbox-macos-custom.sb"
+if [ -f "$SANDBOX_POLICY" ]; then
+    log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"; } # hoist log for early use
+    log "🔒 Enabling custom sandbox profile (SEATBELT_PROFILE=custom)"
+    # Prepend env var to the command
+    GEMINI_CMD_BASE="SEATBELT_PROFILE=custom gemini"
+fi
+
 # Logging function
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
@@ -109,7 +123,7 @@ while [ $count -lt $MAX_CYCLES ]; do
             if [ -n "$GEMINI_PANE" ]; then
                 send_to_gemini "clear"
                 sleep 1
-                GEMINI_CMD="cat $DIRECTIVE_FILE | gemini --yolo"
+                GEMINI_CMD="cat $DIRECTIVE_FILE | $GEMINI_CMD_BASE $GEMINI_ARGS"
                 send_to_gemini "$GEMINI_CMD"
                 
                 log "⏳ Monitoring unblocking agent..."
@@ -172,7 +186,7 @@ while [ $count -lt $MAX_CYCLES ]; do
         
         # Send the Gemini command with directive via stdin
         # Pipe the directive file to gemini with --yolo for auto-approval
-        GEMINI_CMD="cat $DIRECTIVE_FILE | gemini --yolo"
+        GEMINI_CMD="cat $DIRECTIVE_FILE | $GEMINI_CMD_BASE $GEMINI_ARGS"
         send_to_gemini "$GEMINI_CMD"
         
         log "✅ Gemini command sent to pane $GEMINI_PANE"
