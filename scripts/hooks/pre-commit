@@ -1,8 +1,11 @@
 #!/bin/bash
-# Pre-commit hook - runs beads sync, formatting, and tidy commands
+# Pre-commit hook - CHECKS formatting and tidiness, blocks commit if issues found
 # Enable: git config core.hooksPath scripts/hooks
+# Fix issues: scripts/fix-all.sh
 
 set -e
+
+FAILED=0
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 1. Run beads pre-commit hook (flushes changes to JSONL)
@@ -12,56 +15,72 @@ if command -v bd &> /dev/null; then
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 2. Note: bazel mod tidy is NOT run automatically - it can remove needed deps
-#    Run manually when you update go.mod: bazel mod tidy
+# 2. Check Go files formatting with gofmt
 # ═══════════════════════════════════════════════════════════════════════════════
+GO_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 3. Go mod tidy (updates go.mod and go.sum)
-# ═══════════════════════════════════════════════════════════════════════════════
-if [ -f "go.mod" ] && command -v go &> /dev/null; then
-    echo "🔧 Running go mod tidy..."
-    go mod tidy 2>/dev/null || true
-    git add go.mod go.sum 2>/dev/null || true
+if [ -n "$GO_FILES" ]; then
+    if command -v gofmt &> /dev/null; then
+        UNFORMATTED=$(gofmt -l $GO_FILES 2>/dev/null || true)
+        if [ -n "$UNFORMATTED" ]; then
+            echo "❌ Go files need formatting:"
+            echo "$UNFORMATTED"
+            echo "   Run: gofmt -w <file>"
+            FAILED=1
+        fi
+    fi
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 4. Format Bazel files with buildifier
+# 3. Check Bazel files with buildifier
 # ═══════════════════════════════════════════════════════════════════════════════
 BAZEL_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(BUILD|WORKSPACE|\.bzl)$' || true)
 
 if [ -n "$BAZEL_FILES" ]; then
     if command -v buildifier &> /dev/null; then
-        echo "🔧 Formatting Bazel files..."
         for file in $BAZEL_FILES; do
             if [ -f "$file" ]; then
-                buildifier -mode=fix "$file"
-                git add "$file"
+                if ! buildifier -mode=check "$file" 2>/dev/null; then
+                    echo "❌ Bazel file needs formatting: $file"
+                    echo "   Run: buildifier -mode=fix $file"
+                    FAILED=1
+                fi
             fi
         done
-        echo "✅ Bazel files formatted"
     else
         echo "⚠️  buildifier not found. Install: brew install buildifier"
     fi
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 5. Format Go files with gofmt
+# 4. Check go.mod/go.sum are tidy
 # ═══════════════════════════════════════════════════════════════════════════════
-GO_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
-
-if [ -n "$GO_FILES" ]; then
-    if command -v gofmt &> /dev/null; then
-        echo "🔧 Formatting Go files..."
-        for file in $GO_FILES; do
-            if [ -f "$file" ]; then
-                gofmt -w "$file"
-                git add "$file"
-            fi
-        done
-        echo "✅ Go files formatted"
+if [ -f "go.mod" ] && command -v go &> /dev/null; then
+    # Create temp copies, run tidy, check for diffs
+    cp go.mod go.mod.backup 2>/dev/null || true
+    cp go.sum go.sum.backup 2>/dev/null || true
+    
+    go mod tidy 2>/dev/null || true
+    
+    if ! diff -q go.mod go.mod.backup &>/dev/null || ! diff -q go.sum go.sum.backup &>/dev/null; then
+        echo "❌ go.mod/go.sum need tidying"
+        echo "   Run: go mod tidy"
+        FAILED=1
     fi
+    
+    # Restore originals
+    mv go.mod.backup go.mod 2>/dev/null || true
+    mv go.sum.backup go.sum 2>/dev/null || true
 fi
 
-echo "✅ Pre-commit checks complete"
+# ═══════════════════════════════════════════════════════════════════════════════
+# Result
+# ═══════════════════════════════════════════════════════════════════════════════
+if [ $FAILED -eq 1 ]; then
+    echo ""
+    echo "❌ Pre-commit checks FAILED. Fix issues and try again."
+    echo "   Or run: scripts/fix-all.sh"
+    exit 1
+fi
+
+echo "✅ Pre-commit checks passed"
