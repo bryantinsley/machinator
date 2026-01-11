@@ -34,3 +34,6 @@ Thumbs.db
 # Go Build Cache
 .go-build-cache
 .go-cache
+
+# Gemini temp files
+.gemini/tmp/

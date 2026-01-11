@@ -32,7 +32,7 @@ while true; do
     log "📝 Latest activity: $(date -r $LATEST_TIME '+%H:%M:%S') (${TIME_DIFF}s ago)"
     
     # Check if Gemini is running
-    GEMINI_PID=$(pgrep -f "gemini --yolo --output-format=text .gemini/tmp/directive_machinator" 2>/dev/null)
+    GEMINI_PID=$(pgrep -f "gemini --yolo --output-format=text --model gemini-3" 2>/dev/null)
     
     if [ -n "$GEMINI_PID" ]; then
         if [ $TIME_DIFF -gt $TIMEOUT_SECONDS ]; then

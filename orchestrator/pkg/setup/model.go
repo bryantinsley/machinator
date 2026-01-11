@@ -1,7 +1,6 @@
 package setup
 
 import (
-	"os"
 	"path/filepath"
 	"time"
 )
@@ -102,7 +101,6 @@ type model struct {
 	progressMsg    string
 
 	// Paths
-	homeDir       string
 	machinatorDir string
 	resourcesDir  string
 	projectsDir   string
@@ -118,14 +116,12 @@ type model struct {
 }
 
 func initialModel() model {
-	homeDir, _ := os.UserHomeDir()
 	machinatorDir := GetMachinatorDir()
 	resourcesDir := filepath.Join(machinatorDir, "resources")
 	projectsDir := filepath.Join(machinatorDir, "projects")
 
 	return model{
 		screen:         screenMain,
-		homeDir:        homeDir,
 		machinatorDir:  machinatorDir,
 		resourcesDir:   resourcesDir,
 		projectsDir:    projectsDir,
