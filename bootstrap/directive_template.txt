@@ -67,8 +67,9 @@ This prevents Go from writing to ~/Library/Caches which is blocked by security r
    - Follow the "Landing the Plane" checklist from AGENTS.md
 
 6. **PROTOCOL: CI-GATED OPERATIONS**
-   - For slow operations (VHS, heavy tests), use CI instead of running locally
-   - Workflow:
+   - **WARNING**: CI is currently BLOCKED (Billing). Use local fallbacks.
+   - For VHS: Use `scripts/vhs-docker.sh` locally after building `setup-tui-linux`.
+   - Workflow (When CI is back):
      1. Commit and push your changes
      2. Create a gate: bd create --type=gate --title="Wait for CI" --external-ref="gh:run:vhs"
      3. Create follow-up task blocked by the gate

@@ -84,11 +84,33 @@ These directories are already in `.gitignore`.
 - npm packages in `node_modules/` (project-local)
 - Python packages in a virtualenv within the project
 
-## CI-Gated Operations
+## CI-Gated Operations (CURRENTLY DISABLED)
 
-Some operations run faster on CI than locally:
-- VHS terminal recording (uses Docker locally, native Linux on CI)
-- Heavy test suites
+**WARNING**: GitHub Actions are currently blocked due to billing issues. Use local fallbacks.
+
+**VHS Terminal Recording (Local Fallback)**
+
+Since CI is down, use the local Docker wrapper (slow but functional):
+
+1. **Build Linux Binary**:
+   ```bash
+   # Ensure Go env is set first!
+   export GOPATH="$(pwd)/.go-cache"
+   export GOCACHE="$(pwd)/.go-build-cache"
+   export GOMODCACHE="$(pwd)/.go-cache/pkg/mod"
+   GOOS=linux GOARCH=amd64 go build -o setup-tui-linux ./orchestrator/cmd/setup
+   ```
+
+2. **Run VHS with Docker**:
+   ```bash
+   ./scripts/vhs-docker.sh orchestrator/e2e/navigation.tape
+   ./scripts/vhs-docker.sh orchestrator/e2e/crud.tape
+   ```
+
+3. **Verify & Commit**:
+   Check `docs/ui-history/*.gif` and commit them.
+
+*(Original CI instructions preserved below for when billing is fixed)*
 
 For these operations, use the CI-gated workflow:
 
