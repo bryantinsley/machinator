@@ -145,6 +145,5 @@ machinator/tmp/
 .machinator/
 
 # Temporary binaries
-setup-tui-linux
 machinator-linux
 ```

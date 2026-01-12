@@ -117,7 +117,7 @@ Since CI is down, use the local Docker wrapper (slow but functional):
    export GOPATH="$(pwd)/.go-cache"
    export GOCACHE="$(pwd)/.go-build-cache"
    export GOMODCACHE="$(pwd)/.go-cache/pkg/mod"
-   GOOS=linux GOARCH=amd64 go build -o setup-tui-linux ./orchestrator/cmd/setup
+   GOOS=linux GOARCH=amd64 go build -o machinator-linux ./orchestrator/cmd/machinator
    ```
 
 2. **Run VHS with Docker**:

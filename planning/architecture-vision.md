@@ -190,7 +190,7 @@ The TUI must support monitoring and controlling multiple agents:
 ### Phase 4: Full Integration
 
 - [ ] Replace `orchestrator` entry point with `machinator`.
-- [ ] Deprecate standalone `setup` binary.
+- [x] Deprecate standalone `setup` binary.
 - [ ] Implement **Gemini Account Pooling** (Epic: `machinator-dgj`):
   - Create a pool of isolated configs in `~/.machinator/accounts/` (fake HOME dirs).
   - Each account has its own `.gemini/` for auth isolation.

@@ -74,7 +74,7 @@ Deleting it will break the system. Only Bryan may archive or remove bootstrap ma
 
 6. **PROTOCOL: CI-GATED OPERATIONS**
    - **WARNING**: CI is currently BLOCKED (Billing). Use local fallbacks.
-   - For VHS: Use `scripts/vhs-docker.sh` locally after building `setup-tui-linux`.
+   - For VHS: Use `scripts/vhs-docker.sh` locally after building `machinator-linux`.
    - Workflow (When CI is back):
      1. Commit and push your changes
      2. Create a gate: bd create --type=gate --title="Wait for CI" --external-ref="gh:run:vhs"

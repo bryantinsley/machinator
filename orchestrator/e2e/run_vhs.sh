@@ -65,8 +65,8 @@ mkdir -p "$TMP_WS/testdata/vhs-fixture"
 cp -r "$VHS_FIXTURE_DIR/." "$TMP_WS/testdata/vhs-fixture/"
 
 # Replace placeholder binaries with the ones built by Bazel
-cp "$MACHINATOR_LINUX" "$TMP_WS/setup-tui-linux"
-chmod +x "$TMP_WS/setup-tui-linux"
+cp "$MACHINATOR_LINUX" "$TMP_WS/machinator-linux"
+chmod +x "$TMP_WS/machinator-linux"
 
 cp "$DUMMY_GEMINI_LINUX" "$TMP_WS/testdata/vhs-fixture/.machinator/gemini"
 chmod +x "$TMP_WS/testdata/vhs-fixture/.machinator/gemini"

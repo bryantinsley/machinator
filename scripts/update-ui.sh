@@ -39,8 +39,8 @@ if ! command -v docker &> /dev/null; then
 fi
 
 echo "🏗️  Building Linux binary for VHS container..."
-GOOS=linux go build -o setup-tui-linux ./orchestrator/cmd/setup/main.go
-chmod +x setup-tui-linux
+GOOS=linux go build -o machinator-linux ./orchestrator/cmd/machinator/main.go
+chmod +x machinator-linux
 
 # Find and run all .tape files in orchestrator/e2e
 # We use shell globbing

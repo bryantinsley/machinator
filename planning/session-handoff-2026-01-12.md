@@ -88,7 +88,7 @@ _Lessons learned and context for the next co-architect/scrum master_
 ## 5. Known Issues / Tech Debt
 
 1. **Mode switching broken** - P1 bug `machinator-nxw`, no way to go Setup → Orchestrator in UI
-2. **Separate setup binary exists** - `orchestrator/cmd/setup/` should be archived
+2. **Separate setup binary archived** - `orchestrator/cmd/setup/` has been moved to `_archive/cmd-setup-legacy/`
 3. **VHS tapes use echo for fixtures** - should use pre-made fixture directory
 4. **Bootstrap orchestrator still in use** - Go TUI is the successor but not fully deployed
 5. **bd fixture is stub** - `testdata/vhs-fixture/bin/bd` just echoes `[]`

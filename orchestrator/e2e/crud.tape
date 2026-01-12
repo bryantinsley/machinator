@@ -20,7 +20,7 @@ Enter
 Show
 
 # Start the application (pre-built linux binary for docker)
-Type "./setup-tui-linux"
+Type "./machinator-linux --setup"
 Enter
 
 # Wait for application to start and load projects
