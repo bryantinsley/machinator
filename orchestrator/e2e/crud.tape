@@ -13,30 +13,9 @@ Set WindowBar Colorful
 Hide
 Type "export HOME=$(mktemp -d)"
 Enter
-Type "mkdir -p $HOME/.machinator/projects/1"
-Enter
-Type 'echo "{\"id\": 1, \"name\": \"Demo Project\", \"repo_url\": \"https://github.com/demo/repo.git\", \"agent_count\": 3}" > $HOME/.machinator/projects/1/project.json'
-Enter
-# Create a fake beads directory so it looks nice
-Type "mkdir -p $HOME/.machinator/projects/1/agents/1/.beads"
-Enter
-# Mock bd command to avoid errors
-Type "mkdir -p $HOME/bin"
-Enter
-Type "echo '#!/bin/bash' > $HOME/bin/bd"
-Enter
-Type "echo 'echo []' >> $HOME/bin/bd"
-Enter
-Type "chmod +x $HOME/bin/bd"
+Type "cp -r testdata/vhs-fixture/. $HOME/"
 Enter
 Type "export PATH=$HOME/bin:$PATH"
-Enter
-# Mock gemini CLI to ensure healthy state and predictable cursor (starts at 1)
-Type "echo '#!/bin/bash' > $HOME/.machinator/gemini"
-Enter
-Type "echo 'echo 1.0.0' >> $HOME/.machinator/gemini"
-Enter
-Type "chmod +x $HOME/.machinator/gemini"
 Enter
 Show
 

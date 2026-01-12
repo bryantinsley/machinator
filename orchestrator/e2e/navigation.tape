@@ -8,6 +8,16 @@ Set Height 800
 Set Padding 20
 Set WindowBar Colorful
 
+# Setup fake environment
+Hide
+Type "export HOME=$(mktemp -d)"
+Enter
+Type "cp -r testdata/vhs-fixture/. $HOME/"
+Enter
+Type "export PATH=$HOME/bin:$PATH"
+Enter
+Show
+
 # Start the application (pre-built linux binary for docker)
 Type "./setup-tui-linux"
 Enter

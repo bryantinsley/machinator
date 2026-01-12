@@ -157,17 +157,45 @@ This roadmap guides the "Scrum Master" agent in prioritizing future beads.
 
 ### Phase 3: Multi-Agent UI
 
-- [ ] Design "Agent Grid" component in Bubble Tea.
-- [ ] Implement "Agent Manager" logic (managing N `tea.Model` instances).
+**Epic: `machinator-7jw`**
+
+The TUI must support monitoring and controlling multiple agents:
+
+**Display Requirements:**
+
+- [ ] **Multi-account quota display** - Show quota for all accounts (e.g., "default: 80%, work: 60%")
+- [ ] **Agent status panel** - Default view shows all agents: task, working time, idle time
+- [ ] **Agent selector dropdown** - Choose which agent's output to watch in detail
+
+**Control Requirements:**
+
+- [ ] **Start/Stop/Pause buttons** - Control orchestration without quitting the app
+  - Pause: stop launching new agents, let running finish
+  - Stop: kill all agents immediately
+  - Start: resume launching
+- [ ] **Dynamic agent count** - Increase/decrease agents while running
+  - On decrease: dialog asks "kill now" or "let finish current task"
+
+**Setup Requirements:**
+
+- [ ] **Branch selector** - User must explicitly choose a git branch (no default to main)
+  - Dropdown lists existing branches from git ls-remote
+  - Option to create new branch
+
+**UI Components Needed:**
+
+- [ ] Dropdown component (generic, reusable)
+- [ ] Agent status panel
 
 ### Phase 4: Full Integration
 
 - [ ] Replace `orchestrator` entry point with `machinator`.
 - [ ] Deprecate standalone `setup` binary.
-- [ ] Implement **Gemini Account Pooling**:
-  - Create a pool of isolated configs in `~/.machinator/accounts/` (different API keys).
+- [ ] Implement **Gemini Account Pooling** (Epic: `machinator-dgj`):
+  - Create a pool of isolated configs in `~/.machinator/accounts/` (fake HOME dirs).
+  - Each account has its own `.gemini/` for auth isolation.
   - Implement Round-Robin rotation to aggregate quota from multiple accounts.
-  - Prevents pollution of the primary user's `~/.gemini`.
+  - Launch agents with `HOME=` override pointing to selected account.
 
 ---
 
