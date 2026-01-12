@@ -205,6 +205,11 @@ func (m model) checkInit() tea.Cmd {
 
 		result.projects = m.loadProjects()
 
+		// Load accounts
+		InitAccountsDir(m.machinatorDir)
+		SetupDefaultAccount(m.machinatorDir)
+		result.accounts, _ = GetAccounts(m.machinatorDir)
+
 		if len(result.projects) > 0 {
 			select {
 			case ch <- fmt.Sprintf("✓ Loaded %d project(s)", len(result.projects)):
@@ -299,6 +304,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.geminiStatus = msg.geminiStatus
 		m.geminiVersion = msg.geminiVersion
 		m.projects = msg.projects
+		m.accounts = msg.accounts
 		m.projectsLoaded = true
 
 		m.addStatus("System check complete")
@@ -411,6 +417,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleConfirmDeleteKeys(key)
 	case screenConfirmExit:
 		return m.handleConfirmExitKeys(key)
+	case screenManageAccounts:
+		return m.handleManageAccountsKeys(key)
 	}
 
 	return m, nil
@@ -561,8 +569,8 @@ func (m model) handleInitKeys(key string) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleMainKeys(key string) (tea.Model, tea.Cmd) {
-	// Menu items: Gemini CLI (0), projects (1..n), Add Project (n+1), Exit (n+2)
-	maxItems := len(m.projects) + 3 // gemini + projects + add + exit
+	// Menu items: Gemini CLI (0), projects (1..n), Add Project (n+1), Manage Accounts (n+2), Exit (n+3)
+	maxItems := len(m.projects) + 4 // gemini + projects + add + accounts + exit
 
 	switch key {
 	case "up", "k":
@@ -591,6 +599,10 @@ func (m model) handleMainKeys(key string) (tea.Model, tea.Cmd) {
 		} else if m.cursor == len(m.projects)+1 {
 			// Add project
 			m.startAddProject()
+		} else if m.cursor == len(m.projects)+2 {
+			// Manage Accounts
+			m.screen = screenManageAccounts
+			m.accountCursor = 0
 		} else {
 			// Exit
 			m.screen = screenConfirmExit
@@ -931,6 +943,10 @@ func (m model) View() string {
 		topContent = m.viewAddProjectCloningLeft()
 		bottomContent = m.viewDoctinator()
 		rightContent = m.viewStatusPane()
+	case screenManageAccounts:
+		topContent = m.viewManageAccountsLeft()
+		bottomContent = m.viewDoctinator()
+		rightContent = m.viewStatusPane()
 	default:
 		// Main screen or screens with modal overlays
 		topContent = m.viewProjectSettings()
@@ -946,7 +962,7 @@ func (m model) View() string {
 
 	// Exit button at bottom right
 	exitBg := lipgloss.Color("240")
-	if m.screen == screenMain && m.cursor == len(m.projects)+2 {
+	if m.screen == screenMain && m.cursor == len(m.projects)+3 {
 		exitBg = lipgloss.Color("196")
 	}
 	exitBtn := lipgloss.NewStyle().
@@ -1026,6 +1042,22 @@ func (m model) viewProjectSettings() string {
 		Render("Add Project")
 
 	b.WriteString(addBtn)
+
+	// Manage Accounts button
+	accountsIdx := len(m.projects) + 2
+	accountsBg := lipgloss.Color("240")
+	if m.cursor == accountsIdx {
+		accountsBg = lipgloss.Color("34") // Green when selected
+	}
+
+	accountsBtn := lipgloss.NewStyle().
+		Background(accountsBg).
+		Foreground(lipgloss.Color("255")).
+		Padding(0, 2).
+		Render("Manage Accounts")
+
+	b.WriteString("\n\n")
+	b.WriteString(accountsBtn)
 
 	return b.String()
 }
@@ -1753,6 +1785,49 @@ func (m model) deriveProjectName(repoURL string) string {
 		return name
 	}
 	return "project"
+}
+
+func (m model) handleManageAccountsKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "q", "backspace":
+		m.screen = screenMain
+		return m, nil
+	case "up", "k":
+		if m.accountCursor > 0 {
+			m.accountCursor--
+		}
+	case "down", "j":
+		if m.accountCursor < len(m.accounts)-1 {
+			m.accountCursor++
+		}
+	}
+	return m, nil
+}
+
+func (m model) viewManageAccountsLeft() string {
+	var b strings.Builder
+
+	b.WriteString(titleStyle.Render("👥 Manage Accounts"))
+	b.WriteString("\n\n")
+
+	if len(m.accounts) == 0 {
+		b.WriteString(dimStyle.Render("No accounts found"))
+	} else {
+		for i, acc := range m.accounts {
+			cursor := "  "
+			style := itemStyle
+			if i == m.accountCursor {
+				cursor = "▸ "
+				style = selectedStyle
+			}
+			b.WriteString(fmt.Sprintf("%s%s\n", cursor, style.Render(acc)))
+		}
+	}
+
+	b.WriteString("\n\n")
+	b.WriteString(dimStyle.Render("Esc to back"))
+
+	return b.String()
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

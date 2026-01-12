@@ -44,6 +44,7 @@ const (
 	screenApplyingAgents
 	screenConfirmDeleteProject
 	screenConfirmExit
+	screenManageAccounts
 )
 
 type geminiStatus int
@@ -63,6 +64,10 @@ type model struct {
 	cursor         int
 	err            error
 	statusMessages []string
+
+	// Accounts
+	accounts      []string
+	accountCursor int
 
 	// Machinator state
 	machinatorExists bool
@@ -143,6 +148,7 @@ type initCheckMsg struct {
 	geminiStatus     geminiStatus
 	geminiVersion    string
 	projects         []ProjectConfig
+	accounts         []string
 }
 
 type geminiInstallMsg struct {
