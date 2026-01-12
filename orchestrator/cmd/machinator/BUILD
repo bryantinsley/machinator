@@ -12,7 +12,7 @@ go_binary(
 )
 
 go_cross_binary(
-    name = "machinator_linux",
+    name = "machinator-linux",
     platform = "@rules_go//go/toolchain:linux_amd64",
     target = ":machinator",
     visibility = ["//visibility:public"],

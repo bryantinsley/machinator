@@ -47,19 +47,44 @@ func setupHarness(t *testing.T) *Harness {
 	rf, err := runfiles.New()
 	var bdSrc string
 	if err == nil {
-		h.GeminiBin, _ = rf.Rlocation("_main/tools/dummy-gemini/dummy-gemini_/dummy-gemini")
-		h.MachinatorBin, _ = rf.Rlocation("_main/orchestrator/cmd/machinator/machinator_/machinator")
+		// Potential paths for Machinator
+		machinatorPaths := []string{
+			"_main/orchestrator/cmd/machinator/machinator_/machinator",
+			"_main/orchestrator/cmd/machinator/machinator",
+		}
+		for _, p := range machinatorPaths {
+			if loc, _ := rf.Rlocation(p); loc != "" {
+				// Try to run it to ensure it's compatible with host arch
+				cmd := exec.Command(loc, "--help")
+				err := cmd.Run()
+				if err == nil || (err != nil && !strings.Contains(err.Error(), "exec format error")) {
+					h.MachinatorBin = loc
+					break
+				}
+			}
+		}
+
+		// Potential paths for Gemini
+		geminiPaths := []string{
+			"_main/tools/dummy-gemini/dummy-gemini_/dummy-gemini",
+			"_main/tools/dummy-gemini/dummy-gemini",
+		}
+		for _, p := range geminiPaths {
+			if loc, _ := rf.Rlocation(p); loc != "" {
+				cmd := exec.Command(loc)
+				err := cmd.Run()
+				if err == nil || (err != nil && !strings.Contains(err.Error(), "exec format error")) {
+					h.GeminiBin = loc
+					break
+				}
+			}
+		}
+
 		bdSrc, _ = rf.Rlocation("_main/bd")
 	}
 
 	if h.GeminiBin == "" || h.MachinatorBin == "" {
-		t.Log("Runfiles not found, falling back to manual build")
-		// Build binaries
-		h.GeminiBin = filepath.Join(h.BinDir, "gemini")
-		buildGoBin(t, h.RootDir, "./tools/dummy-gemini", h.GeminiBin)
-
-		h.MachinatorBin = filepath.Join(h.BinDir, "machinator")
-		buildGoBin(t, h.RootDir, "./orchestrator/cmd/machinator", h.MachinatorBin)
+		t.Fatalf("Runfiles NOT found or incomplete: GeminiBin=%q, MachinatorBin=%q. Manual build is forbidden in E2E.", h.GeminiBin, h.MachinatorBin)
 	}
 
 	// Copy bd if found
@@ -85,7 +110,10 @@ func (h *Harness) setupFixture(t *testing.T) {
 	rf, err := runfiles.New()
 	var fixtureSrc, templatesSrc, agentsMd, checkQuotaSrc string
 	if err == nil {
-		fixtureSrc, _ = rf.Rlocation("_main/testdata/fixture-repo")
+		// Better way to find directory: find a known file and get its parent
+		if p, _ := rf.Rlocation("_main/testdata/fixture-repo/AGENTS.md"); p != "" {
+			fixtureSrc = filepath.Dir(p)
+		}
 		templatesSrc, _ = rf.Rlocation("_main/templates")
 		agentsMd, _ = rf.Rlocation("_main/AGENTS.md")
 		checkQuotaSrc, _ = rf.Rlocation("_main/bootstrap/check_quota.sh")
@@ -120,25 +148,6 @@ func (h *Harness) setupFixture(t *testing.T) {
 
 	// Create agents/1 directory for execution
 	os.MkdirAll(filepath.Join(h.RepoDir, "agents", "1"), 0755)
-
-	// DEBUG: List files in repoDir
-	files, _ := os.ReadDir(h.RepoDir)
-	var fileNames []string
-	for _, f := range files {
-		fileNames = append(fileNames, f.Name())
-	}
-	t.Logf("RepoDir contains: %v", fileNames)
-
-	if _, err := os.Stat(filepath.Join(h.RepoDir, ".beads")); err == nil {
-		beadsFiles, _ := os.ReadDir(filepath.Join(h.RepoDir, ".beads"))
-		var beadsNames []string
-		for _, f := range beadsFiles {
-			beadsNames = append(beadsNames, f.Name())
-		}
-		t.Logf(".beads contains: %v", beadsNames)
-	} else {
-		t.Logf(".beads NOT FOUND in %s", h.RepoDir)
-	}
 }
 
 func (h *Harness) runMachinator(t *testing.T, envVars []string, args []string, timeout time.Duration) {
@@ -290,18 +299,6 @@ func TestE2E_Stuck(t *testing.T) {
 		"MACHINATOR_MAX_TASK_RUNTIME=5s",
 	}
 
-	// Run machinator. It should kill the stuck agent and exit (or retry).
-	// Since we use --once, if it kills the agent, does it count as "finished"?
-	// geminiDoneChan is triggered when process exits (even if killed?).
-	// No, Wait() returns error if killed.
-	// In tui.go, we handle process completion in goroutine.
-	// If killed by us (timeout), we set geminiRunning=false and add failedTasks.
-	// We do NOT send to geminiDoneChan in that case?
-	// Actually, the goroutine waits for Wait(). If we kill process, Wait() returns error.
-	// The goroutine sends to geminiDoneChan.
-	// So it should cycle.
-	// Since we kill it, it should count as a failure.
-
 	h.runMachinator(t, env, nil, 20*time.Second)
 
 	// Task should NOT be closed.
@@ -328,11 +325,6 @@ func TestE2E_Error(t *testing.T) {
 	// Run with ERROR mode
 	h.runMachinator(t, []string{"DUMMY_GEMINI_MODE=ERROR"}, nil, 30*time.Second)
 
-	// Task should still be open (or in_progress/failed depending on how orchestrator handles failure)
-	// Orchestrator marks failed task in memory map, but doesn't change status back to open?
-	// `executeTask` updates status to `in_progress`.
-	// If it fails, it stays `in_progress`?
-
 	task := h.getTask(t, "task-1")
 	// It should be in_progress (since we started it) but failed execution.
 	if task.Status != "in_progress" {
@@ -342,17 +334,9 @@ func TestE2E_Error(t *testing.T) {
 	// Check logs for error message
 	logPath := filepath.Join(h.RepoDir, "machinator", "logs", "tui_debug.log")
 	content, _ := os.ReadFile(logPath)
-	if !strings.Contains(string(content), "Quota exceeded") && !strings.Contains(string(content), "Error: Quota exceeded") {
-		// DUMMY_GEMINI_MODE=ERROR prints "Error: Quota exceeded or service unavailable" to stderr
-		// Orchestrator captures it?
-		// "Usage of ... flag provided but not defined: -dump-quota" - this was fixed.
-
-		// In ERROR mode, dummy-gemini exits with 1.
-		// Orchestrator logs: "⚠️ Gemini exited with error: exit status 1"
-		if !strings.Contains(string(content), "Gemini exited with error") {
-			t.Error("Logs should contain Gemini exit error")
-			t.Logf("LOGS:\n%s", string(content))
-		}
+	if !strings.Contains(string(content), "Gemini exited with error") {
+		t.Error("Logs should contain Gemini exit error")
+		t.Logf("LOGS:\n%s", string(content))
 	}
 }
 
@@ -395,15 +379,6 @@ func findProjectRoot(t *testing.T) string {
 			t.Fatal("Could not find project root (go.mod)")
 		}
 		dir = parent
-	}
-}
-
-func buildGoBin(t *testing.T, root, pkg, outPath string) {
-	cmd := exec.Command("go", "build", "-o", outPath, pkg)
-	cmd.Dir = root
-	cmd.Env = os.Environ()
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("Failed to build %s: %v\nOutput: %s", pkg, err, string(output))
 	}
 }
 

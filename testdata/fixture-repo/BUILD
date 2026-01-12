@@ -1,5 +1,5 @@
 filegroup(
-    name = "fixture-repo",
+    name = "files",
     srcs = glob(["**"]),
     visibility = ["//visibility:public"],
 )

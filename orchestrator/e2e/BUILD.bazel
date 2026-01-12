@@ -6,7 +6,8 @@ go_test(
     data = [
         "//orchestrator/cmd/machinator",
         "//tools/dummy-gemini",
-        "//testdata/fixture-repo:fixture-repo",
+        ":auto_built_binaries",
+        "//testdata/fixture-repo:files",
         "//templates",
         "//:AGENTS.md",
         "//:go.mod",
@@ -15,6 +16,14 @@ go_test(
         "//bootstrap:check_quota.sh",
     ],
     deps = ["@rules_go//go/runfiles"],
+)
+
+filegroup(
+    name = "auto_built_binaries",
+    srcs = [
+        "//orchestrator/cmd/machinator:machinator-linux",
+        "//tools/dummy-gemini:dummy-gemini-linux",
+    ],
 )
 
 sh_test(
