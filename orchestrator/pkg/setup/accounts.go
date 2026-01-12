@@ -1,17 +1,33 @@
 package setup
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/bryantinsley/machinator/orchestrator/pkg/accountpool"
 )
 
 // InitAccountsDir ensures the accounts directory structure exists
 func InitAccountsDir(machinatorDir string) error {
 	accountsDir := filepath.Join(machinatorDir, "accounts")
 	defaultAccountDir := filepath.Join(accountsDir, "default")
-	return os.MkdirAll(defaultAccountDir, 0755)
+	if err := os.MkdirAll(defaultAccountDir, 0755); err != nil {
+		return err
+	}
+
+	configPath := filepath.Join(defaultAccountDir, "account.json")
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		defaultConfig := accountpool.Account{
+			Name:     "default",
+			AuthType: accountpool.AuthTypeAPIKey,
+		}
+		data, _ := json.MarshalIndent(defaultConfig, "", "  ")
+		return os.WriteFile(configPath, data, 0644)
+	}
+	return nil
 }
 
 // SetupDefaultAccount copies the user's ~/.gemini to ~/.machinator/accounts/default/.gemini
@@ -97,17 +113,14 @@ func copyFile(src, dst string) error {
 
 // GetAccounts returns a list of configured accounts
 func GetAccounts(machinatorDir string) ([]string, error) {
-	accountsDir := filepath.Join(machinatorDir, "accounts")
-	entries, err := os.ReadDir(accountsDir)
+	accounts, err := accountpool.LoadAccounts(machinatorDir)
 	if err != nil {
 		return nil, err
 	}
 
-	var accounts []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			accounts = append(accounts, entry.Name())
-		}
+	var names []string
+	for _, acc := range accounts {
+		names = append(names, acc.Name)
 	}
-	return accounts, nil
+	return names, nil
 }

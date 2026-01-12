@@ -12,6 +12,7 @@ go_library(
     importpath = "github.com/bryantinsley/machinator/orchestrator/pkg/setup",
     visibility = ["//visibility:public"],
     deps = [
+        "//orchestrator/pkg/accountpool",
         "@com_github_charmbracelet_bubbletea//:bubbletea",
         "@com_github_charmbracelet_lipgloss//:lipgloss",
     ],

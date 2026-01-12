@@ -22,6 +22,32 @@ func TestInitAccountsDir(t *testing.T) {
 	if _, err := os.Stat(defaultAccountDir); os.IsNotExist(err) {
 		t.Errorf("Default account dir not created")
 	}
+
+	configPath := filepath.Join(defaultAccountDir, "account.json")
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Errorf("account.json not created in default account")
+	}
+}
+
+func TestGetAccounts(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "machinator-test-get")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	if err := InitAccountsDir(tempDir); err != nil {
+		t.Fatal(err)
+	}
+
+	accounts, err := GetAccounts(tempDir)
+	if err != nil {
+		t.Fatalf("GetAccounts failed: %v", err)
+	}
+
+	if len(accounts) != 1 || accounts[0] != "default" {
+		t.Errorf("expected [default], got %v", accounts)
+	}
 }
 
 func TestSetupDefaultAccount(t *testing.T) {
