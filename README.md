@@ -145,6 +145,20 @@ The TUI streams and displays events:
 - `r` — Toggle raw JSON view
 - `Tab` — Switch panel focus
 
+### Visual Demos
+
+#### Orchestrator Run
+Showing the orchestrator in action, executing tasks and streaming events.
+![Orchestrator Run](docs/ui-history/orchestrator_run.gif)
+
+#### Navigation & Screen Switching
+Smooth transitions between the main task list, project details, and account management.
+![Navigation](docs/ui-history/navigation.gif)
+
+#### Task CRUD Operations
+Editing project details and managing agent counts.
+![CRUD](docs/ui-history/crud.gif)
+
 ## Configuration
 
 ### Environment Variables
