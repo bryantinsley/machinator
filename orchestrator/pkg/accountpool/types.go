@@ -18,4 +18,5 @@ type Account struct {
 type Pool struct {
 	accounts  []Account
 	exhausted map[string]time.Time // Track exhausted accounts
+	lastIdx   int                  // Last used account index for round-robin
 }

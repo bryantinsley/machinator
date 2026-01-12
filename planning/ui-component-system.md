@@ -7,6 +7,17 @@ _Ensuring everything is mouse-clickable and consistently styled_
 
 ---
 
+## 0. North Star (from documentation-strategy.md)
+
+> **Self-Evident UX**: The UI should require no documentation and no explanation.
+>
+> - If users need help text to understand the interface → UI design failed
+> - If users need documentation to get started → UX failed
+
+Every component and layout decision should ask: **"Is this obvious without explanation?"**
+
+---
+
 ## 1. The Problem
 
 The TUI has inconsistent interactivity:

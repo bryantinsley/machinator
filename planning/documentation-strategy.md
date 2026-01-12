@@ -28,10 +28,16 @@ When you run Machinator for the first time, it should:
 
 The experience should be:
 
+- **Self-evident** — if you need to explain the UI, redesign the UI
 - **Intuitive** — obvious what to do next
-- **Discoverable** — help is available in-context, not in docs
-- **Progressive** — basic usage requires nothing, power features are discoverable
-- **No demos** — the real product IS the demo
+- **Discoverable** — features reveal themselves through use
+- **Progressive** — start simple, complexity emerges when needed
+- **No tutorials** — the real product IS the tutorial
+
+**Two levels of failure:**
+
+1. If the user needs to read documentation → UX failed
+2. If the UI needs to tell you how to use it → UI design failed
 
 ---
 
