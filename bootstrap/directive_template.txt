@@ -54,6 +54,8 @@ This prevents Go from writing to ~/Library/Caches which is blocked by security r
 3. **PROTOCOL: EXECUTION**
    - For clear, small tasks: review, implement, test, commit, close
    - Follow project standards from AGENTS.md
+   - **ONE TASK PER SESSION**: Complete your assigned task, close it, then EXIT.
+     Do NOT pick up additional tasks. The orchestrator will dispatch the next one.
 
 4. **PROTOCOL: FAILURE & BLOCKING**
    - If stuck or blocked, document the blocker and EXIT.
