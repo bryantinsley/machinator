@@ -74,3 +74,35 @@ func TestTUI_TickRespecsState(t *testing.T) {
 		t.Errorf("Tick changed state unexpectedly, got %v", m.state)
 	}
 }
+
+func TestTUI_ClickHandling(t *testing.T) {
+	m := initialModel(nil, false)
+	m.ready = true
+	m.toolsCheck.State = ToolsCheckStatePassed
+	m.width = 100
+	m.height = 40
+	m.state = StatePaused
+
+	// Add some tasks
+	m.tasks = []Task{
+		{ID: "task-1", Status: "ready"},
+	}
+
+	// Render the view to register components with dispatcher
+	_ = m.View()
+
+	// Test clicking the status bar "resume" button
+	// In StatePaused, "s: resume" is the first button at (0, 39)
+	msg := tea.MouseMsg{
+		X:      2,
+		Y:      39,
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionRelease,
+	}
+
+	_, cmd := m.Update(msg)
+
+	if cmd == nil {
+		t.Error("Expected command when clicking resume button, got nil")
+	}
+}

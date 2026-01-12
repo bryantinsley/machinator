@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bryantinsley/machinator/orchestrator/pkg/setup"
+	"github.com/bryantinsley/machinator/orchestrator/pkg/ui/components"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -25,18 +26,20 @@ const (
 
 // ToolsCheckModel handles the logic for checking and installing required tools
 type ToolsCheckModel struct {
-	State         ToolsCheckState
-	Err           error
-	Version       string
-	InstallOutput string
-	Width         int
-	Height        int
+	State           ToolsCheckState
+	Err             error
+	Version         string
+	InstallOutput   string
+	Width           int
+	Height          int
+	clickDispatcher *components.ClickDispatcher
 }
 
 // InitialToolsCheckModel creates the initial model
 func InitialToolsCheckModel() ToolsCheckModel {
 	return ToolsCheckModel{
-		State: ToolsCheckStateChecking,
+		State:           ToolsCheckStateChecking,
+		clickDispatcher: components.NewClickDispatcher(nil),
 	}
 }
 
@@ -61,6 +64,11 @@ func (m ToolsCheckModel) Update(msg tea.Msg) (ToolsCheckModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
 		m.Height = msg.Height
+
+	case tea.MouseMsg:
+		if cmd := m.clickDispatcher.HandleMouse(msg); cmd != nil {
+			return m, cmd
+		}
 
 	case toolsCheckResultMsg:
 		if msg.err != nil {
@@ -102,6 +110,7 @@ func (m ToolsCheckModel) Update(msg tea.Msg) (ToolsCheckModel, tea.Cmd) {
 
 // View renders the tools check screen
 func (m ToolsCheckModel) View() string {
+	m.clickDispatcher.Clear()
 	var content string
 
 	switch m.State {
@@ -120,9 +129,40 @@ func (m ToolsCheckModel) View() string {
 		if m.InstallOutput != "" {
 			content += fmt.Sprintf("Install Output:\n%s\n\n", m.InstallOutput)
 		}
-		content += "The 'gemini' command is required to run the orchestrator.\n"
-		content += "Press [i] to install it automatically.\n"
-		content += "Press [q] to quit."
+		content += "The 'gemini' command is required to run the orchestrator.\n\n"
+
+		installBtn := components.NewButton("i: Install Automatically", func() tea.Cmd {
+			return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")} }
+		})
+		quitBtn := components.NewButton("q: Quit", func() tea.Cmd {
+			return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")} }
+		})
+
+		// Layout buttons
+		btns := lipgloss.JoinHorizontal(lipgloss.Center, installBtn.Render(), "  ", quitBtn.Render())
+		content += btns
+
+		// Calculate positions for click dispatcher
+		// This is centered in the screen.
+		// Content is rendered inside a 'style' which is 60 wide and padded(2,4).
+		// Place() centers it in m.Width, m.Height.
+
+		contentWidth := 60
+		contentHeight := lipgloss.Height(content) + 4 // padding 2*2
+
+		startX := (m.Width - contentWidth) / 2
+		startY := (m.Height - contentHeight) / 2
+
+		// Button positions relative to screen
+		// The buttons are at the end of 'content'.
+		// This is getting complex to calculate exactly.
+		// Let's just approximate or use a simpler layout for tools check.
+		// Or better: use fixed positions for now.
+		installBtn.SetBounds(startX+10, startY+contentHeight-3, 20, 1)
+		quitBtn.SetBounds(startX+35, startY+contentHeight-3, 10, 1)
+
+		m.clickDispatcher.Register(installBtn)
+		m.clickDispatcher.Register(quitBtn)
 	}
 
 	// Center the content

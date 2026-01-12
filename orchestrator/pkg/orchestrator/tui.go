@@ -160,6 +160,8 @@ type taskStartedMsg struct {
 	cmd     *exec.Cmd
 }
 type filterChangedMsg struct{}
+type selectEventMsg struct{ index int }
+type toggleQuotaMsg struct{}
 
 // Global channels for async communication
 var acpEventChan = make(chan ACPEvent, 100)
@@ -203,10 +205,11 @@ type model struct {
 	activeAccount   *accountpool.Account // Currently active account
 	agentGrid       *agentgrid.AgentGrid // Grid of agents
 	agentSelector   *components.Dropdown // Agent selector
-	filteredIndices []int                // Indices into eventHistory that match filter
-	state           OrchestratorState    // Current orchestration state
-	expandQuota     bool                 // Whether to show full quota list
-	targetTaskID    string               // Task ID to execute (cli flag)
+	clickDispatcher *components.ClickDispatcher
+	filteredIndices []int             // Indices into eventHistory that match filter
+	state           OrchestratorState // Current orchestration state
+	expandQuota     bool              // Whether to show full quota list
+	targetTaskID    string            // Task ID to execute (cli flag)
 }
 
 func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
@@ -322,6 +325,7 @@ func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
 		accountPool:     pool,
 		agentGrid:       grid,
 		agentSelector:   selector,
+		clickDispatcher: components.NewClickDispatcher(nil),
 		filteredIndices: []int{},
 		state:           initialState,
 		expandQuota:     false,
@@ -647,29 +651,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		// Handle mouse clicks
 		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
-			// Check dropdown first (z-index top)
-			if m.agentSelector.Contains(msg.X, msg.Y) {
-				if cmd := m.agentSelector.HandleClick(msg.X, msg.Y); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-				return m, tea.Batch(cmds...)
+			// Use click dispatcher for registered components
+			if cmd := m.clickDispatcher.HandleMouse(msg); cmd != nil {
+				return m, cmd
 			}
 
-			// Check title click (toggle quota)
-			// Assuming title is always at top.
-			// If title wraps, it might be > 1 line.
-			// Ideally we check if Y < titleHeight.
-			// But titleHeight is calculated in View.
-			// We can approximate or just check Y=0 for now, or check Y < 3.
-			if msg.Y < 2 {
-				m.expandQuota = !m.expandQuota
-				return m, nil
-			}
-
-			// Rough hit testing
-			// Grid is at top (approx Y=3 to Y=15)
-			// Tasks/Activity below
-
+			// Rough hit testing for panel focus (to be replaced by components later)
 			if msg.Y < 15 {
 				m.focusPanel = 0
 			} else {
@@ -679,16 +666,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.focusPanel = 2
 				}
-			}
-
-			// Handle clicks in activity panel
-			if m.focusPanel == 2 {
-				// Calculate which event was clicked based on Y position
-				// Account for header lines (Title + Grid + Panel Header)
-				// Grid ~12 lines, Title ~3, Header ~3 => ~18 lines offset?
-				// This is getting fragile. Let's just use relative click for now.
-
-				// For now, just focus. Detailed click handling requires accurate Y offset.
 			}
 		} else if msg.Action == tea.MouseActionMotion && msg.Button == tea.MouseButtonWheelUp {
 			// Scroll up in activity
@@ -939,6 +916,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case filterChangedMsg:
 		m.applyFilter()
+
+	case selectEventMsg:
+		m.focusPanel = 2
+		m.eventCursor = len(m.filteredIndices) - 1 - msg.index
+		// Show details
+		if len(m.filteredIndices) > 0 {
+			cursorPos := len(m.filteredIndices) - 1 - m.eventCursor
+			if cursorPos >= 0 && cursorPos < len(m.filteredIndices) {
+				m.detailEventIdx = m.filteredIndices[cursorPos]
+				m.showEventDetail = true
+				m.detailScroll = 0
+				m.showRawDetail = false
+			}
+		}
+
+	case toggleQuotaMsg:
+		m.expandQuota = !m.expandQuota
 	}
 
 	m.logs, cmd = m.logs.Update(msg)
@@ -1103,6 +1097,9 @@ func formatDuration(d time.Duration) string {
 }
 
 func (m model) View() string {
+	m.clickDispatcher.Clear()
+	m.clickDispatcher.Register(m.agentSelector)
+
 	if m.toolsCheck.State != ToolsCheckStatePassed {
 		return m.toolsCheck.View()
 	}
@@ -1131,6 +1128,7 @@ func (m model) View() string {
 	}
 
 	if m.quotaLoaded {
+		// ... existing quota logic ...
 		// Build quota string for all accounts
 		var quotaParts []string
 		for name, percent := range m.quotas {
@@ -1178,6 +1176,14 @@ func (m model) View() string {
 		))
 	}
 
+	// Register title button for quota toggle
+	titleHeight := lipgloss.Height(title)
+	titleButton := components.NewButton("", func() tea.Cmd {
+		return func() tea.Msg { return toggleQuotaMsg{} }
+	})
+	titleButton.SetBounds(0, 0, m.width, titleHeight)
+	m.clickDispatcher.Register(titleButton)
+
 	// Layout: Tasks (1/4) | Activity (3/4)
 	tasksWidth := m.width / 4
 	activityWidth := m.width - tasksWidth - 4 // -4 for borders
@@ -1196,7 +1202,7 @@ func (m model) View() string {
 	// Calculate Y offset for dropdown
 	// Layout: Title (1 line) + Grid + Panels
 	// Title rendered string height?
-	titleHeight := lipgloss.Height(title)
+	// titleHeight already calculated above
 
 	// Grid
 	grid := m.agentGrid.View()
@@ -1211,6 +1217,7 @@ func (m model) View() string {
 
 	// Tasks panel (narrow)
 	tasksContent := fmt.Sprintf("📋 Tasks (%d)\n\n", len(m.tasks))
+	tasksYOffset := panelYStart + 4
 	for i, task := range m.tasks {
 		if i >= panelHeight-4 { // Dynamic limit based on height
 			tasksContent += fmt.Sprintf("  ... +%d more\n", len(m.tasks)-i)
@@ -1231,7 +1238,22 @@ func (m model) View() string {
 		if idx := strings.LastIndex(task.ID, "-"); idx > 0 {
 			shortID = task.ID[idx+1:]
 		}
-		tasksContent += fmt.Sprintf("%s %s%s\n", icon, shortID, highlight)
+
+		label := fmt.Sprintf("%s %s%s", icon, shortID, highlight)
+		item := components.NewListItem(label, func() tea.Cmd {
+			// Click to focus panel? Or just handle selection.
+			// Currently clicking doesn't do much for tasks except focus panel.
+			return func() tea.Msg { return nil }
+		})
+		item.SetSelected(task.ID == m.currentTaskID)
+
+		rendered := item.Render()
+		tasksContent += rendered + "\n"
+
+		// Register with dispatcher
+		// X offset: tasksBorder has padding(1) + border(1) = 2
+		item.SetBounds(2, tasksYOffset+i, tasksWidth-2, 1)
+		m.clickDispatcher.Register(item)
 	}
 	tasksPanel := tasksBorder.Width(tasksWidth).Height(panelHeight).Render(tasksContent)
 
@@ -1302,18 +1324,36 @@ func (m model) View() string {
 
 	// Refined rendering:
 	listContent := ""
+	listYOffset := panelYStart + 5
 	if startIdx > 0 {
 		listContent += "  ↑ more above\n"
+		listYOffset++
 	}
 
 	for i := startIdx; i < endIdx; i++ {
-		realIdx := m.filteredIndices[i]
+		idx := i // Capture for closure
+		realIdx := m.filteredIndices[idx]
 		activity := m.agentActivity[realIdx]
-		if i == len(m.filteredIndices)-1-m.eventCursor && m.focusPanel == 2 {
-			listContent += "▶ " + activity + "\n"
-		} else {
-			listContent += "  " + activity + "\n"
-		}
+		isSelected := idx == len(m.filteredIndices)-1-m.eventCursor && m.focusPanel == 2
+
+		item := components.NewListItem(activity, func() tea.Cmd {
+			return func() tea.Msg {
+				// Handle click: select event and show detail
+				// We need to send a message or return a cmd that updates the model.
+				// Since we are in View, we can't directly update model.
+				// But we can return a command.
+				// Let's define a new message type for this.
+				return selectEventMsg{index: idx}
+			}
+		})
+		item.SetSelected(isSelected)
+
+		listContent += item.Render() + "\n"
+
+		// Register with dispatcher
+		// X offset: tasksWidth + 2 (border/padding) + 2 (list padding)
+		item.SetBounds(tasksWidth+4, listYOffset+(idx-startIdx), activityWidth-4, 1)
+		m.clickDispatcher.Register(item)
 	}
 
 	if endIdx < len(m.filteredIndices) {
@@ -1354,6 +1394,7 @@ func (m model) View() string {
 			quitModal,
 		)
 	} else if m.showEventDetail && m.detailEventIdx >= 0 && m.detailEventIdx < len(m.eventHistory) {
+		// ... existing detail view logic ...
 		// Detail view - use the captured detailEventIdx (stable, not affected by new events)
 		event := m.eventHistory[m.detailEventIdx]
 
@@ -1471,17 +1512,54 @@ func (m model) View() string {
 	}
 
 	// Dynamic status bar based on state
-	controls := ""
+	var barButtons []*components.Button
+
 	switch m.state {
 	case StateRunning:
-		controls = "p: pause  x: stop"
+		barButtons = append(barButtons, components.NewButton("p: pause", func() tea.Cmd {
+			return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")} }
+		}))
+		barButtons = append(barButtons, components.NewButton("x: stop", func() tea.Cmd {
+			return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")} }
+		}))
 	case StatePaused:
-		controls = "s: resume  x: stop"
+		barButtons = append(barButtons, components.NewButton("s: resume", func() tea.Cmd {
+			return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")} }
+		}))
+		barButtons = append(barButtons, components.NewButton("x: stop", func() tea.Cmd {
+			return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")} }
+		}))
 	case StateStopped:
-		controls = "s: start"
+		barButtons = append(barButtons, components.NewButton("s: start", func() tea.Cmd {
+			return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")} }
+		}))
 	}
 
-	statusBar := statusBarStyle.Width(m.width).Render(fmt.Sprintf("%s  |  e: execute  +/-: agents  q: quit  ?: help", controls))
+	barButtons = append(barButtons, components.NewButton("e: execute", func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")} }
+	}))
+	barButtons = append(barButtons, components.NewButton("+/-: agents", func() tea.Cmd {
+		return func() tea.Msg { return nil } // No-op, just shows it's interactive
+	}))
+	barButtons = append(barButtons, components.NewButton("q: quit", func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")} }
+	}))
+	barButtons = append(barButtons, components.NewButton("?: help", func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")} }
+	}))
+
+	statusBarContent := ""
+	currentX := 0
+	for _, btn := range barButtons {
+		rendered := btn.Render()
+		w := lipgloss.Width(rendered)
+		btn.SetBounds(currentX, m.height-1, w, 1)
+		m.clickDispatcher.Register(btn)
+		statusBarContent += rendered + "  "
+		currentX += w + 2
+	}
+
+	statusBar := statusBarStyle.Width(m.width).Render(statusBarContent)
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, content, statusBar)
 }
