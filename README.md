@@ -6,9 +6,17 @@ Machinator is a TUI-based orchestrator that uses Gemini AI to automatically work
 
 **Machinator was bootstrapped and developed by the very multi-agent system it creates.**
 
-The project began as a reaction to complexity. After exploring Steve Yegge's [Gas Town](https://github.com/steveyegge/gastown) orchestration system and reading his Medium articles about multi-agent coordination, it became clear that a simpler approach was needed first—something that could keep a single Gemini CLI productive without worrying about context rot, stalls, and the overhead of full multi-agent choreography.
+### Inspiration
 
-The original motivation was practical: while building [FilmSchool.app](https://filmschool.app), too much time was spent babysitting AI agents instead of reviewing their work. The goal was simple: **keep agents working, 24/7, without human intervention**.
+This project owes its existence to Steve Yegge's [Gas Town](https://github.com/steveyegge/gastown) and [Beads](https://github.com/steveyegge/beads). Gas Town is an impressive multi-agent orchestration system, and after reading Steve's Medium articles about AI coordination, I was genuinely inspired. But I was also convinced it was too sophisticated for where I was starting from.
+
+At first, I thought I needed something simpler. But after working on Machinator's architecture, I now realize Gas Town is probably not that far from MVP—there's a reason Steve built it the way he did. Still, I wanted a system I could build myself (with AI help), understand completely, and learn from. Whether Machinator ends up being simpler or just differently complex remains to be seen, but the journey of building it has already been worthwhile.
+
+Beads, meanwhile, became the foundation. Its lightweight task tracking with dependency management is exactly what agent coordination needs.
+
+### The Practical Need
+
+The original motivation was pragmatic: while building [FilmSchool.app](https://filmschool.app), too much time was spent babysitting AI agents instead of reviewing their work. The goal was simple: **keep agents working, 24/7, without human intervention**.
 
 ### The Bootstrap Journey
 
@@ -20,7 +28,7 @@ The original motivation was practical: while building [FilmSchool.app](https://f
 
 4. **Self-improvement** — The system now orchestrates its own development. Multiple AI agents (Gemini, Claude, GPT) contribute to the codebase, coordinated through beads and guided by `AGENTS.md`.
 
-The result: **an orchestrator that was built by AI agents, orchestrated by a simpler version of itself, and now continues to improve through the same process it enables.**
+The result: **an orchestrator built by AI agents, orchestrated by a simpler version of itself, standing on the shoulders of Gas Town and Beads.**
 
 ## Quick Start
 
