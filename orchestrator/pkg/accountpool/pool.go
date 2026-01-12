@@ -68,7 +68,7 @@ func (p *Pool) NextAvailable() (*Account, error) {
 		}
 
 		// Mark as exhausted if no quota
-		p.MarkExhausted(acc.Name)
+		p.markExhausted(acc.Name)
 	}
 
 	return nil, fmt.Errorf("all accounts exhausted")
@@ -78,6 +78,10 @@ func (p *Pool) NextAvailable() (*Account, error) {
 func (p *Pool) MarkExhausted(name string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.markExhausted(name)
+}
+
+func (p *Pool) markExhausted(name string) {
 	// Default to 1 hour exhaustion if we don't know the exact reset time
 	p.exhausted[name] = time.Now().Add(1 * time.Hour)
 }

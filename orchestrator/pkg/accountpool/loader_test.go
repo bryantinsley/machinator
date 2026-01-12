@@ -97,6 +97,79 @@ func TestLoadAccounts(t *testing.T) {
 	}
 }
 
+func TestLoadAccounts_NonExistentDir(t *testing.T) {
+	accounts, err := LoadAccounts("/non/existent/dir")
+	if err != nil {
+		t.Fatalf("expected no error for non-existent dir, got %v", err)
+	}
+	if len(accounts) != 0 {
+		t.Errorf("expected 0 accounts, got %d", len(accounts))
+	}
+}
+
+func TestLoadAccounts_InvalidJSON(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "machinator-test-invalid-json-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	accountsDir := filepath.Join(tmpDir, "accounts")
+	accDir := filepath.Join(accountsDir, "invalid")
+	os.MkdirAll(accDir, 0755)
+	os.WriteFile(filepath.Join(accDir, "account.json"), []byte("invalid json"), 0644)
+
+	accounts, err := LoadAccounts(tmpDir)
+	if err != nil {
+		t.Fatalf("LoadAccounts failed: %v", err)
+	}
+
+	if len(accounts) != 0 {
+		t.Errorf("expected 0 accounts due to invalid JSON, got %d", len(accounts))
+	}
+}
+
+func TestLoadAccounts_UnreadableJSON(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "machinator-test-unreadable-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	accountsDir := filepath.Join(tmpDir, "accounts")
+	accDir := filepath.Join(accountsDir, "unreadable")
+	os.MkdirAll(accDir, 0755)
+	configPath := filepath.Join(accDir, "account.json")
+	os.WriteFile(configPath, []byte("{}"), 0000) // Unreadable
+
+	accounts, err := LoadAccounts(tmpDir)
+	if err != nil {
+		t.Fatalf("LoadAccounts failed: %v", err)
+	}
+
+	// It should skip the unreadable file
+	if len(accounts) != 0 {
+		t.Errorf("expected 0 accounts due to unreadable file, got %d", len(accounts))
+	}
+}
+
+func TestPool_LoadFromDir_Error(t *testing.T) {
+	pool := NewPool()
+	// This will fail because LoadAccounts doesn't return error for non-existent dir anymore,
+	// but let's test a case where it might fail if we could trigger one.
+	// Actually, LoadAccounts only returns error if os.ReadDir fails and it's not os.IsNotExist.
+	// We can try to trigger this with a file where a directory is expected.
+
+	tmpDir, _ := os.MkdirTemp("", "machinator-test-loaderr-*")
+	defer os.RemoveAll(tmpDir)
+	os.WriteFile(filepath.Join(tmpDir, "accounts"), []byte("not a dir"), 0644)
+
+	err := pool.LoadFromDir(tmpDir)
+	if err == nil {
+		t.Error("expected error when accounts is a file, got nil")
+	}
+}
+
 func TestPool_LoadFromDir(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "machinator-test-pool-*")
 	if err != nil {
