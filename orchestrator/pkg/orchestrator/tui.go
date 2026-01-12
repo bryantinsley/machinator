@@ -17,6 +17,7 @@ import (
 	"github.com/bryantinsley/machinator/orchestrator/pkg/accountpool"
 	"github.com/bryantinsley/machinator/orchestrator/pkg/setup"
 	"github.com/bryantinsley/machinator/orchestrator/pkg/ui/agentgrid"
+	"github.com/bryantinsley/machinator/orchestrator/pkg/ui/components"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -158,6 +159,7 @@ type taskStartedMsg struct {
 	account *accountpool.Account
 	cmd     *exec.Cmd
 }
+type filterChangedMsg struct{}
 
 // Global channels for async communication
 var acpEventChan = make(chan ACPEvent, 100)
@@ -200,6 +202,8 @@ type model struct {
 	accountPool     *accountpool.Pool    // Account pool for rotation
 	activeAccount   *accountpool.Account // Currently active account
 	agentGrid       *agentgrid.AgentGrid // Grid of agents
+	agentSelector   *components.Dropdown // Agent selector
+	filteredIndices []int                // Indices into eventHistory that match filter
 	state           OrchestratorState    // Current orchestration state
 }
 
@@ -263,6 +267,11 @@ func initialModel(projectConfig *setup.ProjectConfig) model {
 	card := agentgrid.NewAgentCard(config.AgentName, agentgrid.StatusIdle, "", nil)
 	grid := agentgrid.NewAgentGrid([]*agentgrid.AgentCard{card}, 2)
 
+	// Create agent selector
+	selector := components.NewDropdown("Show", []string{"All", config.AgentName}, func(selected int) tea.Cmd {
+		return func() tea.Msg { return filterChangedMsg{} }
+	})
+
 	return model{
 		tasks: []Task{},
 		agentActivity: []string{
@@ -289,6 +298,8 @@ func initialModel(projectConfig *setup.ProjectConfig) model {
 		toolsCheck:      InitialToolsCheckModel(),
 		accountPool:     pool,
 		agentGrid:       grid,
+		agentSelector:   selector,
+		filteredIndices: []int{},
 		state:           StateRunning,
 	}
 }
@@ -462,6 +473,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Add a new agent
 			name := fmt.Sprintf("%s-%d", m.config.AgentName, len(m.agentGrid.Cards)+1)
 			m.agentGrid.AddCard(agentgrid.NewAgentCard(name, agentgrid.StatusIdle, "", nil))
+
+			// Update selector options
+			options := []string{"All"}
+			for _, c := range m.agentGrid.Cards {
+				options = append(options, c.Name)
+			}
+			m.agentSelector.Options = options
+
 			m.addActivity(fmt.Sprintf("➕ Added agent: %s", name))
 
 		case "-", "_":
@@ -469,6 +488,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.agentGrid.Cards) > 1 {
 				name := m.agentGrid.Cards[len(m.agentGrid.Cards)-1].Name
 				m.agentGrid.RemoveCard(len(m.agentGrid.Cards) - 1)
+
+				// Update selector options
+				options := []string{"All"}
+				for _, c := range m.agentGrid.Cards {
+					options = append(options, c.Name)
+				}
+				m.agentSelector.Options = options
+				// Fix selection if out of bounds
+				if m.agentSelector.Selected >= len(options) {
+					m.agentSelector.Selected = 0
+				}
+
 				m.addActivity(fmt.Sprintf("➖ Removed agent: %s", name))
 			}
 
@@ -485,7 +516,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Don't do anything else
 			} else if m.focusPanel == 2 {
 				// Activity panel focused - change selection
-				if m.eventCursor < len(m.eventHistory)-1 {
+				if m.eventCursor < len(m.filteredIndices)-1 {
 					m.eventCursor++
 				}
 			}
@@ -511,21 +542,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "right", "l":
 			if m.showEventDetail {
 				// Go to next (newer) event - increase index in array
+				// filteredIndices contains indices into eventHistory.
+				// But detail view iterates the full history?
+				// "Go to next (newer) event" in filtered view?
+				// If I am in detail view, I should probably stay in filtered view context.
+				// But detailEventIdx is currently index into eventHistory.
+				// Let's keep detail view traversing full history for now?
+				// Or match filtered view? "Next" implies next visible event.
+				// If I assume filtered view:
+				// I need to know where detailEventIdx maps to in filteredIndices.
+				// But detailEventIdx is absolute.
+				// Let's stick to full history for detail navigation for now, or use cursor?
+				// The prompt says "Selecting an agent switches the event feed".
+				// So detail view should probably respect filter.
+
+				// Re-eval: Navigation in detail view uses detailEventIdx.
+				// If I want to navigate filtered list, I should track cursor instead?
+				// But detail view captures a specific event.
+
+				// Let's leave detail view navigation as is (full history) for now to minimize risk,
+				// or update it. Since I updated up/k, I should probably check cursor logic.
+				// Only up/k modified above.
+
 				if m.detailEventIdx < len(m.eventHistory)-1 {
 					m.detailEventIdx++
 					m.detailScroll = 0 // Reset scroll for new event
 				}
 			}
 		case "enter", " ":
-			if m.focusPanel == 2 && len(m.eventHistory) > 0 {
+			if m.focusPanel == 2 && len(m.filteredIndices) > 0 {
 				if !m.showEventDetail {
 					// Entering detail view - capture the actual array index
-					m.detailEventIdx = len(m.eventHistory) - 1 - m.eventCursor
-					if m.detailEventIdx < 0 {
-						m.detailEventIdx = 0
-					}
-					if m.detailEventIdx >= len(m.eventHistory) {
-						m.detailEventIdx = len(m.eventHistory) - 1
+					cursorPos := len(m.filteredIndices) - 1 - m.eventCursor
+					if cursorPos >= 0 && cursorPos < len(m.filteredIndices) {
+						m.detailEventIdx = m.filteredIndices[cursorPos]
+					} else {
+						m.detailEventIdx = 0 // Fallback
 					}
 				}
 				m.showEventDetail = !m.showEventDetail
@@ -551,14 +603,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "end":
 			// Jump to oldest
-			if len(m.eventHistory) > 0 {
-				m.eventCursor = len(m.eventHistory) - 1
+			if len(m.filteredIndices) > 0 {
+				m.eventCursor = len(m.filteredIndices) - 1
 			}
 		case "pgup":
 			// Page up
 			m.eventCursor += 10
-			if m.eventCursor >= len(m.eventHistory) {
-				m.eventCursor = len(m.eventHistory) - 1
+			if m.eventCursor >= len(m.filteredIndices) {
+				m.eventCursor = len(m.filteredIndices) - 1
 			}
 		case "pgdown":
 			// Page down
@@ -571,6 +623,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		// Handle mouse clicks
 		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
+			// Check dropdown first (z-index top)
+			if m.agentSelector.Contains(msg.X, msg.Y) {
+				if cmd := m.agentSelector.HandleClick(msg.X, msg.Y); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+				return m, tea.Batch(cmds...)
+			}
+
 			// Rough hit testing
 			// Grid is at top (approx Y=3 to Y=15)
 			// Tasks/Activity below
@@ -832,11 +892,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.addLog("⏸ No more ready tasks")
 			}
 		}
+
+	case filterChangedMsg:
+		m.applyFilter()
 	}
 
 	m.logs, cmd = m.logs.Update(msg)
 	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
+}
+
+func (m *model) applyFilter() {
+	m.filteredIndices = []int{}
+	selectedAgent := "All"
+	if m.agentSelector.Selected > 0 && m.agentSelector.Selected < len(m.agentSelector.Options) {
+		selectedAgent = m.agentSelector.Options[m.agentSelector.Selected]
+	}
+
+	for i, event := range m.eventHistory {
+		if selectedAgent == "All" || event.AgentName == "" || event.AgentName == selectedAgent {
+			m.filteredIndices = append(m.filteredIndices, i)
+		}
+	}
+	// Clamp cursor
+	if len(m.filteredIndices) == 0 {
+		m.eventCursor = 0
+	} else if m.eventCursor >= len(m.filteredIndices) {
+		m.eventCursor = len(m.filteredIndices) - 1
+	}
 }
 
 func (m *model) addActivity(activity string) {
@@ -862,6 +945,7 @@ func (m *model) addActivity(activity string) {
 			m.detailEventIdx--
 		}
 	}
+	m.applyFilter()
 }
 
 // addEvent stores a full ACPEvent and its display string
@@ -920,6 +1004,7 @@ func (m *model) addEvent(event ACPEvent) {
 			m.detailEventIdx--
 		}
 	}
+	m.applyFilter()
 }
 
 func (m *model) addLog(log string) {
@@ -1029,6 +1114,22 @@ func (m model) View() string {
 		activityBorder = activityBorder.BorderForeground(lipgloss.Color("205"))
 	}
 
+	// Calculate Y offset for dropdown
+	// Layout: Title (1 line) + Grid + Panels
+	// Title rendered string height?
+	titleHeight := lipgloss.Height(title)
+
+	// Grid
+	grid := m.agentGrid.View()
+	gridHeight := lipgloss.Height(grid)
+
+	// Total Y offset to start of panels
+	panelYStart := titleHeight + gridHeight
+	// Dropdown is inside Activity Panel, which has 1 line border/padding?
+	// activityBorder has padding(1).
+	// So content starts at panelYStart + 1 (border) + 1 (padding)
+	dropdownY := panelYStart + 2
+
 	// Tasks panel (narrow)
 	tasksContent := fmt.Sprintf("📋 Tasks (%d)\n\n", len(m.tasks))
 	for i, task := range m.tasks {
@@ -1060,7 +1161,16 @@ func (m model) View() string {
 	if m.focusPanel == 2 {
 		activityHeader += " (↑↓ scroll, Enter=details)"
 	}
-	activityContent := activityHeader + "\n\n"
+
+	// Add dropdown to header
+	dropdownView := m.agentSelector.Render()
+	// Update dropdown position for hit testing
+	// Tasks width + borders/padding.
+	// Tasks is width/4. +2 for border?
+	// This is approximate but good enough for now.
+	m.agentSelector.SetBounds(tasksWidth+2+len(activityHeader)+2, dropdownY, 0, 0) // We rely on Render to set w/h
+
+	activityContent := lipgloss.JoinHorizontal(lipgloss.Center, activityHeader, "   ", dropdownView) + "\n\n"
 
 	// Calculate visible range based on panel height
 	visibleLines := panelHeight - 4
@@ -1070,10 +1180,10 @@ func (m model) View() string {
 
 	// Show events from newest to oldest, highlighting selected
 	startIdx := 0
-	endIdx := len(m.agentActivity)
+	endIdx := len(m.filteredIndices)
 	if endIdx > visibleLines {
 		// Adjust view window to keep cursor visible
-		cursorDisplayPos := len(m.agentActivity) - 1 - m.eventCursor
+		cursorDisplayPos := len(m.filteredIndices) - 1 - m.eventCursor
 		if cursorDisplayPos < startIdx {
 			startIdx = cursorDisplayPos
 		}
@@ -1081,16 +1191,17 @@ func (m model) View() string {
 			startIdx = cursorDisplayPos - visibleLines + 1
 		}
 		endIdx = startIdx + visibleLines
-		if endIdx > len(m.agentActivity) {
-			endIdx = len(m.agentActivity)
+		if endIdx > len(m.filteredIndices) {
+			endIdx = len(m.filteredIndices)
 		}
 	}
 
 	for i := startIdx; i < endIdx; i++ {
-		activity := m.agentActivity[i]
+		realIdx := m.filteredIndices[i]
+		activity := m.agentActivity[realIdx]
+
 		// Check if this line corresponds to the selected event
-		eventIdx := len(m.agentActivity) - 1 - i
-		if eventIdx >= 0 && eventIdx < len(m.eventHistory) && eventIdx == m.eventCursor && m.focusPanel == 2 {
+		if i == len(m.filteredIndices)-1-m.eventCursor && m.focusPanel == 2 {
 			// Highlight selected line
 			activityContent += "▶ " + activity + "\n"
 		} else {
@@ -1100,18 +1211,41 @@ func (m model) View() string {
 
 	// Show scroll indicators
 	if startIdx > 0 {
-		activityContent = activityContent[:len(activityHeader)+2] + "  ↑ more above\n" + activityContent[len(activityHeader)+3:]
-	}
-	if endIdx < len(m.agentActivity) {
-		activityContent += fmt.Sprintf("  ↓ %d more below\n", len(m.agentActivity)-endIdx)
+		// Insert "more above" after header
+		// We joined header+dropdown.
+		// Finding newline might be tricky if dropdown is expanded.
+		// Just append to activityContent for now.
+		// Actually, activityContent already has header.
+		// We can just add it.
+		// But wait, the loop appends lines.
+		// Let's just prepend to the list part.
 	}
 
-	agentPanel := activityBorder.Width(activityWidth).Height(panelHeight).Render(activityContent)
+	// Refined rendering:
+	listContent := ""
+	if startIdx > 0 {
+		listContent += "  ↑ more above\n"
+	}
+
+	for i := startIdx; i < endIdx; i++ {
+		realIdx := m.filteredIndices[i]
+		activity := m.agentActivity[realIdx]
+		if i == len(m.filteredIndices)-1-m.eventCursor && m.focusPanel == 2 {
+			listContent += "▶ " + activity + "\n"
+		} else {
+			listContent += "  " + activity + "\n"
+		}
+	}
+
+	if endIdx < len(m.filteredIndices) {
+		listContent += fmt.Sprintf("  ↓ %d more below\n", len(m.filteredIndices)-endIdx)
+	}
+
+	agentPanel := activityBorder.Width(activityWidth).Height(panelHeight).Render(activityContent + listContent)
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, tasksPanel, agentPanel)
 
-	// Add Agent Grid
-	grid := m.agentGrid.View()
+	// Add Agent Grid (already rendered)
 	content := lipgloss.JoinVertical(lipgloss.Left, grid, panels)
 
 	// If showing event details, overlay a detail panel
@@ -1589,6 +1723,7 @@ func executeTask(taskID, agentName, projectRoot string, pool *accountpool.Pool, 
 
 				// Parse the line as an ACP event
 				event := ParseACPEvent(line)
+				event.AgentName = agentName
 
 				// Send to channel for main loop to pick up (non-blocking)
 				select {

@@ -32,6 +32,7 @@ type ACPEvent struct {
 	Model     string
 	Stats     map[string]interface{}
 	Raw       string
+	AgentName string // Name of the agent that generated this event
 }
 
 // Icon returns an emoji icon for the event type
