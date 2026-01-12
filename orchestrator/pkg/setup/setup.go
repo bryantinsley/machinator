@@ -421,6 +421,43 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = screenAddProjectBranch
 			m.addStatus(fmt.Sprintf("✓ Found %d branches", len(m.branches)))
 		}
+
+	case selectProjectMsg:
+		m.selectedProject = int(msg)
+		m.cursor = int(msg) + 1
+		m.screen = screenProjectDetail
+
+	case selectAccountMsg:
+		m.accountCursor = int(msg)
+
+	case selectDetailMsg:
+		m.detailCursor = int(msg)
+		return m, func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
+
+	case selectAuthTypeMsg:
+		m.dialogCursor = int(msg)
+		return m, func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
+
+	case selectEditCursorMsg:
+		m.editCursor = int(msg)
+		return m, func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
+
+	case selectAgentCursorMsg:
+		m.agentCursor = int(msg)
+		return m, func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
+
+	case selectGeminiMsg:
+		m.cursor = 0
+		return m, func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
+
+	case setScreenMsg:
+		m.screen = screen(msg)
+		if m.screen == screenManageAccounts {
+			m.accountCursor = 0
+		}
+
+	case startAddProjectMsg:
+		m.startAddProject()
 	}
 
 	return m, nil
@@ -1081,10 +1118,7 @@ func (m model) viewProjectSettings(yOffset int) string {
 			li := components.NewListItem(fmt.Sprintf("#%d) %s", p.ID, p.Name), func() tea.Cmd {
 				idx := i
 				return func() tea.Msg {
-					m.cursor = idx + 1
-					m.selectedProject = idx
-					m.screen = screenProjectDetail
-					return nil
+					return selectProjectMsg(idx)
 				}
 			})
 			li.SetSelected(i+1 == m.cursor)
@@ -1102,8 +1136,7 @@ func (m model) viewProjectSettings(yOffset int) string {
 	if m.cursor > 0 && m.cursor <= len(m.projects) {
 		runBtn := components.NewButton("Run (r)", func() tea.Cmd {
 			return func() tea.Msg {
-				m.selectedProjectConfig = &m.projects[m.selectedProject]
-				return tea.QuitMsg{}
+				return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")}
 			}
 		})
 		runBtnRendered := runBtn.Render()
@@ -1117,9 +1150,7 @@ func (m model) viewProjectSettings(yOffset int) string {
 	addIdx := len(m.projects) + 1
 	addBtn := components.NewButton("Add Project", func() tea.Cmd {
 		return func() tea.Msg {
-			m.cursor = addIdx
-			m.startAddProject()
-			return nil
+			return startAddProjectMsg{}
 		}
 	})
 	addBtn.SetFocused(m.cursor == addIdx)
@@ -1139,10 +1170,7 @@ func (m model) viewProjectSettings(yOffset int) string {
 	accountsIdx := len(m.projects) + 2
 	accountsBtn := components.NewButton("Manage Accounts", func() tea.Cmd {
 		return func() tea.Msg {
-			m.cursor = accountsIdx
-			m.screen = screenManageAccounts
-			m.accountCursor = 0
-			return nil
+			return setScreenMsg(screenManageAccounts)
 		}
 	})
 	accountsBtn.SetFocused(m.cursor == accountsIdx)
@@ -1184,8 +1212,7 @@ func (m model) viewDoctinator(yOffset int) string {
 
 	li := components.NewListItem(geminiLabel, func() tea.Cmd {
 		return func() tea.Msg {
-			m.cursor = 0
-			return tea.KeyMsg{Type: tea.KeyEnter}
+			return selectGeminiMsg{}
 		}
 	})
 	li.SetSelected(m.screen == screenMain && m.cursor == 0)
@@ -1504,8 +1531,7 @@ func (m model) renderProjectDetailModal() string {
 		idx := i // capture for closure
 		li := components.NewListItem(fmt.Sprintf("%s: %s", item.label, item.value), func() tea.Cmd {
 			return func() tea.Msg {
-				m.detailCursor = idx
-				return tea.KeyMsg{Type: tea.KeyEnter}
+				return selectDetailMsg(idx)
 			}
 		})
 		li.SetSelected(m.detailCursor == i)
@@ -1528,24 +1554,21 @@ func (m model) renderProjectDetailModal() string {
 	// Buttons
 	runBtn := components.NewButton("Run", func() tea.Cmd {
 		return func() tea.Msg {
-			m.selectedProjectConfig = &m.projects[m.selectedProject]
-			return tea.QuitMsg{}
+			return selectDetailMsg(3)
 		}
 	})
 	runBtn.SetFocused(m.detailCursor == 3)
 
 	deleteBtn := components.NewButton("Delete", func() tea.Cmd {
 		return func() tea.Msg {
-			m.detailCursor = 4
-			return tea.KeyMsg{Type: tea.KeyEnter}
+			return selectDetailMsg(4)
 		}
 	})
 	deleteBtn.SetFocused(m.detailCursor == 4)
 
 	backBtn := components.NewButton("Back", func() tea.Cmd {
 		return func() tea.Msg {
-			m.detailCursor = 5
-			return tea.KeyMsg{Type: tea.KeyEsc}
+			return selectDetailMsg(5)
 		}
 	})
 	backBtn.SetFocused(m.detailCursor == 5)
@@ -1623,16 +1646,14 @@ func (m model) renderEditFieldModal() string {
 	// Buttons
 	saveBtn := components.NewButton("Save", func() tea.Cmd {
 		return func() tea.Msg {
-			m.editCursor = 1
-			return tea.KeyMsg{Type: tea.KeyEnter}
+			return selectEditCursorMsg(1)
 		}
 	})
 	saveBtn.SetFocused(m.editCursor == 1)
 
 	cancelBtn := components.NewButton("Cancel", func() tea.Cmd {
 		return func() tea.Msg {
-			m.editCursor = 2
-			return tea.KeyMsg{Type: tea.KeyEnter}
+			return selectEditCursorMsg(2)
 		}
 	})
 	cancelBtn.SetFocused(m.editCursor == 2)
@@ -1698,16 +1719,14 @@ func (m model) renderEditAgentCountModal() string {
 	// Buttons
 	applyBtn := components.NewButton("Apply", func() tea.Cmd {
 		return func() tea.Msg {
-			m.agentCursor = 1
-			return tea.KeyMsg{Type: tea.KeyEnter}
+			return selectAgentCursorMsg(1)
 		}
 	})
 	applyBtn.SetFocused(m.agentCursor == 1)
 
 	cancelBtn := components.NewButton("Cancel", func() tea.Cmd {
 		return func() tea.Msg {
-			m.agentCursor = 2
-			return tea.KeyMsg{Type: tea.KeyEnter}
+			return selectAgentCursorMsg(2)
 		}
 	})
 	cancelBtn.SetFocused(m.agentCursor == 2)
@@ -1999,8 +2018,7 @@ func (m model) viewManageAccountsLeft(yOffset int) string {
 			li := components.NewListItem(fmt.Sprintf("%s %s (%s)", status, acc.Name, acc.AuthType), func() tea.Cmd {
 				idx := i
 				return func() tea.Msg {
-					m.accountCursor = idx
-					return nil
+					return selectAccountMsg(idx)
 				}
 			})
 			li.SetSelected(i == m.accountCursor)
@@ -2107,8 +2125,7 @@ func (m model) viewAddAccountAuthTypeLeft(yOffset int) string {
 
 	li1 := components.NewListItem("API Key (Manual)", func() tea.Cmd {
 		return func() tea.Msg {
-			m.dialogCursor = 0
-			return tea.KeyMsg{Type: tea.KeyEnter}
+			return selectAuthTypeMsg(0)
 		}
 	})
 	li1.SetSelected(m.dialogCursor == 0)
@@ -2118,8 +2135,7 @@ func (m model) viewAddAccountAuthTypeLeft(yOffset int) string {
 
 	li2 := components.NewListItem("Google OAuth (Interactive)", func() tea.Cmd {
 		return func() tea.Msg {
-			m.dialogCursor = 1
-			return tea.KeyMsg{Type: tea.KeyEnter}
+			return selectAuthTypeMsg(1)
 		}
 	})
 	li2.SetSelected(m.dialogCursor == 1)

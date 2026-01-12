@@ -250,4 +250,14 @@ type fetchBranchesMsg struct {
 	err      error
 }
 
+type selectProjectMsg int
+type selectAccountMsg int
+type selectDetailMsg int
+type selectAuthTypeMsg int
+type selectGeminiMsg struct{}
+type selectEditCursorMsg int
+type selectAgentCursorMsg int
+type setScreenMsg screen
+type startAddProjectMsg struct{}
+
 type tickMsg time.Time

@@ -321,6 +321,108 @@ func TestNoOutputTruncation(t *testing.T) {
 	}
 }
 
+// TestProjectClickUpdatesModel verifies that clicking a project in the list
+// correctly updates the model via the selectProjectMsg.
+func TestProjectClickUpdatesModel(t *testing.T) {
+	m := initialModel()
+	m.width = 100
+	m.height = 36
+	m.projectsLoaded = true
+	m.projects = []ProjectConfig{
+		{ID: 1, Name: "Project 1"},
+		{ID: 2, Name: "Project 2"},
+	}
+	m.cursor = 1
+	m.screen = screenMain
+
+	// 1. Render to register components with dispatcher
+	m.View()
+
+	// 2. Find the second project in the dispatcher
+	// It should be at index 1 in the project list, but we need to find it in m.clickDispatcher.components
+	// Based on viewProjectSettings, projects are registered first.
+	// #1 is at index 0, #2 is at index 1.
+
+	// Simulate click on Project 2.
+	// From viewProjectSettings: contentX = 4, contentY = yOffset + 3. yOffset for topPane is 6.
+	// So Project 1 is at y=9, Project 2 is at y=10.
+	msg := tea.MouseMsg{
+		X:      10,
+		Y:      10,
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionRelease,
+	}
+
+	cmd := m.clickDispatcher.HandleMouse(msg)
+	if cmd == nil {
+		t.Fatal("Click should return a command")
+	}
+
+	// 3. Execute command and get message
+	rawMsg := cmd()
+	selectMsg, ok := rawMsg.(selectProjectMsg)
+	if !ok {
+		t.Fatalf("Expected selectProjectMsg, got %T", rawMsg)
+	}
+	if int(selectMsg) != 1 {
+		t.Errorf("Expected selectProjectMsg(1) for second project, got %d", selectMsg)
+	}
+
+	// 4. Pass message to Update
+	newModel, _ := m.Update(selectMsg)
+	m2 := newModel.(model)
+
+	if m2.selectedProject != 1 {
+		t.Errorf("Expected selectedProject=1, got %d", m2.selectedProject)
+	}
+	if m2.screen != screenProjectDetail {
+		t.Errorf("Expected screenProjectDetail, got %v", m2.screen)
+	}
+}
+
+// TestAddProjectClick verifies that clicking 'Add Project' button
+// correctly updates the model.
+func TestAddProjectClick(t *testing.T) {
+	m := initialModel()
+	m.width = 100
+	m.height = 36
+	m.projectsLoaded = true
+	m.projects = []ProjectConfig{}
+	m.cursor = 1
+	m.screen = screenMain
+
+	// 1. Render to register components
+	m.View()
+
+	// 2. Find Add Project button.
+	// In viewProjectSettings, buttonLine = contentY + len(projects) + 1.
+	// contentY = 9. len(projects) = 0. buttonLine = 10.
+	msg := tea.MouseMsg{
+		X:      10,
+		Y:      10, // contentY + 1
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionRelease,
+	}
+
+	cmd := m.clickDispatcher.HandleMouse(msg)
+	if cmd == nil {
+		t.Fatal("Click should return a command")
+	}
+
+	rawMsg := cmd()
+	if _, ok := rawMsg.(startAddProjectMsg); !ok {
+		t.Fatalf("Expected startAddProjectMsg, got %T", rawMsg)
+	}
+
+	// 3. Update
+	newModel, _ := m.Update(rawMsg)
+	m2 := newModel.(model)
+
+	if m2.screen != screenAddProjectInput {
+		t.Errorf("Expected screenAddProjectInput, got %v", m2.screen)
+	}
+}
+
 func TestMainScreenGolden(t *testing.T) {
 	m := initialModel()
 	m.width = 81
