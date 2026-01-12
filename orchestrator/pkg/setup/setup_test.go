@@ -506,3 +506,58 @@ func TestAddProjectBranchGolden(t *testing.T) {
 	}
 	teatest.RequireEqualOutput(t, out)
 }
+
+func TestAddProjectInputGolden(t *testing.T) {
+	m := initialModel()
+	m.width = 80
+	m.height = 24
+	m.screen = screenAddProjectInput
+	m.inputPrompt = "Repository URL"
+	m.inputBuffer = "git@github.com:test/repo.git"
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	tm.Send(tea.Quit())
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
+}
+
+func TestAddAccountAPIKeyGolden(t *testing.T) {
+	m := initialModel()
+	m.width = 80
+	m.height = 24
+	m.screen = screenAddAccountAPIKey
+	m.newAccountName = "test-acc"
+	m.inputPrompt = "API Key"
+	m.inputBuffer = "AIza-test-key-12345"
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	tm.Send(tea.Quit())
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
+}
+
+func TestAddAccountGoogleInfoGolden(t *testing.T) {
+	m := initialModel()
+	m.width = 80
+	m.height = 24
+	m.screen = screenAddAccountGoogleInfo
+	m.newAccountName = "test-acc"
+	m.machinatorDir = "/Users/bryantinsley/.machinator"
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	tm.Send(tea.Quit())
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
+}

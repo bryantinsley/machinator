@@ -815,7 +815,21 @@ func (m model) viewAddProjectBranchLeft(yOffset int) string {
 	}
 
 	b.WriteString("\n\n")
-	b.WriteString(dimStyle.Render("Up/Down to select • Enter to continue"))
+
+	// Buttons
+	contentX := 4
+	contentY := yOffset + 11 // Approximate based on dropdown height
+
+	backBtn := components.NewButton("Back", func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEsc} }
+	})
+
+	backRendered := backBtn.Render()
+	b.WriteString(backRendered)
+
+	// Register button
+	backBtn.SetBounds(contentX, contentY, lipgloss.Width(backRendered), 1)
+	m.clickDispatcher.Register(backBtn)
 
 	return b.String()
 }
@@ -955,7 +969,7 @@ func (m model) View() string {
 		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	case screenAddProjectInput:
-		topContent = m.viewAddProjectInputLeft()
+		topContent = m.viewAddProjectInputLeft(topY)
 		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	case screenAddProjectBranch:
@@ -963,7 +977,7 @@ func (m model) View() string {
 		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	case screenAddProjectCloning, screenApplyingAgents:
-		topContent = m.viewAddProjectCloningLeft()
+		topContent = m.viewAddProjectCloningLeft(topY)
 		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	case screenManageAccounts:
@@ -971,7 +985,7 @@ func (m model) View() string {
 		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	case screenAddAccountName:
-		topContent = m.viewAddAccountNameLeft()
+		topContent = m.viewAddAccountNameLeft(topY)
 		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	case screenAddAccountAuthType:
@@ -979,11 +993,11 @@ func (m model) View() string {
 		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	case screenAddAccountAPIKey:
-		topContent = m.viewAddAccountAPIKeyLeft()
+		topContent = m.viewAddAccountAPIKeyLeft(topY)
 		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	case screenAddAccountGoogleInfo:
-		topContent = m.viewAddAccountGoogleInfoLeft()
+		topContent = m.viewAddAccountGoogleInfoLeft(topY)
 		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	default:
@@ -1299,7 +1313,7 @@ func (m model) viewProjectDetailLeft() string {
 	return "" // Unused - using overlay now
 }
 
-func (m model) viewAddProjectInputLeft() string {
+func (m model) viewAddProjectInputLeft(yOffset int) string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("➕ Add Project"))
@@ -1321,12 +1335,37 @@ func (m model) viewAddProjectInputLeft() string {
 
 	b.WriteString(dimStyle.Render(m.inputHint))
 	b.WriteString("\n\n")
-	b.WriteString(dimStyle.Render("Enter to continue • Esc to cancel"))
+
+	// Buttons
+	contentX := 4
+	contentY := yOffset + 9 // title + 2 + prompt + 2 + input(3) + 1 + hint + 1 = 10? let's be more precise
+	// title (1) + 2 + prompt (1) + 2 + input (3) + 2 = 11?
+	// Actually inputBoxStyle has width 35, and it's rendered with NormalBorder.
+	// NormalBorder adds 1 line top and 1 line bottom. So 3 lines total for input box.
+
+	continueBtn := components.NewButton("Continue", func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
+	})
+	cancelBtn := components.NewButton("Cancel", func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEsc} }
+	})
+
+	continueRendered := continueBtn.Render()
+	cancelRendered := cancelBtn.Render()
+
+	b.WriteString(continueRendered + "  " + cancelRendered)
+
+	// Register buttons
+	continueBtn.SetBounds(contentX, contentY, lipgloss.Width(continueRendered), 1)
+	m.clickDispatcher.Register(continueBtn)
+
+	cancelBtn.SetBounds(contentX+lipgloss.Width(continueRendered)+2, contentY, lipgloss.Width(cancelRendered), 1)
+	m.clickDispatcher.Register(cancelBtn)
 
 	return b.String()
 }
 
-func (m model) viewAddProjectCloningLeft() string {
+func (m model) viewAddProjectCloningLeft(yOffset int) string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("➕ Add Project"))
@@ -2005,7 +2044,7 @@ func (m model) viewManageAccountsLeft(yOffset int) string {
 	return b.String()
 }
 
-func (m model) viewAddAccountNameLeft() string {
+func (m model) viewAddAccountNameLeft(yOffset int) string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("👤 Add Account"))
@@ -2027,7 +2066,29 @@ func (m model) viewAddAccountNameLeft() string {
 
 	b.WriteString(dimStyle.Render(m.inputHint))
 	b.WriteString("\n\n")
-	b.WriteString(dimStyle.Render("Enter to continue • Esc to cancel"))
+
+	// Buttons
+	contentX := 4
+	contentY := yOffset + 9
+
+	continueBtn := components.NewButton("Continue", func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
+	})
+	cancelBtn := components.NewButton("Cancel", func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEsc} }
+	})
+
+	continueRendered := continueBtn.Render()
+	cancelRendered := cancelBtn.Render()
+
+	b.WriteString(continueRendered + "  " + cancelRendered)
+
+	// Register buttons
+	continueBtn.SetBounds(contentX, contentY, lipgloss.Width(continueRendered), 1)
+	m.clickDispatcher.Register(continueBtn)
+
+	cancelBtn.SetBounds(contentX+lipgloss.Width(continueRendered)+2, contentY, lipgloss.Width(cancelRendered), 1)
+	m.clickDispatcher.Register(cancelBtn)
 
 	return b.String()
 }
@@ -2069,7 +2130,7 @@ func (m model) viewAddAccountAuthTypeLeft(yOffset int) string {
 	return b.String()
 }
 
-func (m model) viewAddAccountAPIKeyLeft() string {
+func (m model) viewAddAccountAPIKeyLeft(yOffset int) string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("👤 Add Account: " + m.newAccountName))
@@ -2097,12 +2158,34 @@ func (m model) viewAddAccountAPIKeyLeft() string {
 
 	b.WriteString(dimStyle.Render(m.inputHint))
 	b.WriteString("\n\n")
-	b.WriteString(dimStyle.Render("Enter to save • Esc to cancel"))
+
+	// Buttons
+	contentX := 4
+	contentY := yOffset + 9
+
+	saveBtn := components.NewButton("Save", func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
+	})
+	cancelBtn := components.NewButton("Cancel", func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEsc} }
+	})
+
+	saveRendered := saveBtn.Render()
+	cancelRendered := cancelBtn.Render()
+
+	b.WriteString(saveRendered + "  " + cancelRendered)
+
+	// Register buttons
+	saveBtn.SetBounds(contentX, contentY, lipgloss.Width(saveRendered), 1)
+	m.clickDispatcher.Register(saveBtn)
+
+	cancelBtn.SetBounds(contentX+lipgloss.Width(saveRendered)+2, contentY, lipgloss.Width(cancelRendered), 1)
+	m.clickDispatcher.Register(cancelBtn)
 
 	return b.String()
 }
 
-func (m model) viewAddAccountGoogleInfoLeft() string {
+func (m model) viewAddAccountGoogleInfoLeft(yOffset int) string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("👤 Add Account: " + m.newAccountName))
@@ -2124,7 +2207,21 @@ func (m model) viewAddAccountGoogleInfoLeft() string {
 		Render(cmd))
 
 	b.WriteString("\n\n")
-	b.WriteString(dimStyle.Render("Press Enter once you are finished."))
+
+	// Button
+	contentX := 4
+	contentY := yOffset + 11 // Adjusted for extra lines
+
+	doneBtn := components.NewButton("Done", func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
+	})
+
+	doneRendered := doneBtn.Render()
+	b.WriteString(doneRendered)
+
+	// Register button
+	doneBtn.SetBounds(contentX, contentY, lipgloss.Width(doneRendered), 1)
+	m.clickDispatcher.Register(doneBtn)
 
 	return b.String()
 }
