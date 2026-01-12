@@ -1,11 +1,10 @@
-name: VHS
+name: VHS Terminal Recording
 
 on:
   push:
     paths:
-      - 'orchestrator/e2e/**/*.tape'
-      - 'orchestrator/**/*.go'
-      - 'run_vhs_tapes.sh'
+      - "orchestrator/**"
+      - "**/*.tape"
   workflow_dispatch:
 
 jobs:
@@ -13,31 +12,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Set up Go
-        uses: actions/setup-go@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: 1.22
-          
-      - name: Install dependencies
+          go-version: "1.21"
+      - name: Install VHS
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg ttyd
           go install github.com/charmbracelet/vhs@latest
-          
       - name: Build TUI
+        run: go build -o setup-tui-linux ./orchestrator/cmd/setup
+      - name: Run VHS tapes
         run: |
-          GOOS=linux GOARCH=amd64 go build -o setup-tui-linux ./orchestrator/cmd/setup/main.go
-          chmod +x setup-tui-linux
-          
-      - name: Run VHS
-        run: |
-          for tape in orchestrator/e2e/*.tape; do
-            vhs "$tape"
-          done
-          
-      - name: Verify Changed Files
-        uses: stefanzweifel/git-auto-commit-action@v5
+          vhs orchestrator/e2e/navigation.tape
+          vhs orchestrator/e2e/crud.tape
+      - name: Upload GIFs
+        uses: actions/upload-artifact@v4
         with:
-          commit_message: "docs: update VHS tapes"
-          file_pattern: 'docs/ui-history/*.gif'
+          name: vhs-gifs
+          path: docs/ui-history/*.gif
