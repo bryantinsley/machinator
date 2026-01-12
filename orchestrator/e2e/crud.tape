@@ -7,7 +7,6 @@ Set Width 1200
 Set Height 800
 Set Padding 20
 Set WindowBar Colorful
-Set TypingSpeed 100ms
 
 # Setup fake environment
 Hide
@@ -15,7 +14,7 @@ Type "export HOME=$(mktemp -d)"
 Enter
 Type "mkdir -p $HOME/.machinator/projects/1"
 Enter
-Type "echo '{\"id\": 1, \"name\": \"Demo Project\", \"repo_url\": \"https://github.com/demo/repo.git\", \"agent_count\": 3}' > $HOME/.machinator/projects/1/project.json"
+Type 'echo "{\"id\": 1, \"name\": \"Demo Project\", \"repo_url\": \"https://github.com/demo/repo.git\", \"agent_count\": 3}" > $HOME/.machinator/projects/1/project.json'
 Enter
 # Create a fake beads directory so it looks nice
 Type "mkdir -p $HOME/.machinator/projects/1/agents/1/.beads"
@@ -45,64 +44,58 @@ Type "./setup-tui-linux"
 Enter
 
 # Wait for application to start and load projects
-Sleep 5s
+Sleep 2s
 
 # Select the project
-# Cursor starts at 1 (Project #1) because Gemini CLI is installed
 Enter
-Sleep 1s
+Sleep 500ms
 
-# We are now in Project Detail View
-# Cursor is at Name (0)
-# 1. Edit Name
+# Edit Name
 Enter
-Sleep 1s
+Sleep 500ms
 Type " - Updated"
-Sleep 1s
+Sleep 500ms
 # Cancel changes
 Escape
-Sleep 1s
+Sleep 500ms
 
-# 2. Edit Agents
-# Move down to Agents (Name -> Repo -> Agents)
+# Edit Agents
 Type "j"
-Sleep 500ms
+Sleep 200ms
 Type "j"
-Sleep 500ms
+Sleep 200ms
 Enter
-Sleep 1s
+Sleep 500ms
 # Increase agents
 Type "+"
-Sleep 500ms
+Sleep 200ms
 Type "+"
-Sleep 500ms
+Sleep 200ms
 # Cancel (Tab to Apply, Tab to Cancel)
 Tab
-Sleep 500ms
+Sleep 200ms
 Tab
-Sleep 500ms
+Sleep 200ms
 Enter
-Sleep 1s
+Sleep 500ms
 
-# 3. Attempt Delete
-# Move down to Delete (Agents -> Delete)
+# Attempt Delete
 Type "j"
-Sleep 500ms
+Sleep 200ms
 Enter
-Sleep 1s
+Sleep 500ms
 # Dialog opens. Cancel with 'n'
 Type "n"
-Sleep 1s
-
-# 4. Return to Main Menu
-# Move down to Back (Delete -> Back)
-Type "j"
 Sleep 500ms
+
+# Return to Main Menu
+Type "j"
+Sleep 200ms
 Enter
-Sleep 1s
+Sleep 500ms
 
 # Quit
 Type "q"
-Sleep 500ms
+Sleep 200ms
 Enter
-Sleep 1s
+Sleep 500ms
