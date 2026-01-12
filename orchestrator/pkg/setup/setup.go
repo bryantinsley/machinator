@@ -2382,21 +2382,47 @@ func (m model) fetchBranches(url string) tea.Cmd {
 
 func (m model) cloneRepo() tea.Cmd {
 	return func() tea.Msg {
-		os.MkdirAll(filepath.Dir(m.newAgentDir), 0755)
-		os.RemoveAll(m.newAgentDir)
+		projectDir := m.newProjectDir
+		repoDir := filepath.Join(projectDir, "repo")
+		agentsDir := filepath.Join(projectDir, "agents")
 
+		os.MkdirAll(projectDir, 0755)
+		os.RemoveAll(repoDir)
+		os.RemoveAll(agentsDir)
+		os.MkdirAll(agentsDir, 0755)
+
+		// 1. Clone into repoDir
 		args := []string{"clone"}
 		if m.newBranch != "" {
 			args = append(args, "-b", m.newBranch)
 		}
-		args = append(args, m.newRepoURL, m.newAgentDir)
+		args = append(args, m.newRepoURL, repoDir)
 
 		cmd := exec.Command("git", args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return cloneDoneMsg{success: false, err: fmt.Errorf("clone failed: %s\n%s", err, string(out))}
+			return cloneDoneMsg{success: false, err: fmt.Errorf("initial clone failed: %s\n%s", err, string(out))}
 		}
 
-		return cloneDoneMsg{success: true, message: "Cloned successfully"}
+		// 2. Create agent 1 as a worktree
+		branch := m.newBranch
+		if branch == "" {
+			// Get default branch
+			out, err := exec.Command("git", "-C", repoDir, "symbolic-ref", "--short", "HEAD").Output()
+			if err == nil {
+				branch = strings.TrimSpace(string(out))
+			} else {
+				branch = "main" // Fallback
+			}
+		}
+
+		// Use --detach to allow multiple worktrees on same branch point later
+		worktreeArgs := []string{"-C", repoDir, "worktree", "add", "--detach", m.newAgentDir, branch}
+		cmd = exec.Command("git", worktreeArgs...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return cloneDoneMsg{success: false, err: fmt.Errorf("worktree setup failed: %s\n%s", err, string(out))}
+		}
+
+		return cloneDoneMsg{success: true, message: "Cloned and worktree created"}
 	}
 }
 
@@ -2404,7 +2430,29 @@ func (m model) recloneAllAgents(p ProjectConfig) tea.Cmd {
 	ch := m.progressChan
 	return func() tea.Msg {
 		projectDir := m.getProjectRootDir(p)
+		repoDir := filepath.Join(projectDir, "repo")
 		agentsDir := filepath.Join(projectDir, "agents")
+
+		// Ensure repo exists
+		if _, err := os.Stat(repoDir); os.IsNotExist(err) {
+			select {
+			case ch <- "Cloning primary repository...":
+			default:
+			}
+			args := []string{"clone", p.RepoURL, repoDir}
+			if p.Branch != "" {
+				args = append(args, "-b", p.Branch)
+			}
+			if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+				return agentActionMsg{success: false, action: "reclone", err: fmt.Errorf("base clone failed: %s", string(out))}
+			}
+		} else {
+			select {
+			case ch <- "Fetching latest changes...":
+			default:
+			}
+			exec.Command("git", "-C", repoDir, "fetch", "origin").Run()
+		}
 
 		// Remove all existing agents
 		select {
@@ -2412,8 +2460,19 @@ func (m model) recloneAllAgents(p ProjectConfig) tea.Cmd {
 		default:
 		}
 		os.RemoveAll(agentsDir)
+		os.MkdirAll(agentsDir, 0755)
 
-		// Clone fresh for each agent
+		// Prune worktrees to clean up git metadata
+		exec.Command("git", "-C", repoDir, "worktree", "prune").Run()
+
+		// Get target branch
+		branch := p.Branch
+		if branch == "" {
+			out, _ := exec.Command("git", "-C", repoDir, "symbolic-ref", "--short", "HEAD").Output()
+			branch = strings.TrimSpace(string(out))
+		}
+
+		// Create worktree for each agent
 		var wg sync.WaitGroup
 		var mu sync.Mutex
 		errCount := 0
@@ -2425,23 +2484,19 @@ func (m model) recloneAllAgents(p ProjectConfig) tea.Cmd {
 				agentDir := filepath.Join(agentsDir, fmt.Sprintf("%d", agentNum))
 
 				select {
-				case ch <- fmt.Sprintf("Cloning repo for agent #%d...", agentNum):
+				case ch <- fmt.Sprintf("Creating worktree for agent #%d...", agentNum):
 				default:
 				}
 
-				args := []string{"clone"}
-				if p.Branch != "" {
-					args = append(args, "-b", p.Branch)
-				}
-				args = append(args, p.RepoURL, agentDir)
+				args := []string{"-C", repoDir, "worktree", "add", "--detach", agentDir, branch}
 
 				cmd := exec.Command("git", args...)
-				if _, err := cmd.CombinedOutput(); err != nil {
+				if out, err := cmd.CombinedOutput(); err != nil {
 					mu.Lock()
 					errCount++
 					mu.Unlock()
 					select {
-					case ch <- fmt.Sprintf("✗ Agent #%d clone failed", agentNum):
+					case ch <- fmt.Sprintf("✗ Agent #%d worktree failed: %s", agentNum, string(out)):
 					default:
 					}
 				} else {
@@ -2460,12 +2515,12 @@ func (m model) recloneAllAgents(p ProjectConfig) tea.Cmd {
 				success:    false,
 				action:     "reclone",
 				agentCount: p.AgentCount,
-				err:        fmt.Errorf("%d clone(s) failed", errCount),
+				err:        fmt.Errorf("%d worktree(s) failed", errCount),
 			}
 		}
 
 		select {
-		case ch <- fmt.Sprintf("✓ Finished recloning: %d agents ready", p.AgentCount):
+		case ch <- fmt.Sprintf("✓ Finished worktree setup: %d agents ready", p.AgentCount):
 		default:
 		}
 
@@ -2518,13 +2573,35 @@ func (m model) applyAgentChanges(p ProjectConfig, desiredCount int) tea.Cmd {
 	ch := m.progressChan
 	return func() tea.Msg {
 		projectDir := m.getProjectRootDir(p)
+		repoDir := filepath.Join(projectDir, "repo")
 		currentCount := p.AgentCount
 
 		if desiredCount > currentCount {
+			// Ensure repo exists
+			if _, err := os.Stat(repoDir); os.IsNotExist(err) {
+				select {
+				case ch <- "Cloning primary repository...":
+				default:
+				}
+				args := []string{"clone", p.RepoURL, repoDir}
+				if p.Branch != "" {
+					args = append(args, "-b", p.Branch)
+				}
+				if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+					return agentActionMsg{success: false, action: "add", err: fmt.Errorf("base clone failed: %s", string(out))}
+				}
+			}
+
 			// Add agents in parallel
 			var wg sync.WaitGroup
 			var mu sync.Mutex
 			errCount := 0
+
+			branch := p.Branch
+			if branch == "" {
+				out, _ := exec.Command("git", "-C", repoDir, "symbolic-ref", "--short", "HEAD").Output()
+				branch = strings.TrimSpace(string(out))
+			}
 
 			for i := currentCount + 1; i <= desiredCount; i++ {
 				wg.Add(1)
@@ -2533,28 +2610,19 @@ func (m model) applyAgentChanges(p ProjectConfig, desiredCount int) tea.Cmd {
 					agentDir := filepath.Join(projectDir, "agents", fmt.Sprintf("%d", agentNum))
 
 					select {
-					case ch <- fmt.Sprintf("Setting up agent #%d...", agentNum):
+					case ch <- fmt.Sprintf("Setting up agent #%d worktree...", agentNum):
 					default:
 					}
 
-					select {
-					case ch <- fmt.Sprintf("Cloning repo for agent #%d...", agentNum):
-					default:
-					}
-
-					args := []string{"clone"}
-					if p.Branch != "" {
-						args = append(args, "-b", p.Branch)
-					}
-					args = append(args, p.RepoURL, agentDir)
+					args := []string{"-C", repoDir, "worktree", "add", "--detach", agentDir, branch}
 
 					cmd := exec.Command("git", args...)
-					if _, err := cmd.CombinedOutput(); err != nil {
+					if out, err := cmd.CombinedOutput(); err != nil {
 						mu.Lock()
 						errCount++
 						mu.Unlock()
 						select {
-						case ch <- fmt.Sprintf("✗ Agent #%d setup failed", agentNum):
+						case ch <- fmt.Sprintf("✗ Agent #%d worktree failed: %s", agentNum, string(out)):
 						default:
 						}
 					} else {
@@ -2573,7 +2641,7 @@ func (m model) applyAgentChanges(p ProjectConfig, desiredCount int) tea.Cmd {
 					success:    false,
 					action:     "add",
 					agentCount: currentCount,
-					err:        fmt.Errorf("%d clone(s) failed", errCount),
+					err:        fmt.Errorf("%d worktree(s) failed", errCount),
 				}
 			}
 		} else if desiredCount < currentCount {
@@ -2581,10 +2649,17 @@ func (m model) applyAgentChanges(p ProjectConfig, desiredCount int) tea.Cmd {
 			for i := currentCount; i > desiredCount; i-- {
 				agentDir := filepath.Join(projectDir, "agents", fmt.Sprintf("%d", i))
 				select {
-				case ch <- fmt.Sprintf("Cleaning up agent #%d workspace...", i):
+				case ch <- fmt.Sprintf("Removing agent #%d worktree...", i):
 				default:
 				}
-				os.RemoveAll(agentDir)
+
+				// Try git worktree remove, fallback to os.RemoveAll + prune
+				cmd := exec.Command("git", "-C", repoDir, "worktree", "remove", agentDir)
+				if err := cmd.Run(); err != nil {
+					os.RemoveAll(agentDir)
+					exec.Command("git", "-C", repoDir, "worktree", "prune").Run()
+				}
+
 				select {
 				case ch <- fmt.Sprintf("✓ Agent #%d removed", i):
 				default:
@@ -2659,16 +2734,36 @@ func (m *model) updateProjectConfig(p ProjectConfig) {
 func (m model) addAgentCmd(p ProjectConfig) tea.Cmd {
 	return func() tea.Msg {
 		projectDir := m.getProjectRootDir(p)
+		repoDir := filepath.Join(projectDir, "repo")
 		newAgentNum := p.AgentCount + 1
 		newAgentDir := filepath.Join(projectDir, "agents", fmt.Sprintf("%d", newAgentNum))
 
-		// Clone the repo
-		cmd := exec.Command("git", "clone", p.RepoURL, newAgentDir)
+		// Ensure repo exists
+		if _, err := os.Stat(repoDir); os.IsNotExist(err) {
+			args := []string{"clone", p.RepoURL, repoDir}
+			if p.Branch != "" {
+				args = append(args, "-b", p.Branch)
+			}
+			if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+				return agentActionMsg{success: false, action: "add", err: fmt.Errorf("base clone failed: %s", string(out))}
+			}
+		}
+
+		// Get target branch
+		branch := p.Branch
+		if branch == "" {
+			out, _ := exec.Command("git", "-C", repoDir, "symbolic-ref", "--short", "HEAD").Output()
+			branch = strings.TrimSpace(string(out))
+		}
+
+		// Add worktree
+		args := []string{"-C", repoDir, "worktree", "add", "--detach", newAgentDir, branch}
+		cmd := exec.Command("git", args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return agentActionMsg{
 				success: false,
 				action:  "add",
-				err:     fmt.Errorf("clone failed: %s", string(out)),
+				err:     fmt.Errorf("worktree add failed: %s", string(out)),
 			}
 		}
 
@@ -2691,14 +2786,14 @@ func (m model) removeAgentCmd(p ProjectConfig) tea.Cmd {
 		}
 
 		projectDir := m.getProjectRootDir(p)
+		repoDir := filepath.Join(projectDir, "repo")
 		agentDir := filepath.Join(projectDir, "agents", fmt.Sprintf("%d", p.AgentCount))
 
-		if err := os.RemoveAll(agentDir); err != nil {
-			return agentActionMsg{
-				success: false,
-				action:  "remove",
-				err:     fmt.Errorf("failed to remove: %w", err),
-			}
+		// Try git worktree remove, fallback to os.RemoveAll + prune
+		cmd := exec.Command("git", "-C", repoDir, "worktree", "remove", agentDir)
+		if err := cmd.Run(); err != nil {
+			os.RemoveAll(agentDir)
+			exec.Command("git", "-C", repoDir, "worktree", "prune").Run()
 		}
 
 		return agentActionMsg{

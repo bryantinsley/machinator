@@ -1642,9 +1642,128 @@ func executeTask(taskID, agentName, projectRoot string, pool *accountpool.Pool, 
 			f.Close()
 		}
 
+		// Ensure we are on the correct branch if configured
+		// Load project config to check for branch
+		// Note: projectRoot is .../projects/N
+		// We need to read project.json
+		// Actually projectRoot IS .../projects/N in this context?
+		// executeTask receives projectRoot which is the agent workspace or project root?
+		// In main.go/executeTask: projectRoot passed is m.projectRoot which is .../projects/N.
+		// Wait, executeTask's gemini command sets cmd.Dir = projectRoot.
+		// Gemini expects to run inside the agent workspace (e.g. agents/1).
+		// But in tui.go:
+		// m.projectRoot = filepath.Join(machinatorDir, "projects", fmt.Sprintf("%d", projectConfig.ID))
+		// This is the project root, not the agent workspace.
+
+		// Wait, gemini command runs in projectRoot?
+		// "geminiCmd.Dir = projectRoot"
+		// If projectRoot is .../projects/1, then gemini runs there.
+		// But usually gemini runs in .../projects/1/agents/1 ?
+		// Let's check where the task work happens.
+		// If gemini runs in project root, it uses the repo in project root?
+		// machinator structure:
+		// projects/1/
+		//   project.json
+		//   agents/
+		//     1/ (repo clone)
+		//     2/ (repo clone)
+
+		// If executeTask runs gemini in projects/1, then gemini must know to use agents/X?
+		// Or does tui.go expect to run gemini in an agent directory?
+		// Currently tui.go sets geminiCmd.Dir = projectRoot.
+
+		// Let's verify projectRoot in initialModel:
+		// projectRoot = filepath.Join(machinatorDir, "projects", fmt.Sprintf("%d", projectConfig.ID))
+
+		// So gemini runs in the project dir.
+		// Does gemini manage the agents/ subdirectory?
+		// Or should we be running it in a specific agent directory?
+		// For single agent, it might matter less if configured right.
+		// But with multiple agents (which we just added UI for), we need to select an agent workspace.
+
+		// Multi-agent orchestration:
+		// We need to pick an available agent workspace (agents/1, agents/2, etc).
+		// Currently executeTask just launches "gemini".
+		// Does "gemini" CLI handle workspace selection?
+		// If we are passing a directive, gemini acts on the current directory.
+		// If current dir is projects/1, it acts on projects/1.
+		// But projects/1 contains "agents/" directory, not the user code directly.
+		// This seems wrong if we want gemini to work on the user's code.
+
+		// HYPOTHESIS: The current implementation assumes single agent or gemini handles it.
+		// BUT looking at setup.go, we clone code into agents/N.
+		// So we MUST run gemini in agents/N.
+
+		// REQUIRED FIX: Select an agent workspace and run gemini THERE.
+		// We already have account pooling (for auth).
+		// We need agent workspace pooling or selection.
+		// For now, let's assume agent 1 or find a free one.
+		// tui.go doesn't seem to track agent busy state fully per-agent-directory yet,
+		// except via m.geminiRunning flag (global lock).
+
+		// Since we have a global lock (m.geminiRunning), we can just use agents/1 for now?
+		// Or pick a random one if we want to support true parallelism later.
+		// For this task (branch enforcement), we need to ensure the workspace we pick is on the branch.
+
+		// Let's use agents/1 for now to match implicit behavior (or check what existing code did).
+		// Existing code: geminiCmd.Dir = projectRoot.
+		// If projectRoot is projects/1, and code is in agents/1, gemini might be editing the wrapper?
+		// Or maybe I misunderstood projectRoot.
+
+		// Let's fix this by targeting agents/1 explicitly for now, and enforcing branch there.
+
+		agentDir := filepath.Join(projectRoot, "agents", "1")
+
+		// Read project config to get branch
+		var pConfig setup.ProjectConfig
+		if data, err := os.ReadFile(filepath.Join(projectRoot, "project.json")); err == nil {
+			json.Unmarshal(data, &pConfig)
+		}
+
+		if pConfig.Branch != "" {
+			// Check current branch
+			cmd := exec.Command("git", "branch", "--show-current")
+			cmd.Dir = agentDir
+			out, _ := cmd.Output()
+			currentBranch := strings.TrimSpace(string(out))
+
+			if currentBranch != pConfig.Branch {
+				// Switch branch
+				f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				if f != nil {
+					f.WriteString(fmt.Sprintf("[%s] 🔄 Switching branch from '%s' to '%s' in %s\n",
+						time.Now().Format("15:04:05"), currentBranch, pConfig.Branch, agentDir))
+					f.Close()
+				}
+
+				checkout := exec.Command("git", "checkout", pConfig.Branch)
+				checkout.Dir = agentDir
+				if err := checkout.Run(); err != nil {
+					// Handle case where branch doesn't exist locally:
+					// git fetch origin <branch>
+					// git checkout -b <branch> origin/<branch>
+					fetchCmd := exec.Command("git", "fetch", "origin", pConfig.Branch)
+					fetchCmd.Dir = agentDir
+					fetchCmd.Run()
+
+					checkout = exec.Command("git", "checkout", "-b", pConfig.Branch, "origin/"+pConfig.Branch)
+					checkout.Dir = agentDir
+					if err := checkout.Run(); err != nil {
+						// One last try: maybe it already exists but checkout failed (e.g. detached HEAD)
+						checkout = exec.Command("git", "checkout", pConfig.Branch)
+						checkout.Dir = agentDir
+						if err := checkout.Run(); err != nil {
+							return taskFailedMsg{taskID: taskID, reason: fmt.Sprintf("failed to checkout branch %s: %v", pConfig.Branch, err)}
+						}
+					}
+				}
+			}
+		}
+
 		// Update task status to in_progress
 		cmd := exec.Command("bd", "update", taskID, "--status=in_progress", fmt.Sprintf("--assignee=%s", agentName))
-		cmd.Dir = projectRoot
+		cmd.Dir = agentDir // Use agent dir for bd commands too? Usually bd is in root or handled by path.
+		// Actually bd uses current dir to find .beads. So it MUST be agentDir.
 		if err := cmd.Run(); err != nil {
 			f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if f != nil {
@@ -1719,7 +1838,7 @@ func executeTask(taskID, agentName, projectRoot string, pool *accountpool.Pool, 
 		machinatorDir := setup.GetMachinatorDir()
 		geminiPath := filepath.Join(machinatorDir, "gemini")
 		geminiCmd := exec.Command(geminiPath, "--yolo", "--output-format", "stream-json", directive)
-		geminiCmd.Dir = projectRoot
+		geminiCmd.Dir = agentDir
 
 		// Set environment variables, including HOME for the selected account
 		geminiCmd.Env = os.Environ()
