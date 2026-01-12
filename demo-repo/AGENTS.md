@@ -97,7 +97,9 @@ When changing code in these areas, **also update the corresponding docs**:
 | `./machinator/` local dirs | `planning/directory-structure.md`                |
 | Config file formats        | `planning/directory-structure.md`, `README.md`   |
 | UI components              | `planning/ui-component-system.md`                |
-| Directive templates        | `templates/`, `bootstrap/directive_template.txt` |
+| Scripts & Binaries      | `scripts/`, `machinator` binary                  |
+| Directive templates        | `templates/`                                     |
+| Project Context           | `AGENTS.md`                                      |
 | Architecture changes       | `planning/architecture-vision.md`                |
 
 **Docs are part of the change.** Don't merge code that makes docs stale.

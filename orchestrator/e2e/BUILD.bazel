@@ -9,7 +9,7 @@ go_test(
         "//:bd",
         "//:go.mod",
         "//:mock-bd.sh",
-        "//bootstrap:check_quota.sh",
+        "//templates:check_quota.sh",
         "//orchestrator/cmd/machinator",
         "//templates",
         "//testdata/fixture-repo:files",

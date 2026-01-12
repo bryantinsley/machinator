@@ -109,23 +109,27 @@ This allows parallel work without file conflicts.
 
 ---
 
-## 3. Bootstrap Directory: `./bootstrap/`
+## 3. Templates Directory: `./templates/`
 
-Legacy bootstrap orchestrator (shell-based). Being replaced by the Go TUI.
+Active templates and utility scripts used by the Go TUI and CI/CD.
 
 ```
-./bootstrap/
-├── run.sh                   # Start bootstrap orchestrator
-├── stop.sh                  # Stop all agents
-├── orchestrator_with_quota.sh
-├── directive_template.txt
-├── unblocking_directive.txt
-└── ...
+./templates/
+├── check_quota.sh           # Quota checking utility
+├── directive_template.txt   # Main agent directive template
+├── setup_go_env.sh          # Go environment configuration
+└── unblocking_directive.txt # Unblocking mode template
 ```
 
 ---
 
-## 4. Related Directories
+## 4. Legacy Archive: `_archive/bootstrap-legacy/`
+
+Archived legacy bootstrap orchestrator (shell-based). Replaced by the Go TUI.
+
+---
+
+## 5. Related Directories
 
 **`.beads/`** - Beads issue tracker database (not Machinator-specific)
 

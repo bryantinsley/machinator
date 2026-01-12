@@ -97,7 +97,18 @@ When changing code in these areas, **also update the corresponding docs**:
 | `./machinator/` local dirs | `planning/directory-structure.md`                |
 | Config file formats        | `planning/directory-structure.md`, `README.md`   |
 | UI components              | `planning/ui-component-system.md`                |
-| Directive templates        | `templates/`, `bootstrap/directive_template.txt` |
+| Scripts & Binaries      | `scripts/`, `machinator` binary                  |
+| Directive templates        | `templates/`                                     |
+| Project Context           | `AGENTS.md`                                      |
+
+## Utility Scripts
+
+The following scripts are used by the orchestrator or development tools:
+
+- `templates/setup_go_env.sh`: Configures Go environment for sandboxed execution.
+- `templates/check_quota.sh`: Manual quota checking utility (used by E2E tests).
+- `scripts/update-ui.sh`: Regenerates TUI golden files and VHS tapes.
+- `scripts/fix-all.sh`: Runs all formatting and tidying tools.
 | Architecture changes       | `planning/architecture-vision.md`                |
 
 **Docs are part of the change.** Don't merge code that makes docs stale.

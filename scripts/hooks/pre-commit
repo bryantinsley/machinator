@@ -84,8 +84,8 @@ if [ -n "$UI_CHANGES" ]; then
     echo "🔍 UI changes detected in $SETUP_DIR. Running tests..."
     
     # Setup Go environment for the hook
-    if [ -f "bootstrap/setup_go_env.sh" ]; then
-        source bootstrap/setup_go_env.sh > /dev/null
+    if [ -f "templates/setup_go_env.sh" ]; then
+        source templates/setup_go_env.sh > /dev/null
     else
         export GOPATH="$(pwd)/.go-cache"
         export GOCACHE="$(pwd)/.go-build-cache"
