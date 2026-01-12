@@ -29,7 +29,7 @@ Type "cp AGENTS.md demo-repo/"
 Enter
 Type "mkdir -p demo-repo/bootstrap"
 Enter
-Type "cp templates/check_quota.sh demo-repo/machinator/"
+Type "cp bootstrap/check_quota.sh demo-repo/machinator/"
 Enter
 Type "export GEMINI_MODE=HAPPY"
 Enter

@@ -3,7 +3,6 @@
 filegroup(
     name = "templates",
     srcs = [
-        "check_quota.sh",
         "directive_template.txt",
         "setup_go_env.sh",
         "unblocking_directive.txt",
@@ -12,7 +11,6 @@ filegroup(
 )
 
 exports_files([
-    "check_quota.sh",
     "directive_template.txt",
     "unblocking_directive.txt",
     "setup_go_env.sh",

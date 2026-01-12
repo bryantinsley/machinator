@@ -116,14 +116,14 @@ func (h *Harness) setupFixture(t *testing.T) {
 		}
 		templatesSrc, _ = rf.Rlocation("_main/templates")
 		agentsMd, _ = rf.Rlocation("_main/AGENTS.md")
-		checkQuotaSrc, _ = rf.Rlocation("_main/templates/check_quota.sh")
+		checkQuotaSrc, _ = rf.Rlocation("_main/bootstrap/check_quota.sh")
 	}
 
 	if fixtureSrc == "" {
 		fixtureSrc = filepath.Join(h.RootDir, "testdata", "fixture-repo")
 		templatesSrc = filepath.Join(h.RootDir, "templates")
 		agentsMd = filepath.Join(h.RootDir, "AGENTS.md")
-		checkQuotaSrc = filepath.Join(h.RootDir, "templates", "check_quota.sh")
+		checkQuotaSrc = filepath.Join(h.RootDir, "bootstrap", "check_quota.sh")
 	}
 
 	if err := copyDir(fixtureSrc, h.RepoDir); err != nil {

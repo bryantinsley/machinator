@@ -8,8 +8,8 @@ if [ ! -f "go.mod" ]; then
 fi
 
 # Set Go environment to use local caches within the project
-if [ -f "templates/setup_go_env.sh" ]; then
-    source templates/setup_go_env.sh
+if [ -f "bootstrap/setup_go_env.sh" ]; then
+    source bootstrap/setup_go_env.sh
 else
     export GOPATH="$(pwd)/.go-cache"
     export GOCACHE="$(pwd)/.go-build-cache"
