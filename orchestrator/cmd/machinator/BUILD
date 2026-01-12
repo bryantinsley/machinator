@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_binary")
+load("@rules_go//go:def.bzl", "go_binary", "go_cross_binary")
 
 go_binary(
     name = "machinator",
@@ -13,4 +13,11 @@ go_binary(
         "//orchestrator/pkg/orchestrator",
         "//orchestrator/pkg/setup",
     ],
+)
+
+go_cross_binary(
+    name = "machinator_linux",
+    platform = "@rules_go//go/toolchain:linux_amd64",
+    target = ":machinator",
+    visibility = ["//visibility:public"],
 )
