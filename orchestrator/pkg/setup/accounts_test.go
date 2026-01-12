@@ -45,7 +45,7 @@ func TestGetAccounts(t *testing.T) {
 		t.Fatalf("GetAccounts failed: %v", err)
 	}
 
-	if len(accounts) != 1 || accounts[0] != "default" {
+	if len(accounts) != 1 || accounts[0].Name != "default" {
 		t.Errorf("expected [default], got %v", accounts)
 	}
 }

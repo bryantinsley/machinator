@@ -2,6 +2,8 @@ package setup
 
 import (
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -189,6 +191,61 @@ func TestModalRendersWithoutCrash(t *testing.T) {
 	}
 }
 
+// TestAddAccountFlow tests the step-by-step account addition flow
+func TestAddAccountFlow(t *testing.T) {
+	tempDir, _ := os.MkdirTemp("", "machinator-account-test")
+	defer os.RemoveAll(tempDir)
+
+	m := initialModel()
+	m.machinatorDir = tempDir
+	m.screen = screenManageAccounts
+
+	// 1. Press 'a' to add account
+	m2, _ := m.handleManageAccountsKeys("a")
+	m = m2.(model)
+	if m.screen != screenAddAccountName {
+		t.Errorf("Expected screenAddAccountName, got %v", m.screen)
+	}
+
+	// 2. Type name and press Enter
+	m.inputBuffer = "test-account"
+	m2, _ = m.handleAddAccountNameKeys("enter", tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(model)
+	if m.screen != screenAddAccountAuthType {
+		t.Errorf("Expected screenAddAccountAuthType, got %v", m.screen)
+	}
+	if m.newAccountName != "test-account" {
+		t.Errorf("Expected name 'test-account', got %s", m.newAccountName)
+	}
+
+	// 3. Select API Key (default cursor 0) and press Enter
+	m2, _ = m.handleAddAccountAuthTypeKeys("enter")
+	m = m2.(model)
+	if m.screen != screenAddAccountAPIKey {
+		t.Errorf("Expected screenAddAccountAPIKey, got %v", m.screen)
+	}
+
+	// 4. Type API key and press Enter
+	m.inputBuffer = "AIza-test-key"
+	m2, cmd := m.handleAddAccountAPIKeyKeys("enter", tea.KeyMsg{Type: tea.KeyEnter})
+	m = m2.(model)
+
+	// Execute the finishAddAccount command
+	msg := cmd()
+	if _, ok := msg.(accountAddedMsg); !ok {
+		t.Errorf("Expected accountAddedMsg, got %T", msg)
+	}
+
+	// Verify file creation
+	accountDir := filepath.Join(tempDir, "accounts", "test-account")
+	if _, err := os.Stat(filepath.Join(accountDir, "account.json")); err != nil {
+		t.Errorf("account.json not created")
+	}
+	if _, err := os.Stat(filepath.Join(accountDir, ".gemini", "settings.json")); err != nil {
+		t.Errorf("settings.json not created")
+	}
+}
+
 // TestDialogCursorNavigation tests left/right/tab navigation in dialogs
 func TestDialogCursorNavigation(t *testing.T) {
 	m := initialModel()
@@ -330,6 +387,63 @@ func TestInitScreenGolden(t *testing.T) {
 	m.screen = screenInit
 	m.machinatorExists = false
 	m.machinatorDir = "/tmp/.machinator"
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	tm.Send(tea.Quit())
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
+}
+
+func TestManageAccountsGolden(t *testing.T) {
+	m := initialModel()
+	m.width = 80
+	m.height = 24
+	m.screen = screenManageAccounts
+	m.accounts = []AccountInfo{
+		{Name: "default", Authenticated: true, AuthType: "api_key"},
+		{Name: "secondary", Authenticated: false, AuthType: "google"},
+	}
+	m.accountCursor = 0
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	tm.Send(tea.Quit())
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
+}
+
+func TestAddAccountNameGolden(t *testing.T) {
+	m := initialModel()
+	m.width = 80
+	m.height = 24
+	m.screen = screenAddAccountName
+	m.inputPrompt = "Account Name"
+	m.inputBuffer = "new-account"
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	tm.Send(tea.Quit())
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
+}
+
+func TestAddAccountAuthTypeGolden(t *testing.T) {
+	m := initialModel()
+	m.width = 80
+	m.height = 24
+	m.screen = screenAddAccountAuthType
+	m.newAccountName = "test-acc"
+	m.dialogCursor = 0
 
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
 	tm.Send(tea.Quit())

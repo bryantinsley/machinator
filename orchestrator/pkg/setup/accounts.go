@@ -111,16 +111,46 @@ func copyFile(src, dst string) error {
 	return nil
 }
 
-// GetAccounts returns a list of configured accounts
-func GetAccounts(machinatorDir string) ([]string, error) {
+// AccountInfo contains account name and status
+type AccountInfo struct {
+	Name          string
+	Authenticated bool
+	AuthType      string
+}
+
+// GetAccounts returns a list of configured accounts with their status
+func GetAccounts(machinatorDir string) ([]AccountInfo, error) {
 	accounts, err := accountpool.LoadAccounts(machinatorDir)
 	if err != nil {
 		return nil, err
 	}
 
-	var names []string
+	var infos []AccountInfo
 	for _, acc := range accounts {
-		names = append(names, acc.Name)
+		authenticated := false
+		geminiDir := filepath.Join(acc.HomeDir, ".gemini")
+
+		if acc.AuthType == accountpool.AuthTypeAPIKey {
+			settingsPath := filepath.Join(geminiDir, "settings.json")
+			if _, err := os.Stat(settingsPath); err == nil {
+				authenticated = true
+			}
+		} else {
+			// For Google auth, we look for credentials or similar
+			// This might depend on how gemini-cli-mods stores it.
+			// Assuming it stores something in .gemini dir if authenticated.
+			// Let's look for any file in .gemini except settings.json if it's google auth.
+			entries, _ := os.ReadDir(geminiDir)
+			if len(entries) > 0 {
+				authenticated = true
+			}
+		}
+
+		infos = append(infos, AccountInfo{
+			Name:          acc.Name,
+			Authenticated: authenticated,
+			AuthType:      string(acc.AuthType),
+		})
 	}
-	return names, nil
+	return infos, nil
 }

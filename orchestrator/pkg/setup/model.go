@@ -55,6 +55,10 @@ const (
 	screenConfirmDeleteProject
 	screenConfirmExit
 	screenManageAccounts
+	screenAddAccountName
+	screenAddAccountAuthType
+	screenAddAccountAPIKey
+	screenAddAccountGoogleInfo
 )
 
 type geminiStatus int
@@ -76,7 +80,7 @@ type model struct {
 	statusMessages []string
 
 	// Accounts
-	accounts      []string
+	accounts      []AccountInfo
 	accountCursor int
 
 	// Machinator state
@@ -114,6 +118,11 @@ type model struct {
 	beadsTotal     int
 	addWarnings    []string
 	progressMsg    string
+
+	// Add account flow
+	newAccountName     string
+	newAccountAuthType string // Using string to avoid circular dependency if needed, but it should be fine.
+	newAccountAPIKey   string
 
 	// Paths
 	machinatorDir string
@@ -158,7 +167,7 @@ type initCheckMsg struct {
 	geminiStatus     geminiStatus
 	geminiVersion    string
 	projects         []ProjectConfig
-	accounts         []string
+	accounts         []AccountInfo
 }
 
 type geminiInstallMsg struct {
@@ -183,6 +192,10 @@ type beadsCheckMsg struct {
 
 type projectsReloadedMsg struct {
 	projects []ProjectConfig
+}
+
+type accountAddedMsg struct {
+	accounts []AccountInfo
 }
 
 type agentActionMsg struct {
