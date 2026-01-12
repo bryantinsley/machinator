@@ -102,16 +102,36 @@ When changing code in these areas, **also update the corresponding docs**:
 
 **Docs are part of the change.** Don't merge code that makes docs stale.
 
-## CI-Gated Operations (CURRENTLY DISABLED)
+## CI-Gated Operations (BETA)
 
-**WARNING**: GitHub Actions are currently blocked due to billing issues. Use local fallbacks.
+For slow operations (like VHS terminal recording) or operations incompatible with the macOS sandbox, use the CI-gated workflow:
 
-**VHS Terminal Recording (Local Fallback)**
+1.  **Make your changes** and commit:
+    ```bash
+    git add -A && git commit -m "feat: update TUI layout" && git push
+    ```
 
-Since CI is down, use the local Docker wrapper (slow but functional):
+2.  **Create a gate** that waits for the CI workflow:
+    ```bash
+    bd create --type=gate --title="Wait for VHS CI" --external-ref="gh:run:vhs"
+    ```
+
+3.  **Link your follow-up task** to the gate:
+    ```bash
+    bd dep add <follow-up-task-id> <gate-id>
+    ```
+
+4.  **Exit immediately** - the orchestrator will check gates periodically.
+
+5.  **When CI completes**, the gate resolves and the follow-up task unblocks.
+
+This keeps your laptop cool and avoids macOS sandbox restrictions!
+
+### Local Fallback (Use if CI is down)
+
+If GitHub Actions are unavailable, use the local Docker wrapper (slow but functional):
 
 1. **Build Linux Binary**:
-
    ```bash
    # Ensure Go env is set first!
    export GOPATH="$(pwd)/.go-cache"
@@ -121,7 +141,6 @@ Since CI is down, use the local Docker wrapper (slow but functional):
    ```
 
 2. **Run VHS with Docker**:
-
    ```bash
    ./scripts/vhs-docker.sh orchestrator/e2e/navigation.tape
    ./scripts/vhs-docker.sh orchestrator/e2e/crud.tape
@@ -129,25 +148,6 @@ Since CI is down, use the local Docker wrapper (slow but functional):
 
 3. **Verify & Commit**:
    Check `docs/ui-history/*.gif` and commit them.
-
-_(Original CI instructions preserved below for when billing is fixed)_
-
-For these operations, use the CI-gated workflow:
-
-1. **Make your changes** and commit:
-   git add -A && git commit -m "feat: update TUI layout" && git push
-
-2. **Create a gate** that waits for the CI workflow:
-   bd create --type=gate --title="Wait for VHS CI" --external-ref="gh:run:vhs"
-
-3. **Link your follow-up task** to the gate:
-   bd dep add <follow-up-task> <gate-id>
-
-4. **Exit immediately** - the orchestrator will check gates periodically
-
-5. **When CI completes**, the gate resolves and the follow-up task unblocks
-
-This keeps your laptop cool and your quota efficient!
 
 ## Landing the Plane (Session Completion)
 

@@ -64,14 +64,14 @@ This prevents Go from writing to ~/Library/Caches which is blocked by security r
    - git status, git add, git commit, git push
 
 6. **PROTOCOL: CI-GATED OPERATIONS**
-   - For slow operations (VHS, heavy tests), use CI instead of running locally
+   - For slow operations (VHS terminal recording, heavy tests), use CI instead of running locally.
    - Workflow:
-     1. Commit and push your changes
-     2. Create a gate: bd create --type=gate --title="Wait for CI" --external-ref="gh:run:vhs"
-     3. Create follow-up task blocked by the gate
-     4. Exit immediately - dont wait for CI
-     5. The system will resume when CI completes
-   - See AGENTS.md "CI-Gated Operations" for details
+     1. Commit and push your changes.
+     2. Create a gate: `bd create --type=gate --title="Wait for CI" --external-ref="gh:run:vhs"`.
+     3. Create follow-up task blocked by the gate: `bd dep add <follow-up-task> <gate-id>`.
+     4. Exit immediately - don't wait for CI.
+     5. The system will resume when CI completes.
+   - See AGENTS.md "CI-Gated Operations" for details.
 
 === CURRENT TASK CONTEXT ===
 
