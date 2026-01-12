@@ -91,6 +91,35 @@ func TestEscapeReturnsToMainScreen(t *testing.T) {
 	}
 }
 
+// TestRunShortcut verifies that 'r' shortcut runs the selected project
+func TestRunShortcut(t *testing.T) {
+	m := initialModel()
+	m.projectsLoaded = true
+	m.projects = []ProjectConfig{
+		{ID: 1, Name: "test-project", AgentCount: 1},
+	}
+	m.cursor = 1 // On the first project
+
+	// Press 'r'
+	newModel, cmd := m.handleMainKeys("r")
+	m2 := newModel.(model)
+
+	if m2.selectedProjectConfig == nil {
+		t.Error("Project config should be selected")
+	}
+	if m2.selectedProjectConfig.Name != "test-project" {
+		t.Errorf("Expected project 'test-project', got %s", m2.selectedProjectConfig.Name)
+	}
+	if cmd == nil {
+		t.Error("Should return a command (Quit)")
+	} else {
+		msg := cmd()
+		if _, ok := msg.(tea.QuitMsg); !ok {
+			t.Errorf("Expected tea.QuitMsg, got %T", msg)
+		}
+	}
+}
+
 // TestEditFieldTabNavigation tests that tab cycles through input/save/cancel
 func TestEditFieldTabNavigation(t *testing.T) {
 	m := initialModel()

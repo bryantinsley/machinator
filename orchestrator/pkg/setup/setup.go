@@ -447,10 +447,16 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Handle clicks based on current screen
 	switch m.screen {
 	case screenProjectDetail:
-		// Delete button around x=4-12, Back around x=14-22
+		// Run around x=4-12, Delete button around x=14-22, Back around x=24-32
 		// Buttons are near bottom of the content area
 		if msg.Y >= 18 && msg.Y <= 22 {
-			if msg.X >= 4 && msg.X <= 14 {
+			if msg.X >= 4 && msg.X <= 12 {
+				// Run clicked
+				if m.selectedProject < len(m.projects) {
+					m.selectedProjectConfig = &m.projects[m.selectedProject]
+					return m, tea.Quit
+				}
+			} else if msg.X >= 14 && msg.X <= 22 {
 				// Delete clicked
 				if m.selectedProject < len(m.projects) {
 					p := m.projects[m.selectedProject]
@@ -461,7 +467,7 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 					m.detailCursor = 0
 					return m, m.reloadProjects()
 				}
-			} else if msg.X >= 16 && msg.X <= 26 {
+			} else if msg.X >= 24 && msg.X <= 32 {
 				// Back clicked
 				m.screen = screenMain
 				m.detailCursor = 0
@@ -623,6 +629,12 @@ func (m model) handleMainKeys(key string) (tea.Model, tea.Cmd) {
 		}
 	case "a":
 		m.startAddProject()
+	case "r":
+		if m.cursor > 0 && m.cursor <= len(m.projects) {
+			m.selectedProject = m.cursor - 1
+			m.selectedProjectConfig = &m.projects[m.selectedProject]
+			return m, tea.Quit
+		}
 	case "q", "x":
 		m.screen = screenConfirmExit
 	}
@@ -630,7 +642,7 @@ func (m model) handleMainKeys(key string) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleProjectDetailKeys(key string) (tea.Model, tea.Cmd) {
-	// Menu items: 0=Name, 1=Repository, 2=Agents, 3=Open, 4=Delete, 5=Back
+	// Menu items: 0=Name, 1=Repository, 2=Agents, 3=Run, 4=Delete, 5=Back
 	maxItems := 6
 
 	switch key {
@@ -646,6 +658,11 @@ func (m model) handleProjectDetailKeys(key string) (tea.Model, tea.Cmd) {
 		if m.selectedProject < len(m.projects) {
 			p := m.projects[m.selectedProject]
 			return m, m.copyToClipboard(m.getProjectRootDir(p))
+		}
+	case "r":
+		if m.selectedProject < len(m.projects) {
+			m.selectedProjectConfig = &m.projects[m.selectedProject]
+			return m, tea.Quit
 		}
 	case "enter":
 		if m.selectedProject >= len(m.projects) {
@@ -663,7 +680,7 @@ func (m model) handleProjectDetailKeys(key string) (tea.Model, tea.Cmd) {
 		case 2: // Agents
 			m.desiredAgentCount = p.AgentCount
 			m.screen = screenEditAgentCount
-		case 3: // Open
+		case 3: // Run
 			m.selectedProjectConfig = &m.projects[m.selectedProject]
 			return m, tea.Quit
 		case 4: // Delete - show confirmation
@@ -1062,6 +1079,16 @@ func (m model) viewProjectSettings() string {
 
 	b.WriteString("\n")
 
+	// Run button hint if project selected
+	if m.cursor > 0 && m.cursor <= len(m.projects) {
+		runBtn := lipgloss.NewStyle().
+			Background(lipgloss.Color("42")).
+			Foreground(lipgloss.Color("255")).
+			Padding(0, 2).
+			Render("Run (r)")
+		b.WriteString(runBtn + "  ")
+	}
+
 	// Add project button at bottom
 	addIdx := len(m.projects) + 1
 	addBg := lipgloss.Color("240")
@@ -1373,15 +1400,25 @@ func (m model) viewProjectDetailLeft() string {
 	b.WriteString("\n")
 
 	// Buttons: gray when not selected, colored when selected
+	runBg := lipgloss.Color("240")    // Gray
 	deleteBg := lipgloss.Color("240") // Gray
 	backBg := lipgloss.Color("240")   // Gray
 
 	if m.detailCursor == 3 {
-		deleteBg = lipgloss.Color("196") // Red when selected
+		runBg = lipgloss.Color("42") // Green when selected
 	}
 	if m.detailCursor == 4 {
+		deleteBg = lipgloss.Color("196") // Red when selected
+	}
+	if m.detailCursor == 5 {
 		backBg = lipgloss.Color("39") // Blue when selected
 	}
+
+	runBtn := lipgloss.NewStyle().
+		Background(runBg).
+		Foreground(lipgloss.Color("255")).
+		Padding(0, 2).
+		Render("Run")
 
 	deleteBtn := lipgloss.NewStyle().
 		Background(deleteBg).
@@ -1395,7 +1432,7 @@ func (m model) viewProjectDetailLeft() string {
 		Padding(0, 2).
 		Render("Back")
 
-	b.WriteString(deleteBtn + "  " + backBtn)
+	b.WriteString(runBtn + "  " + deleteBtn + "  " + backBtn)
 
 	return b.String()
 }
@@ -1571,11 +1608,11 @@ func (m model) renderProjectDetailModal() string {
 	lines = append(lines, "")
 
 	// Buttons
-	openBg := lipgloss.Color("240")
+	runBg := lipgloss.Color("240")
 	deleteBg := lipgloss.Color("240")
 	backBg := lipgloss.Color("240")
 	if m.detailCursor == 3 {
-		openBg = lipgloss.Color("42") // Green for Open
+		runBg = lipgloss.Color("42") // Green for Run
 	}
 	if m.detailCursor == 4 {
 		deleteBg = lipgloss.Color("196")
@@ -1584,11 +1621,11 @@ func (m model) renderProjectDetailModal() string {
 		backBg = lipgloss.Color("39")
 	}
 
-	openBtn := lipgloss.NewStyle().Background(openBg).Foreground(lipgloss.Color("255")).Padding(0, 2).Render("Open")
+	runBtn := lipgloss.NewStyle().Background(runBg).Foreground(lipgloss.Color("255")).Padding(0, 2).Render("Run")
 	deleteBtn := lipgloss.NewStyle().Background(deleteBg).Foreground(lipgloss.Color("255")).Padding(0, 2).Render("Delete")
 	backBtn := lipgloss.NewStyle().Background(backBg).Foreground(lipgloss.Color("255")).Padding(0, 2).Render("Back")
 
-	lines = append(lines, openBtn+"  "+deleteBtn+"  "+backBtn)
+	lines = append(lines, runBtn+"  "+deleteBtn+"  "+backBtn)
 	lines = append(lines, "")
 	lines = append(lines, dimStyle.Render(" (c) copy path"))
 
