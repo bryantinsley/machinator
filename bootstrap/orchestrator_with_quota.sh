@@ -82,6 +82,12 @@ while [ $count -lt $MAX_CYCLES ]; do
     log "📊 Cycle $((count + 1))/$MAX_CYCLES"
     log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
+    # Check gates every 5 cycles
+    if [ $((count % 5)) -eq 0 ]; then
+        log "🔍 Checking gates..."
+        ./bootstrap/check_gates.sh
+    fi
+    
     # Reset selection
     TASK_ID=""
     MODEL_ARGS=""
