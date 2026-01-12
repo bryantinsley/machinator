@@ -9,5 +9,8 @@ if [ -z "$OPEN_GATES" ]; then
     exit 0
 fi
 
+# Resolve "named" gates to specific IDs
+./scripts/resolve-vhs-gates.sh
+
 # Use bd gate check to evaluate gates
 bd gate check --type=gh:run 2>/dev/null || true

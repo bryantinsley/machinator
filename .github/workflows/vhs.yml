@@ -10,8 +10,12 @@ on:
 jobs:
   record:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
@@ -25,11 +29,12 @@ jobs:
 
       - name: Build Binaries
         run: |
-          go build -o setup-tui-linux ./orchestrator/cmd/setup
           go build -o machinator-linux ./orchestrator/cmd/machinator
 
       - name: Run VHS tapes
         run: |
+          # Ensure target directory exists
+          mkdir -p docs/ui-history
           vhs orchestrator/e2e/navigation.tape
           vhs orchestrator/e2e/crud.tape
           vhs orchestrator/e2e/orchestrator_run.tape
@@ -39,3 +44,15 @@ jobs:
         with:
           name: vhs-gifs
           path: docs/ui-history/*.gif
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/ui-history/*.gif
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update VHS terminal recordings [skip ci]"
+            git push
+          fi
