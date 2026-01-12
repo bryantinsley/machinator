@@ -171,6 +171,7 @@ type model struct {
 	taskStartTime   time.Time            // When current task started
 	lastEventTime   time.Time            // When last ACP event was received
 	exitOnce        bool                 // Exit after one task completion (for E2E)
+	toolsCheck      ToolsCheckModel      // Sub-model for tools check
 }
 
 func initialModel() model {
@@ -208,6 +209,7 @@ func initialModel() model {
 		geminiRunning:   false,
 		projectRoot:     projectRoot,
 		failedTasks:     make(map[string]time.Time),
+		toolsCheck:      InitialToolsCheckModel(),
 	}
 }
 
@@ -239,12 +241,27 @@ func (m model) Init() tea.Cmd {
 		tick(),
 		checkQuota(),
 		fetchTasks(m.projectRoot),
+		m.toolsCheck.Init(),
 	)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
+
+	// Always handle WindowSizeMsg for both models
+	if msg, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = msg.Width
+		m.height = msg.Height
+		m.logs.Width = (m.width / 3) - 4
+		m.logs.Height = m.height - 10
+	}
+
+	// Delegate to tools check if not passed
+	if m.toolsCheck.State != ToolsCheckStatePassed {
+		m.toolsCheck, cmd = m.toolsCheck.Update(msg)
+		return m, cmd
+	}
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -436,12 +453,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.eventCursor--
 			}
 		}
-
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.logs.Width = (m.width / 3) - 4
-		m.logs.Height = m.height - 10
 
 	case tickMsg:
 		m.tickCount++
@@ -768,6 +779,10 @@ func formatDuration(d time.Duration) string {
 }
 
 func (m model) View() string {
+	if m.toolsCheck.State != ToolsCheckStatePassed {
+		return m.toolsCheck.View()
+	}
+
 	if !m.ready {
 		return "Initializing..."
 	}
