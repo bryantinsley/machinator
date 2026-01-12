@@ -63,6 +63,16 @@ This prevents Go from writing to ~/Library/Caches which is blocked by security r
    - Follow the "Landing the Plane" checklist from AGENTS.md
    - git status, git add, git commit, git push
 
+6. **PROTOCOL: CI-GATED OPERATIONS**
+   - For slow operations (VHS, heavy tests), use CI instead of running locally
+   - Workflow:
+     1. Commit and push your changes
+     2. Create a gate: bd create --type=gate --title="Wait for CI" --external-ref="gh:run:vhs"
+     3. Create follow-up task blocked by the gate
+     4. Exit immediately - dont wait for CI
+     5. The system will resume when CI completes
+   - See AGENTS.md "CI-Gated Operations" for details
+
 === CURRENT TASK CONTEXT ===
 
 {{.TaskContext}}
@@ -74,4 +84,10 @@ This prevents Go from writing to ~/Library/Caches which is blocked by security r
 === INSTRUCTIONS ===
 
 Begin execution on Task {{.TaskID}}. Follow all protocols strictly.
+
+**REMINDER**: Before exiting, you MUST run:
+- `bd close {{.TaskID}}` (if complete)
+- OR `bd update {{.TaskID}} --status=blocked` (if stuck)
+- If you created a gate, ensure you created a follow-up task blocked by it
+
 If you need to exit early, explain why clearly before stopping.
