@@ -84,6 +84,29 @@ These directories are already in `.gitignore`.
 - npm packages in `node_modules/` (project-local)
 - Python packages in a virtualenv within the project
 
+## CI-Gated Operations
+
+Some operations run faster on CI than locally:
+- VHS terminal recording (uses Docker locally, native Linux on CI)
+- Heavy test suites
+
+For these operations, use the CI-gated workflow:
+
+1. **Make your changes** and commit:
+   git add -A && git commit -m "feat: update TUI layout" && git push
+
+2. **Create a gate** that waits for the CI workflow:
+   bd create --type=gate --title="Wait for VHS CI" --external-ref="gh:run:vhs"
+
+3. **Link your follow-up task** to the gate:
+   bd dep add <follow-up-task> <gate-id>
+
+4. **Exit immediately** - the orchestrator will check gates periodically
+
+5. **When CI completes**, the gate resolves and the follow-up task unblocks
+
+This keeps your laptop cool and your quota efficient!
+
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
