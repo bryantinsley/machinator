@@ -3,8 +3,8 @@ name: VHS
 on:
   push:
     paths:
-      - 'orchestrator/e2e/**.tape'
-      - 'orchestrator/**.go'
+      - 'orchestrator/e2e/**/*.tape'
+      - 'orchestrator/**/*.go'
       - 'run_vhs_tapes.sh'
   workflow_dispatch:
 
@@ -20,7 +20,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.24'
+          go-version: '1.22'
           
       - name: Install dependencies
         run: |
@@ -42,5 +42,5 @@ jobs:
       - name: Verify Changed Files
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "docs: update VHS tapes [skip ci]"
+          commit_message: "docs: update VHS tapes"
           file_pattern: 'docs/ui-history/*.gif'
