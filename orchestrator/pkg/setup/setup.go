@@ -242,6 +242,7 @@ func (m model) loadProjects() []ProjectConfig {
 			}
 			var config ProjectConfig
 			if json.Unmarshal(data, &config) == nil {
+				config.DirName = entry.Name()
 				// Refresh beads stats from agents/1 workspace
 				agent1Dir := filepath.Join(m.projectsDir, entry.Name(), "agents", "1")
 				beadsDir := filepath.Join(agent1Dir, ".beads")
@@ -440,7 +441,7 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				// Delete clicked
 				if m.selectedProject < len(m.projects) {
 					p := m.projects[m.selectedProject]
-					projectDir := filepath.Join(m.projectsDir, fmt.Sprintf("%d", p.ID))
+					projectDir := m.getProjectRootDir(p)
 					os.RemoveAll(projectDir)
 					m.addStatus(fmt.Sprintf("Removed project: %s", p.Name))
 					m.screen = screenMain
@@ -535,7 +536,7 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				// Yes clicked - delete
 				if m.selectedProject < len(m.projects) {
 					p := m.projects[m.selectedProject]
-					projectDir := filepath.Join(m.projectsDir, fmt.Sprintf("%d", p.ID))
+					projectDir := m.getProjectRootDir(p)
 					os.RemoveAll(projectDir)
 					m.addStatus(fmt.Sprintf("Deleted project: %s", p.Name))
 					m.screen = screenMain
@@ -838,7 +839,7 @@ func (m model) handleConfirmDeleteKeys(key string) (tea.Model, tea.Cmd) {
 			// Yes - delete
 			if m.selectedProject < len(m.projects) {
 				p := m.projects[m.selectedProject]
-				projectDir := filepath.Join(m.projectsDir, fmt.Sprintf("%d", p.ID))
+				projectDir := m.getProjectRootDir(p)
 				os.RemoveAll(projectDir)
 				m.addStatus(fmt.Sprintf("Deleted project: %s", p.Name))
 				m.screen = screenMain
@@ -854,7 +855,7 @@ func (m model) handleConfirmDeleteKeys(key string) (tea.Model, tea.Cmd) {
 	case "y":
 		if m.selectedProject < len(m.projects) {
 			p := m.projects[m.selectedProject]
-			projectDir := filepath.Join(m.projectsDir, fmt.Sprintf("%d", p.ID))
+			projectDir := m.getProjectRootDir(p)
 			os.RemoveAll(projectDir)
 			m.addStatus(fmt.Sprintf("Deleted project: %s", p.Name))
 			m.screen = screenMain
@@ -1721,7 +1722,11 @@ func (m model) viewStatusPane() string {
 }
 
 func (m model) getProjectRootDir(p ProjectConfig) string {
-	return filepath.Join(m.projectsDir, fmt.Sprintf("%d", p.ID))
+	dirName := p.DirName
+	if dirName == "" {
+		dirName = fmt.Sprintf("%d", p.ID)
+	}
+	return filepath.Join(m.projectsDir, dirName)
 }
 
 func (m model) getProjectStatusBadge(p ProjectConfig) string {
@@ -1937,7 +1942,7 @@ func (m model) cloneRepo() tea.Cmd {
 func (m model) recloneAllAgents(p ProjectConfig) tea.Cmd {
 	ch := m.progressChan
 	return func() tea.Msg {
-		projectDir := filepath.Join(m.projectsDir, fmt.Sprintf("%d", p.ID))
+		projectDir := m.getProjectRootDir(p)
 		agentsDir := filepath.Join(projectDir, "agents")
 
 		// Remove all existing agents
@@ -2045,7 +2050,7 @@ func (m model) checkBeads() tea.Cmd {
 func (m model) applyAgentChanges(p ProjectConfig, desiredCount int) tea.Cmd {
 	ch := m.progressChan
 	return func() tea.Msg {
-		projectDir := filepath.Join(m.projectsDir, fmt.Sprintf("%d", p.ID))
+		projectDir := m.getProjectRootDir(p)
 		currentCount := p.AgentCount
 
 		if desiredCount > currentCount {
@@ -2151,6 +2156,7 @@ func (m *model) saveNewProject() {
 		TasksDone:  m.beadsDone,
 		TasksTotal: m.beadsTotal,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+		DirName:    fmt.Sprintf("%d", m.newProjectID),
 	}
 
 	os.MkdirAll(m.newProjectDir, 0755)
@@ -2170,7 +2176,7 @@ func (m *model) saveNewProject() {
 }
 
 func (m *model) updateProjectConfig(p ProjectConfig) {
-	projectDir := filepath.Join(m.projectsDir, fmt.Sprintf("%d", p.ID))
+	projectDir := m.getProjectRootDir(p)
 	configPath := filepath.Join(projectDir, "project.json")
 	data, _ := json.MarshalIndent(p, "", "  ")
 	os.WriteFile(configPath, data, 0644)
@@ -2178,7 +2184,7 @@ func (m *model) updateProjectConfig(p ProjectConfig) {
 
 func (m model) addAgentCmd(p ProjectConfig) tea.Cmd {
 	return func() tea.Msg {
-		projectDir := filepath.Join(m.projectsDir, fmt.Sprintf("%d", p.ID))
+		projectDir := m.getProjectRootDir(p)
 		newAgentNum := p.AgentCount + 1
 		newAgentDir := filepath.Join(projectDir, "agents", fmt.Sprintf("%d", newAgentNum))
 
@@ -2210,7 +2216,7 @@ func (m model) removeAgentCmd(p ProjectConfig) tea.Cmd {
 			}
 		}
 
-		projectDir := filepath.Join(m.projectsDir, fmt.Sprintf("%d", p.ID))
+		projectDir := m.getProjectRootDir(p)
 		agentDir := filepath.Join(projectDir, "agents", fmt.Sprintf("%d", p.AgentCount))
 
 		if err := os.RemoveAll(agentDir); err != nil {

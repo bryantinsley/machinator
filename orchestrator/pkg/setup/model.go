@@ -21,6 +21,10 @@ type ProjectConfig struct {
 	TasksTotal int    `json:"tasks_total"`
 	CreatedAt  string `json:"created_at"`
 
+	// DirName is the name of the directory containing the project.json file.
+	// It is not stored in the JSON file itself.
+	DirName string `json:"-"`
+
 	// Configurable settings
 	IdleTimeout    time.Duration `json:"idle_timeout,omitempty"`
 	MaxTaskRuntime time.Duration `json:"max_task_runtime,omitempty"`
