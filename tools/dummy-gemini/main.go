@@ -21,6 +21,9 @@ func main() {
 	outputFormat := flag.String("output-format", "", "Output format")
 	version := flag.Bool("version", false, "Show version")
 
+	// Flags for compatibility but ignored
+	_ = flag.String("system", "", "System prompt")
+
 	flag.Parse()
 
 	if *version {
@@ -33,22 +36,45 @@ func main() {
 		*isJSON = true
 	}
 
-	mode := os.Getenv("GEMINI_MODE")
+	mode := os.Getenv("DUMMY_GEMINI_MODE")
+	if mode == "" {
+		mode = os.Getenv("GEMINI_MODE")
+	}
 
 	switch mode {
 	case "ERROR":
-		fmt.Fprintln(os.Stderr, "Quota exceeded")
+		fmt.Fprintln(os.Stderr, "Error: Quota exceeded or service unavailable")
 		os.Exit(1)
 	case "STUCK":
-		time.Sleep(30 * time.Second)
+		// Hang indefinitely (well, for an hour)
+		time.Sleep(1 * time.Hour)
 		printHappy(*isJSON)
+	case "SCRIPTED":
+		printScripted(*isJSON)
 	case "AUTO_CLOSE":
+		// AUTO_CLOSE logic is specific to the E2E test harness
 		printAutoClose(*isJSON, flag.Arg(0))
 	case "HAPPY":
 		fallthrough
 	default:
 		printHappy(*isJSON)
 	}
+}
+
+func printScripted(isJSON bool) {
+	scriptPath := os.Getenv("DUMMY_GEMINI_SCRIPT")
+	if scriptPath == "" {
+		fmt.Fprintln(os.Stderr, "Error: DUMMY_GEMINI_SCRIPT env var not set")
+		os.Exit(1)
+	}
+
+	content, err := os.ReadFile(scriptPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading script file: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Print(string(content))
 }
 
 func printAutoClose(isJSON bool, directive string) {
