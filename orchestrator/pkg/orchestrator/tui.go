@@ -145,7 +145,7 @@ type Config struct {
 
 // Messages
 type tickMsg time.Time
-type quotaMsg int
+type quotaMsg map[string]int
 type tasksMsg []Task
 type acpEventMsg ACPEvent // Use our rich ACPEvent type
 type logMsg string
@@ -179,7 +179,7 @@ type model struct {
 	activityScroll  int        // Scroll offset for activity panel
 	confirmQuit     bool       // Whether we're waiting for quit confirmation
 	logs            viewport.Model
-	quotaPercent    int
+	quotas          map[string]int
 	quotaLoaded     bool
 	agentName       string
 	tickCount       int // Counts 1-second ticks for periodic operations
@@ -205,6 +205,7 @@ type model struct {
 	agentSelector   *components.Dropdown // Agent selector
 	filteredIndices []int                // Indices into eventHistory that match filter
 	state           OrchestratorState    // Current orchestration state
+	expandQuota     bool                 // Whether to show full quota list
 }
 
 func initialModel(projectConfig *setup.ProjectConfig) model {
@@ -284,7 +285,7 @@ func initialModel(projectConfig *setup.ProjectConfig) model {
 		activityScroll:  0,
 		focusPanel:      1, // Start focused on activity panel
 		logs:            vp,
-		quotaPercent:    0,
+		quotas:          make(map[string]int),
 		agentName:       config.AgentName,
 		cycle:           0,
 		maxCycles:       config.MaxCycles,
@@ -301,6 +302,7 @@ func initialModel(projectConfig *setup.ProjectConfig) model {
 		agentSelector:   selector,
 		filteredIndices: []int{},
 		state:           StateRunning,
+		expandQuota:     false,
 	}
 }
 
@@ -330,7 +332,7 @@ func (m model) Init() tea.Cmd {
 	}
 	return tea.Batch(
 		tick(),
-		checkQuota(),
+		checkQuota(m.accountPool),
 		fetchTasks(m.projectRoot),
 		m.toolsCheck.Init(),
 	)
@@ -432,7 +434,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				// Refresh tasks/quota
 				m.addActivity("🔄 Refreshing...")
-				return m, tea.Batch(checkQuota(), fetchTasks(m.projectRoot))
+				return m, tea.Batch(checkQuota(m.accountPool), fetchTasks(m.projectRoot))
 			}
 		case "p":
 			if m.state == StateRunning {
@@ -631,6 +633,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmds...)
 			}
 
+			// Check title click (toggle quota)
+			// Assuming title is always at top.
+			// If title wraps, it might be > 1 line.
+			// Ideally we check if Y < titleHeight.
+			// But titleHeight is calculated in View.
+			// We can approximate or just check Y=0 for now, or check Y < 3.
+			if msg.Y < 2 {
+				m.expandQuota = !m.expandQuota
+				return m, nil
+			}
+
 			// Rough hit testing
 			// Grid is at top (approx Y=3 to Y=15)
 			// Tasks/Activity below
@@ -717,7 +730,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Periodic operations (based on tickCount, not cycle)
 		if m.tickCount%25 == 0 { // Every 25 seconds
 			m.addLog("🔄 Quota check")
-			cmds = append(cmds, checkQuota())
+			cmds = append(cmds, checkQuota(m.accountPool))
 		}
 		if m.tickCount%50 == 0 { // Every 50 seconds
 			m.addLog("🔄 Task fetch")
@@ -792,17 +805,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, tick())
 
 	case quotaMsg:
-		m.quotaPercent = int(msg)
+		m.quotas = msg
 		m.quotaLoaded = true
 		// Direct file write for debugging
 		logPath := filepath.Join(originalCwd, "machinator", "logs", "tui_debug.log")
 		f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if f != nil {
-			f.WriteString(fmt.Sprintf("[%s] ✅ Quota: %d%%\n", time.Now().Format("15:04:05"), m.quotaPercent))
+			f.WriteString(fmt.Sprintf("[%s] ✅ Quotas loaded: %v\n", time.Now().Format("15:04:05"), m.quotas))
 			f.Close()
 		}
-		m.addLog(fmt.Sprintf("✅ Quota loaded: %d%%", m.quotaPercent))
-		m.addActivity(fmt.Sprintf("📊 Quota: %d%%", m.quotaPercent))
+		m.addLog(fmt.Sprintf("✅ Quotas loaded: %d accounts", len(m.quotas)))
+		m.addActivity(fmt.Sprintf("📊 Quotas loaded for %d accounts", len(m.quotas)))
 		// Check for ready tasks if we have tasks and quota
 		if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed && len(m.tasks) > 0 {
 			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
@@ -1087,10 +1100,45 @@ func (m model) View() string {
 	}
 
 	if m.quotaLoaded {
-		quota := strings.Repeat("█", m.quotaPercent/10) + strings.Repeat("░", 10-m.quotaPercent/10)
+		// Build quota string for all accounts
+		var quotaParts []string
+		for name, percent := range m.quotas {
+			// Color code based on percentage
+			var style lipgloss.Style
+			if percent < 10 {
+				style = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
+			} else if percent < 30 {
+				style = lipgloss.NewStyle().Foreground(lipgloss.Color("220")) // Yellow
+			} else {
+				style = lipgloss.NewStyle().Foreground(lipgloss.Color("46")) // Green
+			}
+
+			// Shorten bar for multi-account
+			barLen := 5
+			filled := percent * barLen / 100
+			bar := strings.Repeat("█", filled) + strings.Repeat("░", barLen-filled)
+
+			quotaParts = append(quotaParts, fmt.Sprintf("%s: %s %s", name, style.Render(bar), style.Render(fmt.Sprintf("%d%%", percent))))
+		}
+
+		// If too many, collapse? For now, just join them.
+		quotaStr := strings.Join(quotaParts, "  ")
+		if !m.expandQuota && len(quotaStr) > 60 {
+			// Fallback to summary if too long and not expanded
+			// Count exhausted
+			exhausted := 0
+			for _, p := range m.quotas {
+				if p == 0 {
+					exhausted++
+				}
+			}
+			available := len(m.quotas) - exhausted
+			quotaStr = fmt.Sprintf("Quotas: %d/%d avail (click to expand)", available, len(m.quotas))
+		}
+
 		title = titleStyle.Render(fmt.Sprintf(
-			"🤖 Machinator    Agent: %s%s    Quota: %s %d%%    Cycle: %d    %s",
-			m.agentName, accountInfo, quota, m.quotaPercent, m.cycle, status,
+			"🤖 Machinator    Agent: %s%s    %s    Cycle: %d    %s",
+			m.agentName, accountInfo, quotaStr, m.cycle, status,
 		))
 	} else {
 		title = titleStyle.Render(fmt.Sprintf(
