@@ -30,11 +30,12 @@ type ProjectConfig struct {
 	DirName string `json:"-"`
 
 	// Configurable settings
-	WorktreeStrategy string        `json:"worktree_strategy"` // "per-task", "per-invocation", "persistent"
-	IdleTimeout      time.Duration `json:"idle_timeout,omitempty"`
-	MaxTaskRuntime   time.Duration `json:"max_task_runtime,omitempty"`
-	MaxCycles        int           `json:"max_cycles,omitempty"`
-	CooldownPeriod   time.Duration `json:"cooldown_period,omitempty"`
+	WorktreeStrategy  string        `json:"worktree_strategy"` // "per-task", "per-invocation", "persistent"
+	UseAccountPooling bool          `json:"use_account_pooling"`
+	IdleTimeout       time.Duration `json:"idle_timeout,omitempty"`
+	MaxTaskRuntime    time.Duration `json:"max_task_runtime,omitempty"`
+	MaxCycles         int           `json:"max_cycles,omitempty"`
+	CooldownPeriod    time.Duration `json:"cooldown_period,omitempty"`
 }
 
 func (p *ProjectConfig) GetWorktreeStrategy() string {

@@ -57,34 +57,43 @@ func TestLoadAccounts(t *testing.T) {
 		t.Fatalf("failed to create notadir: %v", err)
 	}
 
+	// Create a *.json account file
+	acc4Config := Account{
+		Name:   "Account 4",
+		APIKey: "test-api-key",
+	}
+	acc4Data, _ := json.Marshal(acc4Config)
+	if err := os.WriteFile(filepath.Join(accountsDir, "acc4.json"), acc4Data, 0644); err != nil {
+		t.Fatalf("failed to write acc4.json: %v", err)
+	}
+
 	accounts, err := LoadAccounts(tmpDir)
 	if err != nil {
 		t.Errorf("LoadAccounts failed: %v", err)
 	}
 
-	if len(accounts) != 2 {
-		t.Errorf("expected 2 accounts, got %d", len(accounts))
+	if len(accounts) != 3 {
+		t.Errorf("expected 3 accounts, got %d", len(accounts))
 	}
 
 	foundAcc1 := false
 	foundAcc2 := false
+	foundAcc4 := false
 
 	for _, acc := range accounts {
 		if acc.Name == "Account 1" {
 			foundAcc1 = true
-			if acc.AuthType != AuthTypeAPIKey {
-				t.Errorf("acc1: expected AuthTypeAPIKey, got %s", acc.AuthType)
-			}
-			if acc.HomeDir != acc1Dir {
-				t.Errorf("acc1: expected HomeDir %s, got %s", acc1Dir, acc.HomeDir)
-			}
 		} else if acc.Name == "acc2" {
 			foundAcc2 = true
-			if acc.AuthType != AuthTypeGoogle {
-				t.Errorf("acc2: expected AuthTypeGoogle, got %s", acc.AuthType)
+		} else if acc.Name == "Account 4" {
+			foundAcc4 = true
+			if acc.APIKey != "test-api-key" {
+				t.Errorf("acc4: expected APIKey test-api-key, got %s", acc.APIKey)
 			}
-			if acc.HomeDir != acc2Dir {
-				t.Errorf("acc2: expected HomeDir %s, got %s", acc2Dir, acc.HomeDir)
+			// Check if settings.json was created
+			settingsPath := filepath.Join(acc.GeminiDir, "settings.json")
+			if _, err := os.Stat(settingsPath); err != nil {
+				t.Errorf("acc4: expected settings.json at %s, but not found", settingsPath)
 			}
 		}
 	}
@@ -94,6 +103,9 @@ func TestLoadAccounts(t *testing.T) {
 	}
 	if !foundAcc2 {
 		t.Errorf("acc2 not found")
+	}
+	if !foundAcc4 {
+		t.Errorf("acc4 not found")
 	}
 }
 

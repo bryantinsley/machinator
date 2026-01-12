@@ -16,12 +16,11 @@ User-wide configuration and resources, shared across all projects.
 ├── gemini                   # Managed Gemini CLI binary
 │
 ├── accounts/                # Account pool for multi-account rotation
-│   ├── default/             # Primary account (fake HOME)
+│   ├── account1.json        # Account metadata (name, auth_type, api_key, gemini_dir)
+│   ├── account2.json
+│   ├── default/             # Legacy structure: Primary account (fake HOME)
 │   │   ├── .gemini/         # Gemini auth for this account
 │   │   └── account.json     # Account metadata (name, auth_type)
-│   ├── work/                # Additional account
-│   │   ├── .gemini/
-│   │   └── account.json
 │   └── ...
 │
 ├── projects/                # Project registry
@@ -46,13 +45,15 @@ User-wide configuration and resources, shared across all projects.
 }
 ```
 
-**accounts/\*/account.json**
+**accounts/*.json**
 
 ```json
 {
   "name": "default",
-  "auth_type": "google", // or "api_key"
-  "created_at": "2026-01-11T00:00:00Z"
+  "auth_type": "api_key", // or "google"
+  "api_key": "AIza...",
+  "gemini_dir": "/path/to/.gemini",
+  "home_dir": "/path/to/fake/home"
 }
 ```
 
@@ -64,6 +65,7 @@ User-wide configuration and resources, shared across all projects.
   "name": "My Project",
   "repo_url": "https://github.com/user/repo.git",
   "agent_count": 3,
+  "use_account_pooling": true,
   "idle_timeout": "5m",
   "max_runtime": "30m",
   "worktree_strategy": "per-invocation"

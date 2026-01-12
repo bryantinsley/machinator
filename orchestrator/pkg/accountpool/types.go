@@ -13,9 +13,11 @@ const (
 )
 
 type Account struct {
-	Name     string   `json:"name"`
-	AuthType AuthType `json:"auth_type"`
-	HomeDir  string   // Full path to fake HOME (e.g., ~/.machinator/accounts/default)
+	Name      string   `json:"name"`
+	AuthType  AuthType `json:"auth_type"`
+	APIKey    string   `json:"api_key"`
+	GeminiDir string   `json:"gemini_dir"`
+	HomeDir   string   // Full path to fake HOME (e.g., ~/.machinator/accounts/default)
 }
 
 type Pool struct {

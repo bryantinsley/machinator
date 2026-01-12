@@ -269,6 +269,7 @@ func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
 		if projectConfig.CooldownPeriod > 0 {
 			config.CooldownPeriod = projectConfig.CooldownPeriod
 		}
+		config.PoolingEnabled = projectConfig.UseAccountPooling
 	}
 
 	machinatorDir := setup.GetMachinatorDir()

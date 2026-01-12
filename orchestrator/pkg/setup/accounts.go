@@ -128,7 +128,7 @@ func GetAccounts(machinatorDir string) ([]AccountInfo, error) {
 	var infos []AccountInfo
 	for _, acc := range accounts {
 		authenticated := false
-		geminiDir := filepath.Join(acc.HomeDir, ".gemini")
+		geminiDir := acc.GeminiDir
 
 		if acc.AuthType == accountpool.AuthTypeAPIKey {
 			settingsPath := filepath.Join(geminiDir, "settings.json")

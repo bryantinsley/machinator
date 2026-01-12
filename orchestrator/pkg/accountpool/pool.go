@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -160,17 +161,35 @@ func LoadAccounts(machinatorDir string) ([]Account, error) {
 
 	var accounts []Account
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if entry.IsDir() {
+			// Legacy support: look for account.json in subdirectories
+			accountDir := filepath.Join(accountsDir, entry.Name())
+			configPath := filepath.Join(accountDir, "account.json")
+
+			if _, err := os.Stat(configPath); err == nil {
+				data, err := os.ReadFile(configPath)
+				if err == nil {
+					var acc Account
+					if err := json.Unmarshal(data, &acc); err == nil {
+						if acc.Name == "" {
+							acc.Name = entry.Name()
+						}
+						acc.HomeDir = accountDir
+						if acc.GeminiDir == "" {
+							acc.GeminiDir = filepath.Join(accountDir, ".gemini")
+						}
+						accounts = append(accounts, acc)
+					}
+				}
+			}
 			continue
 		}
 
-		accountDir := filepath.Join(accountsDir, entry.Name())
-		configPath := filepath.Join(accountDir, "account.json")
-
-		if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		if filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
 
+		configPath := filepath.Join(accountsDir, entry.Name())
 		data, err := os.ReadFile(configPath)
 		if err != nil {
 			continue
@@ -182,9 +201,30 @@ func LoadAccounts(machinatorDir string) ([]Account, error) {
 		}
 
 		if acc.Name == "" {
-			acc.Name = entry.Name()
+			acc.Name = strings.TrimSuffix(entry.Name(), ".json")
 		}
-		acc.HomeDir = accountDir
+
+		// If HomeDir is not set, we create one in accounts/<name>
+		if acc.HomeDir == "" {
+			acc.HomeDir = filepath.Join(accountsDir, acc.Name)
+		}
+
+		if acc.GeminiDir == "" {
+			acc.GeminiDir = filepath.Join(acc.HomeDir, ".gemini")
+		}
+
+		// Ensure directories exist
+		os.MkdirAll(acc.GeminiDir, 0755)
+
+		// If APIKey is provided, ensure it's in settings.json
+		if acc.APIKey != "" {
+			settingsPath := filepath.Join(acc.GeminiDir, "settings.json")
+			settings := map[string]interface{}{
+				"api_key": acc.APIKey,
+			}
+			settingsData, _ := json.MarshalIndent(settings, "", "  ")
+			os.WriteFile(settingsPath, settingsData, 0644)
+		}
 
 		accounts = append(accounts, acc)
 	}
