@@ -45,6 +45,10 @@ bazel run //:tui
 
 ## Architecture
 
+Machinator uses a fetch-execute-loop to maintain continuous operation.
+
+For a detailed breakdown of the system design, see [How It Works](docs/concepts/how-it-works.md).
+
 ```mermaid
 graph TD
     A[TUI Orchestrator] -->|fetches| B[Beads Tasks]
@@ -65,58 +69,6 @@ graph TD
     A -->|5min timeout| K[Kill & Retry]
     K --> B
 ```
-
-## How It Works
-
-### 1. Task Discovery
-
-The orchestrator queries beads for work:
-
-- First checks for in-progress tasks assigned to this agent
-- Then queries `bd ready` for unblocked, available tasks
-- Skips tasks that recently failed (5-minute cooldown)
-
-### 2. Unblocking Mode
-
-When no ready tasks are available but blocked tasks exist, machinator enters **unblocking mode**:
-
-- Uses `templates/unblocking_directive.txt` instead of the normal template
-- Instructs the agent to analyze dependency chains and blockers
-- Agent can update task statuses, create subtasks, or resolve blockers
-- Prevents the common "everything is blocked" deadlock situation
-
-This ensures continuous progress even when task dependencies get tangled.
-
-### 3. Directive Building
-
-For each task, machinator builds an instruction prompt:
-
-1. Loads `templates/directive_template.txt`
-2. Injects task context from `bd show <task-id>`
-3. Injects project context from `AGENTS.md`
-4. Substitutes variables: `{{.AgentName}}`, `{{.TaskID}}`, `{{.TaskContext}}`, `{{.ProjectContext}}`
-
-### 4. Gemini Execution
-
-Launches Gemini with the directive:
-
-```bash
-gemini --yolo --output-format stream-json "<directive>"
-```
-
-The TUI streams and displays events:
-
-- 💭 **Thinking** — model reasoning
-- 🔧 **Tool use** — file reads, shell commands, etc.
-- ✅ **Results** — tool outputs
-- ❌ **Errors** — failures and issues
-
-### 5. Monitoring & Resilience
-
-- **Quota checks** — periodic API quota monitoring
-- **Inactivity timeout** — kills stuck processes after 5 minutes of no events
-- **Failed task cooldown** — skips failed tasks for 5 minutes before retry
-- **Continuous operation** — automatically picks up next task after completion
 
 ## TUI Interface
 
