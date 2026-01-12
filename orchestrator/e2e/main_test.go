@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bazelbuild/rules_go/go/runfiles"
 )
 
 type Task struct {
@@ -41,12 +43,33 @@ func setupHarness(t *testing.T) *Harness {
 		t.Fatal(err)
 	}
 
-	// Build binaries
-	h.GeminiBin = filepath.Join(h.BinDir, "gemini")
-	buildGoBin(t, h.RootDir, "./tools/dummy-gemini", h.GeminiBin)
+	// Use runfiles if available
+	rf, err := runfiles.New()
+	var bdSrc string
+	if err == nil {
+		h.GeminiBin, _ = rf.Rlocation("_main/tools/dummy-gemini/dummy-gemini_/dummy-gemini")
+		h.MachinatorBin, _ = rf.Rlocation("_main/orchestrator/cmd/machinator/machinator_/machinator")
+		bdSrc, _ = rf.Rlocation("_main/bd")
+	}
 
-	h.MachinatorBin = filepath.Join(h.BinDir, "machinator")
-	buildGoBin(t, h.RootDir, "./orchestrator/cmd/machinator", h.MachinatorBin)
+	if h.GeminiBin == "" || h.MachinatorBin == "" {
+		t.Log("Runfiles not found, falling back to manual build")
+		// Build binaries
+		h.GeminiBin = filepath.Join(h.BinDir, "gemini")
+		buildGoBin(t, h.RootDir, "./tools/dummy-gemini", h.GeminiBin)
+
+		h.MachinatorBin = filepath.Join(h.BinDir, "machinator")
+		buildGoBin(t, h.RootDir, "./orchestrator/cmd/machinator", h.MachinatorBin)
+	}
+
+	// Copy bd if found
+	if bdSrc != "" {
+		if err := copyFile(bdSrc, filepath.Join(h.BinDir, "bd")); err != nil {
+			t.Logf("Warning: failed to copy bd: %v", err)
+		} else {
+			os.Chmod(filepath.Join(h.BinDir, "bd"), 0755)
+		}
+	}
 
 	// Copy dummy-gemini to ~/.machinator/gemini
 	if err := copyFile(h.GeminiBin, filepath.Join(h.MachinatorDir, "gemini")); err != nil {
@@ -58,25 +81,64 @@ func setupHarness(t *testing.T) *Harness {
 }
 
 func (h *Harness) setupFixture(t *testing.T) {
-	// Copy testdata/fixture-repo to repoDir
-	fixtureSrc := filepath.Join(h.RootDir, "testdata", "fixture-repo")
+	// Use runfiles if available
+	rf, err := runfiles.New()
+	var fixtureSrc, templatesSrc, agentsMd, checkQuotaSrc string
+	if err == nil {
+		fixtureSrc, _ = rf.Rlocation("_main/testdata/fixture-repo")
+		templatesSrc, _ = rf.Rlocation("_main/templates")
+		agentsMd, _ = rf.Rlocation("_main/AGENTS.md")
+		checkQuotaSrc, _ = rf.Rlocation("_main/bootstrap/check_quota.sh")
+	}
+
+	if fixtureSrc == "" {
+		fixtureSrc = filepath.Join(h.RootDir, "testdata", "fixture-repo")
+		templatesSrc = filepath.Join(h.RootDir, "templates")
+		agentsMd = filepath.Join(h.RootDir, "AGENTS.md")
+		checkQuotaSrc = filepath.Join(h.RootDir, "bootstrap", "check_quota.sh")
+	}
+
 	if err := copyDir(fixtureSrc, h.RepoDir); err != nil {
 		t.Fatalf("Failed to copy fixture repo: %v", err)
 	}
 
+	// Initialize git repo (bd needs it)
+	exec.Command("git", "-C", h.RepoDir, "init").Run()
+	exec.Command("git", "-C", h.RepoDir, "add", ".").Run()
+	exec.Command("git", "-C", h.RepoDir, "commit", "-m", "initial commit").Run()
+
 	// Copy templates
-	copyDir(filepath.Join(h.RootDir, "templates"), filepath.Join(h.RepoDir, "templates"))
+	copyDir(templatesSrc, filepath.Join(h.RepoDir, "templates"))
 
 	// Copy AGENTS.md
-	copyFile(filepath.Join(h.RootDir, "AGENTS.md"), filepath.Join(h.RepoDir, "AGENTS.md"))
+	copyFile(agentsMd, filepath.Join(h.RepoDir, "AGENTS.md"))
 
 	// Copy check_quota.sh
 	os.MkdirAll(filepath.Join(h.RepoDir, "machinator"), 0755)
-	copyFile(filepath.Join(h.RootDir, "bootstrap", "check_quota.sh"), filepath.Join(h.RepoDir, "machinator", "check_quota.sh"))
+	copyFile(checkQuotaSrc, filepath.Join(h.RepoDir, "machinator", "check_quota.sh"))
 	os.Chmod(filepath.Join(h.RepoDir, "machinator", "check_quota.sh"), 0755)
 
 	// Create agents/1 directory for execution
 	os.MkdirAll(filepath.Join(h.RepoDir, "agents", "1"), 0755)
+
+	// DEBUG: List files in repoDir
+	files, _ := os.ReadDir(h.RepoDir)
+	var fileNames []string
+	for _, f := range files {
+		fileNames = append(fileNames, f.Name())
+	}
+	t.Logf("RepoDir contains: %v", fileNames)
+
+	if _, err := os.Stat(filepath.Join(h.RepoDir, ".beads")); err == nil {
+		beadsFiles, _ := os.ReadDir(filepath.Join(h.RepoDir, ".beads"))
+		var beadsNames []string
+		for _, f := range beadsFiles {
+			beadsNames = append(beadsNames, f.Name())
+		}
+		t.Logf(".beads contains: %v", beadsNames)
+	} else {
+		t.Logf(".beads NOT FOUND in %s", h.RepoDir)
+	}
 }
 
 func (h *Harness) runMachinator(t *testing.T, envVars []string, args []string, timeout time.Duration) {
@@ -149,7 +211,8 @@ func (h *Harness) runMachinator(t *testing.T, envVars []string, args []string, t
 
 func (h *Harness) syncDB(t *testing.T) {
 	// Run bd import to ensure DB is in sync
-	cmd := exec.Command("bd", "import", "-i", ".beads/issues.jsonl")
+	bdPath := filepath.Join(h.BinDir, "bd")
+	cmd := exec.Command(bdPath, "import", "-i", ".beads/issues.jsonl")
 	cmd.Dir = h.RepoDir
 	// Need HOME set for bd
 	cmd.Env = append(os.Environ(), "HOME="+h.TmpDir)
@@ -173,8 +236,10 @@ func (h *Harness) dumpLogs(t *testing.T) {
 }
 
 func (h *Harness) getTask(t *testing.T, id string) Task {
-	cmd := exec.Command("bd", "list", "--json", "--no-db")
+	bdPath := filepath.Join(h.BinDir, "bd")
+	cmd := exec.Command(bdPath, "list", "--json", "--no-db")
 	cmd.Dir = h.RepoDir
+	cmd.Env = append(os.Environ(), "HOME="+h.TmpDir)
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("Failed to verify with bd: %v", err)
@@ -343,7 +408,7 @@ func buildGoBin(t *testing.T, root, pkg, outPath string) {
 }
 
 func copyDir(src, dst string) error {
-	return exec.Command("cp", "-R", src, dst).Run()
+	return exec.Command("cp", "-RL", src, dst).Run()
 }
 
 func copyFile(src, dst string) error {

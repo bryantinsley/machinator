@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_test")
+
+go_test(
+    name = "e2e_test",
+    srcs = ["main_test.go"],
+    data = [
+        "//orchestrator/cmd/machinator",
+        "//tools/dummy-gemini",
+        "//testdata/fixture-repo:fixture-repo",
+        "//templates",
+        "//:AGENTS.md",
+        "//:go.mod",
+        "//:bd",
+        "//:mock-bd.sh",
+        "//bootstrap:check_quota.sh",
+    ],
+    deps = ["@rules_go//go/runfiles"],
+)
+
+sh_test(
+    name = "vhs_test",
+    srcs = ["check-vhs.sh"],
+    data = glob(["*.tape"]) + [
+        "//scripts:vhs-docker.sh",
+    ],
+)

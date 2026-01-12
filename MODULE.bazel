@@ -20,4 +20,6 @@ use_repo(
     "com_github_charmbracelet_bubbles",
     "com_github_charmbracelet_bubbletea",
     "com_github_charmbracelet_lipgloss",
+    "com_github_charmbracelet_x_exp_teatest",
+    "com_github_charmbracelet_x_exp_golden",
 )

@@ -1,3 +1,19 @@
+load("@gazelle//:def.bzl", "gazelle")
+
+# gazelle:prefix github.com/bryantinsley/machinator
+# gazelle:exclude .go-cache
+# gazelle:exclude .go-build-cache
+# gazelle:exclude _archive
+# gazelle:exclude testdata/vhs-fixture
+gazelle(name = "gazelle")
+
+exports_files([
+    "AGENTS.md",
+    "go.mod",
+    "bd",
+    "mock-bd.sh",
+])
+
 # Root BUILD file - unified machinator binary
 #
 # The machinator binary handles both setup and orchestration:

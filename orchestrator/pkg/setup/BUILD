@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "setup",
@@ -13,7 +13,25 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//orchestrator/pkg/accountpool",
+        "//orchestrator/pkg/ui/components",
         "@com_github_charmbracelet_bubbletea//:bubbletea",
         "@com_github_charmbracelet_lipgloss//:lipgloss",
+    ],
+)
+
+go_test(
+    name = "setup_test",
+    srcs = [
+        "accounts_test.go",
+        "config_test.go",
+        "rename_repro_test.go",
+        "setup_test.go",
+    ],
+    data = glob(["testdata/**"]),
+    embed = [":setup"],
+    deps = [
+        "//orchestrator/pkg/ui/components",
+        "@com_github_charmbracelet_bubbletea//:bubbletea",
+        "@com_github_charmbracelet_x_exp_teatest//:teatest",
     ],
 )

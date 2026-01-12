@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "agentgrid",
@@ -14,4 +14,10 @@ go_library(
         "@com_github_charmbracelet_bubbletea//:bubbletea",
         "@com_github_charmbracelet_lipgloss//:lipgloss",
     ],
+)
+
+go_test(
+    name = "agentgrid_test",
+    srcs = ["grid_test.go"],
+    embed = [":agentgrid"],
 )

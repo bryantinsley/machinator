@@ -9,7 +9,7 @@ import (
 
 func TestTUI_StateTransitions(t *testing.T) {
 	// Setup initial model
-	m := initialModel(nil)
+	m := initialModel(nil, false)
 	m.ready = true
 	m.state = StateRunning
 
@@ -52,7 +52,7 @@ func TestTUI_StateTransitions(t *testing.T) {
 
 func TestTUI_TickRespecsState(t *testing.T) {
 	// Setup initial model in Paused state
-	m := initialModel(nil)
+	m := initialModel(nil, false)
 	m.ready = true
 	m.state = StatePaused
 	m.tickCount = 4 // 5-second cooldown -> next tick is 5

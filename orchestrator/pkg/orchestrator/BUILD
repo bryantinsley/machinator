@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "orchestrator",
@@ -15,8 +15,19 @@ go_library(
         "//orchestrator/pkg/accountpool",
         "//orchestrator/pkg/setup",
         "//orchestrator/pkg/ui/agentgrid",
+        "//orchestrator/pkg/ui/components",
         "@com_github_charmbracelet_bubbles//viewport",
         "@com_github_charmbracelet_bubbletea//:bubbletea",
         "@com_github_charmbracelet_lipgloss//:lipgloss",
     ],
+)
+
+go_test(
+    name = "orchestrator_test",
+    srcs = [
+        "tools_check_test.go",
+        "tui_test.go",
+    ],
+    embed = [":orchestrator"],
+    deps = ["@com_github_charmbracelet_bubbletea//:bubbletea"],
 )
