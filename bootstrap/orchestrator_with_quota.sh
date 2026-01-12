@@ -190,16 +190,17 @@ while [ $count -lt $MAX_CYCLES ]; do
             
             log "⚡ Entering UNBLOCKING mode (Pro quota available)"
             
-            # Get blocked tasks details
-            BLOCKED_TASK_DETAILS=$(bd blocked 2>/dev/null || echo "Unable to fetch blocked tasks")
+            # Get blocked tasks details - escape for sed/perl
+            BLOCKED_TASK_DETAILS=$(bd blocked 2>/dev/null | tr '\n' ' ' | sed 's/[&/\|]/\\&/g' || echo "Unable to fetch blocked tasks")
             
             # Build unblocking directive
             DIRECTIVE_FILE=".gemini/tmp/unblocking_${TOTAL_TASKS}.txt"
-            cat bootstrap/unblocking_directive.txt | \
-                sed -e "s/AGENT_NAME_VAR/$AGENT_NAME/g" \
-                    -e "s/TOTAL_TASKS_VAR/$TOTAL_TASKS/g" \
-                    -e "s|BLOCKED_TASK_DETAILS_VAR|$BLOCKED_TASK_DETAILS|g" \
-                > "$DIRECTIVE_FILE"
+            cp bootstrap/unblocking_directive.txt "$DIRECTIVE_FILE"
+            sed -i '' -e "s/AGENT_NAME_VAR/$AGENT_NAME/g" "$DIRECTIVE_FILE"
+            sed -i '' -e "s/TOTAL_TASKS_VAR/$TOTAL_TASKS/g" "$DIRECTIVE_FILE"
+            # Use perl for complex substitutions
+            perl -i -pe "s|BLOCKED_TASK_DETAILS_VAR|$BLOCKED_TASK_DETAILS|g" "$DIRECTIVE_FILE" 2>/dev/null || \
+                sed -i '' -e "s|BLOCKED_TASK_DETAILS_VAR|See bd blocked for details|g" "$DIRECTIVE_FILE"
             
             # Launch Gemini in unblocking mode
             log "🚀 Launching Gemini in UNBLOCKING mode..."
