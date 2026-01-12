@@ -33,3 +33,14 @@ sh_test(
         "//scripts:vhs-docker.sh",
     ],
 )
+
+sh_test(
+    name = "vhs_validation",
+    srcs = ["run_vhs.sh"],
+    data = [
+        "//orchestrator/cmd/machinator:machinator-linux",
+        "//tools/dummy-gemini:dummy-gemini-linux",
+        "//testdata/vhs-fixture:files",
+        "//orchestrator/e2e:crud.tape",
+    ],
+)
