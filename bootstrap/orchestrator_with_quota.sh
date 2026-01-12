@@ -249,16 +249,19 @@ while [ $count -lt $MAX_CYCLES ]; do
     # Use deterministic path in project structure to avoid sandbox issues
     DIRECTIVE_FILE=".gemini/tmp/directive_${TASK_ID}.txt"
     
-    # Get context
-    TASK_CONTEXT=$(echo "$TASK_INFO" | jq -r '.[0].description // "No description"' | tr '\n' ' ' | sed 's/"/\\"/g')
+    # Get context - escape special characters for sed
+    TASK_CONTEXT=$(echo "$TASK_INFO" | jq -r '.[0].description // "No description"' | tr '\n' ' ' | sed 's/[&/\|]/\\&/g' | sed 's/"/\\"/g')
     PROJECT_CONTEXT="See AGENTS.md for full project context."
 
-    cat bootstrap/directive_template.txt | \
-        sed -e "s/AGENT_NAME_VAR/$AGENT_NAME/g" \
-            -e "s/TASK_ID_VAR/$TASK_ID/g" \
-            -e "s|TASK_CONTEXT_VAR|$TASK_CONTEXT|g" \
-            -e "s|PROJECT_CONTEXT_VAR|$PROJECT_CONTEXT|g" \
-        > "$DIRECTIVE_FILE"
+    # Generate directive using envsubst-style replacement to avoid sed issues
+    cp bootstrap/directive_template.txt "$DIRECTIVE_FILE"
+    sed -i '' -e "s/AGENT_NAME_VAR/$AGENT_NAME/g" "$DIRECTIVE_FILE"
+    sed -i '' -e "s/TASK_ID_VAR/$TASK_ID/g" "$DIRECTIVE_FILE"
+    # Use perl for complex substitutions to handle special chars better
+    perl -i -pe "s|TASK_CONTEXT_VAR|$TASK_CONTEXT|g" "$DIRECTIVE_FILE" 2>/dev/null || \
+        sed -i '' -e "s|TASK_CONTEXT_VAR|Task context unavailable - see bd show $TASK_ID|g" "$DIRECTIVE_FILE"
+    perl -i -pe "s|PROJECT_CONTEXT_VAR|$PROJECT_CONTEXT|g" "$DIRECTIVE_FILE" 2>/dev/null || \
+        sed -i '' -e "s|PROJECT_CONTEXT_VAR|$PROJECT_CONTEXT|g" "$DIRECTIVE_FILE"
     
     if [ -n "$GEMINI_PANE" ]; then
         # Clear the Gemini pane
