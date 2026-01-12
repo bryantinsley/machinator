@@ -10,6 +10,8 @@ on:
 jobs:
   record:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -26,6 +28,11 @@ jobs:
         run: |
           vhs orchestrator/e2e/navigation.tape
           vhs orchestrator/e2e/crud.tape
+      - name: Commit and push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update VHS tapes [skip ci]"
+          file_pattern: 'docs/ui-history/*.gif'
       - name: Upload GIFs
         uses: actions/upload-artifact@v4
         with:

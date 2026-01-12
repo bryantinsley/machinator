@@ -1,4 +1,5 @@
 # crud.tape
+# CI Trigger: 1
 Output docs/ui-history/crud.gif
 
 Set Shell "bash"
