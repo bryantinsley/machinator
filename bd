@@ -12,12 +12,12 @@ case "$1" in
   update)
     ID="$2"
     STATUS=$(echo "$@" | grep -oE -- '--status=[^ ]+' | cut -d= -f2)
-    perl -i -pe "s/(\"id\":\"$ID\"(.*?)\"status\":\"[a-z_]*\"/\"id\":\"$ID\"$1\"status\":\"$STATUS\"/" "$STATE_FILE"
+    perl -i -pe "s/(\"id\":\"$ID\".*?\"status\":)\"[a-z_]*\"/\${1}\"$STATUS\"/" "$STATE_FILE"
     exit 0
     ;;
   close)
     ID="$2"
-    perl -i -pe "s/(\"id\":\"$ID\"(.*?)\"status\":\"[a-z_]*\"/\"id\":\"$ID\"$1\"status\":\"closed\"/" "$STATE_FILE"
+    perl -i -pe "s/(\"id\":\"$ID\".*?\"status\":)\"[a-z_]*\"/\${1}\"closed\"/" "$STATE_FILE"
     exit 0
     ;;
   import|init|create|show)

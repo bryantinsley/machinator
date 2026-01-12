@@ -345,6 +345,8 @@ func TestMainScreenGolden(t *testing.T) {
 
 func TestProjectDetailModalGolden(t *testing.T) {
 	m := initialModel()
+	m.machinatorDir = "/Users/bryantinsley/.machinator"
+	m.projectsDir = filepath.Join(m.machinatorDir, "projects")
 	m.width = 80
 	m.height = 24
 	m.screen = screenProjectDetail
