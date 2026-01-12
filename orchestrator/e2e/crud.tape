@@ -35,8 +35,8 @@ Enter
 Sleep 500ms
 Type " - Updated"
 Sleep 500ms
-# Cancel changes
-Escape
+# Save changes
+Enter
 Sleep 500ms
 
 # Edit Agents
@@ -51,9 +51,7 @@ Type "+"
 Sleep 200ms
 Type "+"
 Sleep 200ms
-# Cancel (Tab to Apply, Tab to Cancel)
-Tab
-Sleep 200ms
+# Apply (Tab to Apply)
 Tab
 Sleep 200ms
 Enter

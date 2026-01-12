@@ -74,13 +74,19 @@ func (h *Harness) setupFixture(t *testing.T) {
 	os.MkdirAll(filepath.Join(h.RepoDir, "machinator"), 0755)
 	copyFile(filepath.Join(h.RootDir, "bootstrap", "check_quota.sh"), filepath.Join(h.RepoDir, "machinator", "check_quota.sh"))
 	os.Chmod(filepath.Join(h.RepoDir, "machinator", "check_quota.sh"), 0755)
+
+	// Create agents/1 directory for execution
+	os.MkdirAll(filepath.Join(h.RepoDir, "agents", "1"), 0755)
 }
 
-func (h *Harness) runMachinator(t *testing.T, envVars []string, timeout time.Duration) {
+func (h *Harness) runMachinator(t *testing.T, envVars []string, args []string, timeout time.Duration) {
 	// Sync DB first
 	h.syncDB(t)
 
-	cmd := exec.Command(h.MachinatorBin, "--once", "--headless")
+	defaultArgs := []string{"--once", "--headless", "--run"}
+	finalArgs := append(defaultArgs, args...)
+
+	cmd := exec.Command(h.MachinatorBin, finalArgs...)
 	cmd.Dir = h.RepoDir
 
 	// Setup Environment
@@ -196,7 +202,7 @@ func TestE2E_Happy(t *testing.T) {
 	h.setupFixture(t)
 
 	// Run with AUTO_CLOSE mode
-	h.runMachinator(t, []string{"DUMMY_GEMINI_MODE=AUTO_CLOSE"}, 60*time.Second)
+	h.runMachinator(t, []string{"DUMMY_GEMINI_MODE=AUTO_CLOSE"}, nil, 60*time.Second)
 
 	task := h.getTask(t, "task-1")
 	if task.Status != "closed" {
@@ -231,7 +237,7 @@ func TestE2E_Stuck(t *testing.T) {
 	// So it should cycle.
 	// Since we kill it, it should count as a failure.
 
-	h.runMachinator(t, env, 20*time.Second)
+	h.runMachinator(t, env, nil, 20*time.Second)
 
 	// Task should NOT be closed.
 	task := h.getTask(t, "task-1")
@@ -255,7 +261,7 @@ func TestE2E_Error(t *testing.T) {
 	h.setupFixture(t)
 
 	// Run with ERROR mode
-	h.runMachinator(t, []string{"DUMMY_GEMINI_MODE=ERROR"}, 30*time.Second)
+	h.runMachinator(t, []string{"DUMMY_GEMINI_MODE=ERROR"}, nil, 30*time.Second)
 
 	// Task should still be open (or in_progress/failed depending on how orchestrator handles failure)
 	// Orchestrator marks failed task in memory map, but doesn't change status back to open?
@@ -282,6 +288,31 @@ func TestE2E_Error(t *testing.T) {
 			t.Error("Logs should contain Gemini exit error")
 			t.Logf("LOGS:\n%s", string(content))
 		}
+	}
+}
+
+func TestE2E_ExecuteFlag(t *testing.T) {
+	if os.Getenv("E2E_SKIP") == "1" {
+		t.Skip("Skipping E2E test")
+	}
+	h := setupHarness(t)
+	h.setupFixture(t)
+
+	// Execute task-2 specifically
+	// Run with AUTO_CLOSE mode for Gemini
+	h.runMachinator(t, []string{"DUMMY_GEMINI_MODE=AUTO_CLOSE"}, []string{"--execute", "task-2"}, 60*time.Second)
+
+	// task-2 should be closed
+	task := h.getTask(t, "task-2")
+	if task.Status != "closed" {
+		t.Errorf("Expected task-2 status closed, got %s", task.Status)
+		h.dumpLogs(t)
+	}
+
+	// task-1 should NOT be closed (even if ready, it shouldn't run if targeted execution worked and exited)
+	task1 := h.getTask(t, "task-1")
+	if task1.Status == "closed" {
+		t.Errorf("Expected task-1 status NOT closed (execution targeted task-2), got %s", task1.Status)
 	}
 }
 

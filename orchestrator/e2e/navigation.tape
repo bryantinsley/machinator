@@ -23,22 +23,43 @@ Type "./setup-tui-linux"
 Enter
 
 # Wait for application to start
-Sleep 5s
+Sleep 2s
 
-# Navigate down
+# Navigate to a project
 Down
-Sleep 1s
-Down
+Sleep 500ms
+Enter
 Sleep 1s
 
-# Navigate up
-Up
+# Navigate in project detail
+Down
+Sleep 500ms
+Down
+Sleep 500ms
+# Go back to main
+Type "j"
+Sleep 200ms
+Type "j"
+Sleep 200ms
+Type "j"
+Sleep 200ms
+Enter
 Sleep 1s
-Up
+
+# Navigate to Manage Accounts
+Type "j"
+Sleep 200ms
+Type "j"
+Sleep 200ms
+Enter
+Sleep 1s
+
+# Go back from accounts
+Escape
 Sleep 1s
 
 # Quit
 Type "q"
-Sleep 1s
-Enter
+Sleep 500ms
+Type "y"
 Sleep 1s

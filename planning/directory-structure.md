@@ -65,9 +65,16 @@ User-wide configuration and resources, shared across all projects.
   "repo_url": "https://github.com/user/repo.git",
   "agent_count": 3,
   "idle_timeout": "5m",
-  "max_runtime": "30m"
+  "max_runtime": "30m",
+  "worktree_strategy": "per-invocation"
 }
 ```
+
+#### Worktree Strategies (`worktree_strategy`)
+
+- `per-task`: Fresh worktree every task (clean but loses uncommitted work).
+- `per-invocation`: Reset on new task, keep on retry (default).
+- `persistent`: Never auto-reset.
 
 ---
 

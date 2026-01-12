@@ -206,9 +206,10 @@ type model struct {
 	filteredIndices []int                // Indices into eventHistory that match filter
 	state           OrchestratorState    // Current orchestration state
 	expandQuota     bool                 // Whether to show full quota list
+	targetTaskID    string               // Task ID to execute (cli flag)
 }
 
-func initialModel(projectConfig *setup.ProjectConfig) model {
+func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
 	vp := viewport.New(40, 10)
 	vp.SetContent("")
 
@@ -264,14 +265,35 @@ func initialModel(projectConfig *setup.ProjectConfig) model {
 	pool := accountpool.NewPool()
 	pool.LoadFromDir(machinatorDir)
 
-	// Create initial agent card
-	card := agentgrid.NewAgentCard(config.AgentName, agentgrid.StatusIdle, "", nil)
-	grid := agentgrid.NewAgentGrid([]*agentgrid.AgentCard{card}, 2)
+	// Create initial agent cards
+	var cards []*agentgrid.AgentCard
+	count := 1
+	if projectConfig != nil && projectConfig.AgentCount > 0 {
+		count = projectConfig.AgentCount
+	}
+
+	for i := 1; i <= count; i++ {
+		name := config.AgentName
+		if count > 1 {
+			name = fmt.Sprintf("%s-%d", config.AgentName, i)
+		}
+		cards = append(cards, agentgrid.NewAgentCard(name, agentgrid.StatusIdle, "", nil))
+	}
+	grid := agentgrid.NewAgentGrid(cards, 2)
 
 	// Create agent selector
-	selector := components.NewDropdown("Show", []string{"All", config.AgentName}, func(selected int) tea.Cmd {
+	options := []string{"All"}
+	for _, c := range cards {
+		options = append(options, c.Name)
+	}
+	selector := components.NewDropdown("Show", options, func(selected int) tea.Cmd {
 		return func() tea.Msg { return filterChangedMsg{} }
 	})
+
+	initialState := StatePaused
+	if autoRun {
+		initialState = StateRunning
+	}
 
 	return model{
 		tasks: []Task{},
@@ -301,7 +323,7 @@ func initialModel(projectConfig *setup.ProjectConfig) model {
 		agentGrid:       grid,
 		agentSelector:   selector,
 		filteredIndices: []int{},
-		state:           StateRunning,
+		state:           initialState,
 		expandQuota:     false,
 	}
 }
@@ -743,13 +765,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cooldownSecs = 5 // Safe default
 		}
 
-		if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed && m.state == StateRunning && m.tickCount%cooldownSecs == 0 {
-			m.addLog(fmt.Sprintf("🔄 Auto-execute check (%d tasks)", len(m.tasks)))
-			// Only log activity if we actually find something, to reduce spam with short cooldowns
-			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
-			if taskID != "" {
-				m.addLog(fmt.Sprintf("✅ Found ready task: %s", taskID))
-				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled))
+		if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed {
+			// Targeted execution (Higher priority)
+			// Wait for quota to be loaded to ensure we don't use exhausted accounts
+			if m.targetTaskID != "" && m.quotaLoaded {
+				m.addLog(fmt.Sprintf("🎯 Executing targeted task: %s", m.targetTaskID))
+				cmds = append(cmds, executeTask(m.targetTaskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled))
+				m.targetTaskID = "" // One-shot
+				m.exitOnce = true   // Ensure exit after completion
+			} else if m.state == StateRunning && m.tickCount%cooldownSecs == 0 {
+				m.addLog(fmt.Sprintf("🔄 Auto-execute check (%d tasks)", len(m.tasks)))
+				// Only log activity if we actually find something, to reduce spam with short cooldowns
+				taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
+				if taskID != "" {
+					m.addLog(fmt.Sprintf("✅ Found ready task: %s", taskID))
+					cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled))
+				}
 			}
 		}
 
@@ -1456,7 +1487,7 @@ func (m model) View() string {
 }
 
 // Run executes the orchestrator TUI.
-func Run(debug bool, once bool, headless bool, projectConfig *setup.ProjectConfig) error {
+func Run(debug bool, once bool, headless bool, autoRun bool, executeTaskID string, projectConfig *setup.ProjectConfig) error {
 	// Write startup log before bubbletea takes over
 	logPath := filepath.Join(originalCwd, "machinator", "logs", "tui_debug.log")
 	os.MkdirAll(filepath.Join(originalCwd, "machinator", "logs"), 0755)
@@ -1468,6 +1499,8 @@ func Run(debug bool, once bool, headless bool, projectConfig *setup.ProjectConfi
 		f.WriteString(fmt.Sprintf("debugMode: %v\n", debug))
 		f.WriteString(fmt.Sprintf("once: %v\n", once))
 		f.WriteString(fmt.Sprintf("headless: %v\n", headless))
+		f.WriteString(fmt.Sprintf("autoRun: %v\n", autoRun))
+		f.WriteString(fmt.Sprintf("executeTaskID: %v\n", executeTaskID))
 		f.Close()
 	}
 
@@ -1479,8 +1512,9 @@ func Run(debug bool, once bool, headless bool, projectConfig *setup.ProjectConfi
 		return nil
 	}
 
-	m := initialModel(projectConfig)
+	m := initialModel(projectConfig, autoRun)
 	m.exitOnce = once
+	m.targetTaskID = executeTaskID
 
 	// Use tea.WithInputTTY() to open /dev/tty directly for input,
 	// allowing the TUI to work even when stdin is not a terminal.

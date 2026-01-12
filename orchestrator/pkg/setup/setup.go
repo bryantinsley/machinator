@@ -242,7 +242,7 @@ func (m model) loadProjects() []ProjectConfig {
 				continue
 			}
 			var config ProjectConfig
-			if json.Unmarshal(data, &config) == nil {
+			if json.Unmarshal(data, &config) == nil && config.Validate() == nil {
 				config.DirName = entry.Name()
 				// Refresh beads stats from agents/1 workspace
 				agent1Dir := filepath.Join(m.projectsDir, entry.Name(), "agents", "1")
@@ -2694,18 +2694,19 @@ func (m model) reloadProjects() tea.Cmd {
 
 func (m *model) saveNewProject() {
 	config := ProjectConfig{
-		ID:         m.newProjectID,
-		Name:       m.newProjectName,
-		RepoURL:    m.newRepoURL,
-		Branch:     m.newBranch,
-		AgentCount: 1,
-		HasBeads:   m.hasBeads,
-		TasksReady: m.beadsTasks,
-		TasksOpen:  m.beadsOpen,
-		TasksDone:  m.beadsDone,
-		TasksTotal: m.beadsTotal,
-		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
-		DirName:    fmt.Sprintf("%d", m.newProjectID),
+		ID:               m.newProjectID,
+		Name:             m.newProjectName,
+		RepoURL:          m.newRepoURL,
+		Branch:           m.newBranch,
+		AgentCount:       1,
+		HasBeads:         m.hasBeads,
+		TasksReady:       m.beadsTasks,
+		TasksOpen:        m.beadsOpen,
+		TasksDone:        m.beadsDone,
+		TasksTotal:       m.beadsTotal,
+		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
+		DirName:          fmt.Sprintf("%d", m.newProjectID),
+		WorktreeStrategy: WorktreeStrategyPerInvocation,
 	}
 
 	os.MkdirAll(m.newProjectDir, 0755)

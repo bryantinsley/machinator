@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"fmt"
 	"path/filepath"
 	"time"
 
@@ -29,11 +30,35 @@ type ProjectConfig struct {
 	DirName string `json:"-"`
 
 	// Configurable settings
-	IdleTimeout    time.Duration `json:"idle_timeout,omitempty"`
-	MaxTaskRuntime time.Duration `json:"max_task_runtime,omitempty"`
-	MaxCycles      int           `json:"max_cycles,omitempty"`
-	CooldownPeriod time.Duration `json:"cooldown_period,omitempty"`
+	WorktreeStrategy string        `json:"worktree_strategy"` // "per-task", "per-invocation", "persistent"
+	IdleTimeout      time.Duration `json:"idle_timeout,omitempty"`
+	MaxTaskRuntime   time.Duration `json:"max_task_runtime,omitempty"`
+	MaxCycles        int           `json:"max_cycles,omitempty"`
+	CooldownPeriod   time.Duration `json:"cooldown_period,omitempty"`
 }
+
+func (p *ProjectConfig) GetWorktreeStrategy() string {
+	if p.WorktreeStrategy == "" {
+		return WorktreeStrategyPerInvocation
+	}
+	return p.WorktreeStrategy
+}
+
+func (p *ProjectConfig) Validate() error {
+	strategy := p.GetWorktreeStrategy()
+	switch strategy {
+	case WorktreeStrategyPerTask, WorktreeStrategyPerInvocation, WorktreeStrategyPersistent:
+		return nil
+	default:
+		return fmt.Errorf("invalid worktree_strategy: %s", strategy)
+	}
+}
+
+const (
+	WorktreeStrategyPerTask       = "per-task"
+	WorktreeStrategyPerInvocation = "per-invocation"
+	WorktreeStrategyPersistent    = "persistent"
+)
 
 type GlobalSettings struct {
 	GeminiCLIPath string `json:"gemini_cli_path"`

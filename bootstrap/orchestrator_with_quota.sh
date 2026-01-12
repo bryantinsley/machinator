@@ -142,6 +142,14 @@ while [ $count -lt $MAX_CYCLES ]; do
                   CID=$(echo "$CANDIDATE" | jq -r '.id')
                   CDESC=$(echo "$CANDIDATE" | jq -r '.description // ""')
                   
+                   CTYPE=$(echo "$CANDIDATE" | jq -r '.type // "task"')
+                   
+                   # Skip epics - they are containers, not actionable work
+                   if [[ "$CTYPE" == "epic" ]]; then
+                       log "⏭️  Skipping epic: $CID"
+                       continue
+                   fi
+
                   if [[ "$CDESC" == *"CHALLENGE:complex"* ]]; then
                       # Complex -> Needs Pro
                       if check_model_quota "gemini-3-pro-preview"; then
