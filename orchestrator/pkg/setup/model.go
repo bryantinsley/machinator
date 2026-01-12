@@ -167,6 +167,9 @@ type model struct {
 	// Result
 	selectedProjectConfig *ProjectConfig
 
+	// Click Dispatcher
+	clickDispatcher *components.ClickDispatcher
+
 	// Progress channel for async updates
 	progressChan chan string
 }
@@ -177,19 +180,20 @@ func initialModel() model {
 	projectsDir := filepath.Join(machinatorDir, "projects")
 
 	return model{
-		screen:         screenMain,
-		machinatorDir:  machinatorDir,
-		resourcesDir:   resourcesDir,
-		projectsDir:    projectsDir,
-		geminiCLIDir:   filepath.Join(resourcesDir, "gemini-cli-mods"),
-		settingsFile:   filepath.Join(machinatorDir, "settings.json"),
-		geminiCLIPath:  filepath.Join(machinatorDir, "gemini"),
-		geminiStatus:   geminiChecking,
-		statusMessages: []string{},
-		projects:       []ProjectConfig{},
-		addWarnings:    []string{},
-		cursor:         1, // Start on first project or add button
-		progressChan:   make(chan string, 20),
+		screen:          screenMain,
+		machinatorDir:   machinatorDir,
+		resourcesDir:    resourcesDir,
+		projectsDir:     projectsDir,
+		geminiCLIDir:    filepath.Join(resourcesDir, "gemini-cli-mods"),
+		settingsFile:    filepath.Join(machinatorDir, "settings.json"),
+		geminiCLIPath:   filepath.Join(machinatorDir, "gemini"),
+		geminiStatus:    geminiChecking,
+		statusMessages:  []string{},
+		projects:        []ProjectConfig{},
+		addWarnings:     []string{},
+		cursor:          1, // Start on first project or add button
+		clickDispatcher: components.NewClickDispatcher(nil),
+		progressChan:    make(chan string, 20),
 	}
 }
 

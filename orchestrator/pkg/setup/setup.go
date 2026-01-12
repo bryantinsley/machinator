@@ -485,129 +485,9 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Handle clicks based on current screen
-	switch m.screen {
-	case screenProjectDetail:
-		// Run around x=4-12, Delete button around x=14-22, Back around x=24-32
-		// Buttons are near bottom of the content area
-		if msg.Y >= 18 && msg.Y <= 22 {
-			if msg.X >= 4 && msg.X <= 12 {
-				// Run clicked
-				if m.selectedProject < len(m.projects) {
-					m.selectedProjectConfig = &m.projects[m.selectedProject]
-					return m, tea.Quit
-				}
-			} else if msg.X >= 14 && msg.X <= 22 {
-				// Delete clicked
-				if m.selectedProject < len(m.projects) {
-					p := m.projects[m.selectedProject]
-					projectDir := m.getProjectRootDir(p)
-					os.RemoveAll(projectDir)
-					m.addStatus(fmt.Sprintf("Removed project: %s", p.Name))
-					m.screen = screenMain
-					m.detailCursor = 0
-					return m, m.reloadProjects()
-				}
-			} else if msg.X >= 24 && msg.X <= 32 {
-				// Back clicked
-				m.screen = screenMain
-				m.detailCursor = 0
-			}
-		}
-
-	case screenEditAgentCount:
-		// Button positions are approximate - Apply button starts around x=4, Cancel around x=14
-		// Buttons are on line ~10 within the left pane
-		if msg.Y >= 10 && msg.Y <= 12 {
-			if msg.X >= 4 && msg.X <= 12 {
-				// Apply clicked
-				if m.selectedProject < len(m.projects) {
-					p := m.projects[m.selectedProject]
-					if m.desiredAgentCount != p.AgentCount {
-						m.screen = screenApplyingAgents
-						diff := m.desiredAgentCount - p.AgentCount
-						if diff > 0 {
-							m.addStatus(fmt.Sprintf("Adding %d agent(s)...", diff))
-						} else {
-							m.addStatus(fmt.Sprintf("Removing %d agent(s)...", -diff))
-						}
-						return m, tea.Batch(
-							listenForProgress(m.progressChan),
-							m.applyAgentChanges(p, m.desiredAgentCount),
-						)
-					}
-					m.screen = screenProjectDetail
-				}
-			} else if msg.X >= 14 && msg.X <= 24 {
-				// Cancel clicked
-				m.screen = screenProjectDetail
-			}
-		}
-
-	case screenEditProjectName, screenEditProjectRepo:
-		// Save/Cancel buttons around line 8-10
-		if msg.Y >= 8 && msg.Y <= 12 {
-			if msg.X >= 4 && msg.X <= 12 {
-				// Save clicked - trigger enter
-				return m.handleEditFieldKeys("", tea.KeyMsg{Type: tea.KeyEnter})
-			} else if msg.X >= 14 && msg.X <= 24 {
-				// Cancel clicked
-				m.screen = screenProjectDetail
-			}
-		}
-
-	case screenMain:
-		// Add/Exit buttons are near the bottom
-		// Approximate positions based on content
-		projectCount := len(m.projects)
-		buttonLine := projectCount + 8 // After title, gemini, projects section
-
-		if msg.Y >= buttonLine && msg.Y <= buttonLine+2 {
-			if msg.X >= 4 && msg.X <= 18 {
-				// Add Project clicked
-				m.startAddProject()
-			} else if msg.X >= 20 && msg.X <= 30 {
-				// Exit clicked
-				m.screen = screenConfirmExit
-			}
-		}
-
-	case screenConfirmExit:
-		// Dialog centered in screen - buttons are in center
-		centerY := m.height / 2
-		centerX := m.width / 2
-		// Yes button approx at center-8 to center-2, No button at center+2 to center+8
-		if msg.Y >= centerY && msg.Y <= centerY+2 {
-			if msg.X >= centerX-10 && msg.X <= centerX-2 {
-				// Yes clicked
-				return m, tea.Quit
-			} else if msg.X >= centerX+2 && msg.X <= centerX+10 {
-				// No clicked
-				m.screen = screenMain
-			}
-		}
-
-	case screenConfirmDeleteProject:
-		// Dialog centered in screen
-		centerY := m.height / 2
-		centerX := m.width / 2
-		if msg.Y >= centerY+2 && msg.Y <= centerY+4 {
-			if msg.X >= centerX-10 && msg.X <= centerX-2 {
-				// Yes clicked - delete
-				if m.selectedProject < len(m.projects) {
-					p := m.projects[m.selectedProject]
-					projectDir := m.getProjectRootDir(p)
-					os.RemoveAll(projectDir)
-					m.addStatus(fmt.Sprintf("Deleted project: %s", p.Name))
-					m.screen = screenMain
-					m.detailCursor = 0
-					return m, m.reloadProjects()
-				}
-			} else if msg.X >= centerX+2 && msg.X <= centerX+10 {
-				// No clicked
-				m.screen = screenProjectDetail
-			}
-		}
+	// Try click dispatcher first
+	if cmd := m.clickDispatcher.HandleMouse(msg); cmd != nil {
+		return m, cmd
 	}
 
 	return m, nil
@@ -915,7 +795,7 @@ func (m model) handleAddProjectBranchKeys(key string, msg tea.KeyMsg) (tea.Model
 	return m, nil
 }
 
-func (m model) viewAddProjectBranchLeft() string {
+func (m model) viewAddProjectBranchLeft(yOffset int) string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("🌿 Select Branch"))
 	b.WriteString("\n\n")
@@ -927,6 +807,10 @@ func (m model) viewAddProjectBranchLeft() string {
 	b.WriteString("\n")
 
 	if m.branchSelector != nil {
+		// x=2 (padding) + 2 (offset) = 4
+		// y=yOffset (start) + 1 (padding) + 5 (lines) = yOffset + 6
+		m.branchSelector.SetBounds(4, yOffset+6, 0, 0) // Render will fill w/h
+		m.clickDispatcher.Register(m.branchSelector)
 		b.WriteString(m.branchSelector.Render())
 	}
 
@@ -1002,6 +886,8 @@ func (m model) handleConfirmDeleteKeys(key string) (tea.Model, tea.Cmd) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 func (m model) View() string {
+	m.clickDispatcher.Clear()
+
 	if m.width == 0 {
 		return "Loading..."
 	}
@@ -1059,48 +945,51 @@ func (m model) View() string {
 
 	var topContent, bottomContent, rightContent string
 
+	topY := 6
+	bottomY := topY + topHeight + 2
+
 	// For screens that use modal overlays, show the main content behind
 	switch m.screen {
 	case screenInit:
-		topContent = m.viewInitLeft()
-		bottomContent = m.viewDoctinator()
+		topContent = m.viewInitLeft(topY)
+		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	case screenAddProjectInput:
 		topContent = m.viewAddProjectInputLeft()
-		bottomContent = m.viewDoctinator()
+		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	case screenAddProjectBranch:
-		topContent = m.viewAddProjectBranchLeft()
-		bottomContent = m.viewDoctinator()
+		topContent = m.viewAddProjectBranchLeft(topY)
+		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	case screenAddProjectCloning, screenApplyingAgents:
 		topContent = m.viewAddProjectCloningLeft()
-		bottomContent = m.viewDoctinator()
+		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	case screenManageAccounts:
-		topContent = m.viewManageAccountsLeft()
-		bottomContent = m.viewDoctinator()
+		topContent = m.viewManageAccountsLeft(topY)
+		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	case screenAddAccountName:
 		topContent = m.viewAddAccountNameLeft()
-		bottomContent = m.viewDoctinator()
+		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	case screenAddAccountAuthType:
-		topContent = m.viewAddAccountAuthTypeLeft()
-		bottomContent = m.viewDoctinator()
+		topContent = m.viewAddAccountAuthTypeLeft(topY)
+		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	case screenAddAccountAPIKey:
 		topContent = m.viewAddAccountAPIKeyLeft()
-		bottomContent = m.viewDoctinator()
+		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	case screenAddAccountGoogleInfo:
 		topContent = m.viewAddAccountGoogleInfoLeft()
-		bottomContent = m.viewDoctinator()
+		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	default:
 		// Main screen or screens with modal overlays
-		topContent = m.viewProjectSettings()
-		bottomContent = m.viewDoctinator()
+		topContent = m.viewProjectSettings(topY)
+		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	}
 
@@ -1111,18 +1000,22 @@ func (m model) View() string {
 	leftColumn := lipgloss.JoinVertical(lipgloss.Left, topRendered, bottomRendered)
 
 	// Exit button at bottom right
-	exitBg := lipgloss.Color("240")
-	if m.screen == screenMain && m.cursor == len(m.projects)+3 {
-		exitBg = lipgloss.Color("196")
-	}
-	exitBtn := lipgloss.NewStyle().
-		Background(exitBg).
-		Foreground(lipgloss.Color("255")).
-		Padding(0, 2).
-		Render("Exit")
+	exitBtn := components.NewButton("Exit", func() tea.Cmd {
+		return func() tea.Msg {
+			return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")}
+		}
+	})
+	exitIdx := len(m.projects) + 3
+	exitBtn.SetFocused(m.screen == screenMain && m.cursor == exitIdx)
+	exitBtnRendered := exitBtn.Render()
+
+	// Update bounds for dispatcher
+	// Exit button is at bottom right of baseView
+	exitBtn.SetBounds(m.width-lipgloss.Width(exitBtnRendered), m.height-1, lipgloss.Width(exitBtnRendered), 1)
+	m.clickDispatcher.Register(exitBtn)
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, rightRendered)
-	panelsWithExit := lipgloss.JoinVertical(lipgloss.Right, panels, exitBtn)
+	panelsWithExit := lipgloss.JoinVertical(lipgloss.Right, panels, exitBtnRendered)
 
 	// Rainbow nameplate - centered with top padding
 	nameplate := rainbowNameplate()
@@ -1155,11 +1048,15 @@ func (m model) View() string {
 	return baseView
 }
 
-func (m model) viewProjectSettings() string {
+func (m model) viewProjectSettings(yOffset int) string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("📁 Project Settings"))
 	b.WriteString("\n\n")
+
+	// Base coordinates for registration
+	contentX := 4 // leftPane padding 2 + cursor space 2
+	contentY := yOffset + 3
 
 	if !m.projectsLoaded {
 		b.WriteString(dimStyle.Render("  Loading projects...\n"))
@@ -1167,80 +1064,121 @@ func (m model) viewProjectSettings() string {
 		b.WriteString(dimStyle.Render("  No projects configured\n"))
 	} else {
 		for i, p := range m.projects {
-			cursor := "  "
-			style := itemStyle
-			if i+1 == m.cursor { // +1 because gemini is at 0
-				cursor = "▸ "
-				style = selectedStyle
-			}
-			b.WriteString(fmt.Sprintf("%s#%d) %s\n", cursor, p.ID, style.Render(p.Name)))
+			li := components.NewListItem(fmt.Sprintf("#%d) %s", p.ID, p.Name), func() tea.Cmd {
+				idx := i
+				return func() tea.Msg {
+					m.cursor = idx + 1
+					m.selectedProject = idx
+					m.screen = screenProjectDetail
+					return nil
+				}
+			})
+			li.SetSelected(i+1 == m.cursor)
+			b.WriteString(li.Render() + "\n")
+
+			li.SetBounds(contentX, contentY+i, 30, 1)
+			m.clickDispatcher.Register(li)
 		}
 	}
 
 	b.WriteString("\n")
+	buttonLine := contentY + len(m.projects) + 1
 
 	// Run button hint if project selected
 	if m.cursor > 0 && m.cursor <= len(m.projects) {
-		runBtn := lipgloss.NewStyle().
-			Background(lipgloss.Color("42")).
-			Foreground(lipgloss.Color("255")).
-			Padding(0, 2).
-			Render("Run (r)")
-		b.WriteString(runBtn + "  ")
+		runBtn := components.NewButton("Run (r)", func() tea.Cmd {
+			return func() tea.Msg {
+				m.selectedProjectConfig = &m.projects[m.selectedProject]
+				return tea.QuitMsg{}
+			}
+		})
+		runBtnRendered := runBtn.Render()
+		b.WriteString(runBtnRendered + "  ")
+
+		runBtn.SetBounds(contentX, buttonLine, lipgloss.Width(runBtnRendered), 1)
+		m.clickDispatcher.Register(runBtn)
 	}
 
-	// Add project button at bottom
+	// Add project button
 	addIdx := len(m.projects) + 1
-	addBg := lipgloss.Color("240")
-	if m.cursor == addIdx {
-		addBg = lipgloss.Color("34") // Green when selected
-	}
-	addBtn := lipgloss.NewStyle().
-		Background(addBg).
-		Foreground(lipgloss.Color("255")).
-		Padding(0, 2).
-		Render("Add Project")
+	addBtn := components.NewButton("Add Project", func() tea.Cmd {
+		return func() tea.Msg {
+			m.cursor = addIdx
+			m.startAddProject()
+			return nil
+		}
+	})
+	addBtn.SetFocused(m.cursor == addIdx)
+	addBtnRendered := addBtn.Render()
 
-	b.WriteString(addBtn)
+	// Adjust X if Run button is present
+	addBtnX := contentX
+	if m.cursor > 0 && m.cursor <= len(m.projects) {
+		addBtnX = contentX + 14 // Width of "Run (r)" + padding
+	}
+	b.WriteString(addBtnRendered)
+
+	addBtn.SetBounds(addBtnX, buttonLine, lipgloss.Width(addBtnRendered), 1)
+	m.clickDispatcher.Register(addBtn)
 
 	// Manage Accounts button
 	accountsIdx := len(m.projects) + 2
-	accountsBg := lipgloss.Color("240")
-	if m.cursor == accountsIdx {
-		accountsBg = lipgloss.Color("34") // Green when selected
-	}
-
-	accountsBtn := lipgloss.NewStyle().
-		Background(accountsBg).
-		Foreground(lipgloss.Color("255")).
-		Padding(0, 2).
-		Render("Manage Accounts")
+	accountsBtn := components.NewButton("Manage Accounts", func() tea.Cmd {
+		return func() tea.Msg {
+			m.cursor = accountsIdx
+			m.screen = screenManageAccounts
+			m.accountCursor = 0
+			return nil
+		}
+	})
+	accountsBtn.SetFocused(m.cursor == accountsIdx)
+	accountsBtnRendered := accountsBtn.Render()
 
 	b.WriteString("\n\n")
-	b.WriteString(accountsBtn)
+	b.WriteString(accountsBtnRendered)
+
+	accountsBtn.SetBounds(contentX, buttonLine+2, lipgloss.Width(accountsBtnRendered), 1)
+	m.clickDispatcher.Register(accountsBtn)
 
 	return b.String()
 }
 
-func (m model) viewDoctinator() string {
+func (m model) viewDoctinator(yOffset int) string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("👩‍⚕️ Doctinator"))
 	b.WriteString("\n\n")
 
-	// Gemini CLI status
+	// Base coordinates
+	contentX := 4
+	contentY := yOffset + 3
+
+	// Gemini CLI status - now a ListItem
+	geminiLabel := "Gemini CLI"
 	switch m.geminiStatus {
 	case geminiInstalled:
-		b.WriteString(successStyle.Render("  ✓ Gemini CLI\n"))
+		geminiLabel = "✓ Gemini CLI (installed)"
 	case geminiNeedsUpdate:
-		b.WriteString(warningStyle.Render("  ⚠ Gemini CLI (update)\n"))
+		geminiLabel = "⚠ Gemini CLI (update available)"
 	case geminiNotInstalled:
-		b.WriteString(warningStyle.Render("  ✗ Gemini CLI\n"))
+		geminiLabel = "✗ Gemini CLI (not installed)"
 	case geminiInstalling:
-		b.WriteString(dimStyle.Render("  ↻ Installing...\n"))
+		geminiLabel = "↻ Gemini CLI (installing...)"
 	default:
-		b.WriteString(dimStyle.Render("  Checking...\n"))
+		geminiLabel = "○ Gemini CLI (checking...)"
 	}
+
+	li := components.NewListItem(geminiLabel, func() tea.Cmd {
+		return func() tea.Msg {
+			m.cursor = 0
+			return tea.KeyMsg{Type: tea.KeyEnter}
+		}
+	})
+	li.SetSelected(m.screen == screenMain && m.cursor == 0)
+	b.WriteString(li.Render() + "\n")
+
+	li.SetBounds(contentX, contentY, 35, 1)
+	m.clickDispatcher.Register(li)
 
 	// Beads status
 	if m.projectsLoaded && len(m.projects) > 0 {
@@ -1309,20 +1247,42 @@ func rainbowNameplate() string {
 	return result.String()
 }
 
-func (m model) viewInitLeft() string {
+func (m model) viewInitLeft(yOffset int) string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("🔧 Machinator Setup"))
 	b.WriteString("\n\n")
 
-	if !m.machinatorExists {
-		b.WriteString(warningStyle.Render(fmt.Sprintf("No %s directory found.\n\n", m.machinatorDir)))
-		b.WriteString(itemStyle.Render("Create directory and install\ncustom Gemini CLI?\n\n"))
-		b.WriteString(promptStyle.Render("[Y]es  [N]o"))
-	} else if m.geminiStatus == geminiNotInstalled {
-		b.WriteString(warningStyle.Render("Gemini CLI not installed.\n\n"))
-		b.WriteString(itemStyle.Render("Install custom Gemini CLI?\n\n"))
-		b.WriteString(promptStyle.Render("[Y]es  [N]o"))
+	// Base coordinates
+	contentX := 4
+	contentY := yOffset + 3
+
+	if !m.machinatorExists || m.geminiStatus == geminiNotInstalled {
+		if !m.machinatorExists {
+			b.WriteString(warningStyle.Render(fmt.Sprintf("No %s directory found.\n\n", m.machinatorDir)))
+			b.WriteString(itemStyle.Render("Create directory and install\ncustom Gemini CLI?\n\n"))
+		} else {
+			b.WriteString(warningStyle.Render("Gemini CLI not installed.\n\n"))
+			b.WriteString(itemStyle.Render("Install custom Gemini CLI?\n\n"))
+		}
+
+		yesBtn := components.NewButton("Yes", func() tea.Cmd {
+			return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")} }
+		})
+		noBtn := components.NewButton("No", func() tea.Cmd {
+			return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")} }
+		})
+
+		yesRendered := yesBtn.Render()
+		noRendered := noBtn.Render()
+
+		b.WriteString(yesRendered + "  " + noRendered)
+
+		// Approximate Y based on text lines
+		yesBtn.SetBounds(contentX, contentY+3, lipgloss.Width(yesRendered), 1)
+		noBtn.SetBounds(contentX+lipgloss.Width(yesRendered)+2, contentY+3, lipgloss.Width(noRendered), 1)
+		m.clickDispatcher.Register(yesBtn)
+		m.clickDispatcher.Register(noBtn)
 	} else if m.geminiStatus == geminiInstalling {
 		b.WriteString(itemStyle.Render("Installing Gemini CLI...\n\n"))
 		b.WriteString(dimStyle.Render("This may take a few minutes."))
@@ -1331,210 +1291,12 @@ func (m model) viewInitLeft() string {
 	return b.String()
 }
 
-func (m model) viewMainLeft() string {
-	var b strings.Builder
-
-	b.WriteString(titleStyle.Render("🔧 Machinator"))
-	b.WriteString("\n\n")
-
-	// Gemini CLI - now a selectable item
-	cursor := "  "
-	style := itemStyle
-	if m.cursor == 0 {
-		cursor = "▸ "
-		style = selectedStyle
-	}
-
-	var geminiLine string
-	switch m.geminiStatus {
-	case geminiChecking:
-		geminiLine = statusLoading + " " + dimStyle.Render("Gemini CLI — checking...")
-	case geminiInstalled:
-		geminiLine = statusOK + " " + style.Render("Gemini CLI") + dimStyle.Render(" — installed")
-	case geminiNeedsUpdate:
-		geminiLine = statusWarn + " " + style.Render("Gemini CLI") + warningStyle.Render(" — needs rebuild")
-	case geminiInstalling:
-		geminiLine = statusLoading + " " + dimStyle.Render("Gemini CLI — installing...")
-	case geminiNotInstalled:
-		geminiLine = statusFail + " " + style.Render("Gemini CLI") + errorStyle.Render(" — not installed")
-	default:
-		geminiLine = statusPending + " " + dimStyle.Render("Gemini CLI — checking...")
-	}
-	b.WriteString(cursor + geminiLine + "\n\n")
-
-	// Projects section
-	b.WriteString(sectionStyle.Render("Projects"))
-	b.WriteString("\n")
-
-	if !m.projectsLoaded {
-		b.WriteString(dimStyle.Render("  Loading projects...\n"))
-	} else if len(m.projects) == 0 {
-		b.WriteString(dimStyle.Render("  No projects configured\n"))
-	} else {
-		for i, p := range m.projects {
-			cursor := "  "
-			style := itemStyle
-			if i+1 == m.cursor { // +1 because gemini is at 0
-				cursor = "▸ "
-				style = selectedStyle
-			}
-			b.WriteString(fmt.Sprintf("%s#%d) %s\n", cursor, p.ID, style.Render(p.Name)))
-		}
-	}
-
-	b.WriteString("\n")
-
-	// Add project button only - Exit is now at bottom right of screen
-	addIdx := len(m.projects) + 1
-
-	addBg := lipgloss.Color("240") // Gray
-	if m.cursor == addIdx {
-		addBg = lipgloss.Color("34") // Green when selected
-	}
-
-	addBtn := lipgloss.NewStyle().
-		Background(addBg).
-		Foreground(lipgloss.Color("255")).
-		Padding(0, 2).
-		Render("Add Project")
-
-	b.WriteString(addBtn)
-
-	return b.String()
-}
-
 func (m model) viewEditFieldLeft() string {
-	var b strings.Builder
-
-	title := "Edit Name"
-	warning := ""
-
-	if m.screen == screenEditProjectRepo {
-		title = "Edit Repository"
-		warning = "⚠️ Changing repository will reclone all agents!"
-	}
-
-	b.WriteString(titleStyle.Render(title))
-	b.WriteString("\n\n")
-
-	if warning != "" {
-		b.WriteString(warningStyle.Render(warning))
-		b.WriteString("\n\n")
-	}
-
-	// Simple text input with cursor
-	b.WriteString(m.editBuffer)
-	b.WriteString(selectedStyle.Render("█"))
-	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("────────────────────────────────────────"))
-	b.WriteString("\n\n")
-
-	// Buttons
-	saveBtn := lipgloss.NewStyle().
-		Background(lipgloss.Color("34")).
-		Foreground(lipgloss.Color("255")).
-		Padding(0, 2).
-		Render("Save")
-
-	cancelBtn := lipgloss.NewStyle().
-		Background(lipgloss.Color("240")).
-		Foreground(lipgloss.Color("255")).
-		Padding(0, 2).
-		Render("Cancel")
-
-	b.WriteString(saveBtn)
-	b.WriteString("  ")
-	b.WriteString(cancelBtn)
-
-	return b.String()
+	return "" // Unused - using overlay now
 }
 
 func (m model) viewProjectDetailLeft() string {
-	var b strings.Builder
-
-	if m.selectedProject >= len(m.projects) {
-		return "No project selected"
-	}
-
-	p := m.projects[m.selectedProject]
-
-	b.WriteString(titleStyle.Render(p.Name))
-	b.WriteString("\n\n")
-
-	// Menu items with consistent layout
-	// Format: [cursor] Label: Value (or on next line for long values)
-
-	// Name
-	if m.detailCursor == 0 {
-		b.WriteString("▸ " + selectedStyle.Render("Name:") + " " + p.Name + "\n")
-	} else {
-		b.WriteString("  " + dimStyle.Render("Name:") + " " + p.Name + "\n")
-	}
-
-	// Repository (value on next line due to length)
-	if m.detailCursor == 1 {
-		b.WriteString("▸ " + selectedStyle.Render("Repository:") + "\n")
-	} else {
-		b.WriteString("  " + dimStyle.Render("Repository:") + "\n")
-	}
-	b.WriteString("    " + dimStyle.Render(p.RepoURL) + "\n")
-
-	// Agents
-	if m.detailCursor == 2 {
-		b.WriteString("▸ " + selectedStyle.Render("Agents:") + " " + fmt.Sprintf("%d", p.AgentCount) + "\n")
-	} else {
-		b.WriteString("  " + dimStyle.Render("Agents:") + " " + fmt.Sprintf("%d", p.AgentCount) + "\n")
-	}
-
-	b.WriteString("\n")
-
-	// Beads grid (not selectable)
-	b.WriteString("  " + dimStyle.Render("Beads:") + "\n")
-	if p.HasBeads {
-		b.WriteString(fmt.Sprintf("    Ready: %-3d  Active: %-3d\n", p.TasksReady, p.TasksOpen))
-		b.WriteString(fmt.Sprintf("    Done:  %-3d  Total:  %-3d\n", p.TasksDone, p.TasksTotal))
-	} else {
-		b.WriteString("    " + dimStyle.Render("Not configured") + "\n")
-	}
-
-	b.WriteString("\n")
-
-	// Buttons: gray when not selected, colored when selected
-	runBg := lipgloss.Color("240")    // Gray
-	deleteBg := lipgloss.Color("240") // Gray
-	backBg := lipgloss.Color("240")   // Gray
-
-	if m.detailCursor == 3 {
-		runBg = lipgloss.Color("42") // Green when selected
-	}
-	if m.detailCursor == 4 {
-		deleteBg = lipgloss.Color("196") // Red when selected
-	}
-	if m.detailCursor == 5 {
-		backBg = lipgloss.Color("39") // Blue when selected
-	}
-
-	runBtn := lipgloss.NewStyle().
-		Background(runBg).
-		Foreground(lipgloss.Color("255")).
-		Padding(0, 2).
-		Render("Run")
-
-	deleteBtn := lipgloss.NewStyle().
-		Background(deleteBg).
-		Foreground(lipgloss.Color("255")).
-		Padding(0, 2).
-		Render("Delete")
-
-	backBtn := lipgloss.NewStyle().
-		Background(backBg).
-		Foreground(lipgloss.Color("255")).
-		Padding(0, 2).
-		Render("Back")
-
-	b.WriteString(runBtn + "  " + deleteBtn + "  " + backBtn)
-
-	return b.String()
+	return "" // Unused - using overlay now
 }
 
 func (m model) viewAddProjectInputLeft() string {
@@ -1580,43 +1342,46 @@ func (m model) viewAddProjectCloningLeft() string {
 	return b.String()
 }
 
-func (m model) viewConfirmExitLeft() string {
-	return "" // Unused - using overlay now
-}
-
-func (m model) viewConfirmDeleteLeft() string {
-	return "" // Unused - using overlay now
-}
-
 func (m model) renderExitDialog() string {
-	// Buttons: selected is colored, unselected is gray
-	yesBg := lipgloss.Color("240")
-	noBg := lipgloss.Color("240")
-	if m.dialogCursor == 0 {
-		yesBg = lipgloss.Color("196") // Red when selected
-	} else {
-		noBg = lipgloss.Color("39") // Blue when selected
-	}
+	yesBtn := components.NewButton("Yes", func() tea.Cmd {
+		return tea.Quit
+	})
+	yesBtn.SetFocused(m.dialogCursor == 0)
 
-	yesBtn := lipgloss.NewStyle().
-		Background(yesBg).
-		Foreground(lipgloss.Color("255")).
-		Padding(0, 3).
-		Render("Yes")
+	noBtn := components.NewButton("No", func() tea.Cmd {
+		return func() tea.Msg {
+			return tea.KeyMsg{Type: tea.KeyEsc}
+		}
+	})
+	noBtn.SetFocused(m.dialogCursor == 1)
 
-	noBtn := lipgloss.NewStyle().
-		Background(noBg).
-		Foreground(lipgloss.Color("255")).
-		Padding(0, 3).
-		Render("No")
+	yesRendered := yesBtn.Render()
+	noRendered := noBtn.Render()
 
 	content := lipgloss.JoinVertical(lipgloss.Center,
 		warningStyle.Render("Exit Machinator?"),
 		"",
-		yesBtn+"  "+noBtn,
+		yesRendered+"  "+noRendered,
 	)
 
-	return modalStyle.Render(content)
+	rendered := modalStyle.Render(content)
+	w := lipgloss.Width(rendered)
+	h := lipgloss.Height(rendered)
+	x := (m.width - w) / 2
+	y := (m.height - h) / 2
+
+	// modalStyle has Padding(1, 3) and Border
+	contentWidth := w - 8 // 1 border + 3 padding on each side
+	buttonsLineWidth := lipgloss.Width(yesRendered + "  " + noRendered)
+	buttonsX := x + 4 + (contentWidth-buttonsLineWidth)/2
+
+	yesBtn.SetBounds(buttonsX, y+4, lipgloss.Width(yesRendered), 1)
+	m.clickDispatcher.Register(yesBtn)
+
+	noBtn.SetBounds(buttonsX+lipgloss.Width(yesRendered)+2, y+4, lipgloss.Width(noRendered), 1)
+	m.clickDispatcher.Register(noBtn)
+
+	return rendered
 }
 
 func (m model) renderDeleteDialog() string {
@@ -1625,26 +1390,22 @@ func (m model) renderDeleteDialog() string {
 		projectName = m.projects[m.selectedProject].Name
 	}
 
-	// Buttons: selected is colored, unselected is gray
-	yesBg := lipgloss.Color("240")
-	noBg := lipgloss.Color("240")
-	if m.dialogCursor == 0 {
-		yesBg = lipgloss.Color("196") // Red when selected
-	} else {
-		noBg = lipgloss.Color("39") // Blue when selected
-	}
+	yesBtn := components.NewButton("Yes", func() tea.Cmd {
+		return func() tea.Msg {
+			return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")}
+		}
+	})
+	yesBtn.SetFocused(m.dialogCursor == 0)
 
-	yesBtn := lipgloss.NewStyle().
-		Background(yesBg).
-		Foreground(lipgloss.Color("255")).
-		Padding(0, 3).
-		Render("Yes")
+	noBtn := components.NewButton("No", func() tea.Cmd {
+		return func() tea.Msg {
+			return tea.KeyMsg{Type: tea.KeyEsc}
+		}
+	})
+	noBtn.SetFocused(m.dialogCursor == 1)
 
-	noBtn := lipgloss.NewStyle().
-		Background(noBg).
-		Foreground(lipgloss.Color("255")).
-		Padding(0, 3).
-		Render("No")
+	yesRendered := yesBtn.Render()
+	noRendered := noBtn.Render()
 
 	content := lipgloss.JoinVertical(lipgloss.Center,
 		lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true).Render("Delete Project?"),
@@ -1654,10 +1415,27 @@ func (m model) renderDeleteDialog() string {
 		dimStyle.Render("This will permanently delete"),
 		dimStyle.Render("all agents and project data."),
 		"",
-		yesBtn+"  "+noBtn,
+		yesRendered+"  "+noRendered,
 	)
 
-	return modalStyle.Render(content)
+	rendered := modalStyle.Render(content)
+	w := lipgloss.Width(rendered)
+	h := lipgloss.Height(rendered)
+	x := (m.width - w) / 2
+	y := (m.height - h) / 2
+
+	contentWidth := w - 8
+	buttonsLineWidth := lipgloss.Width(yesRendered + "  " + noRendered)
+	buttonsX := x + 4 + (contentWidth-buttonsLineWidth)/2
+
+	// Buttons are on the 8th line of content
+	yesBtn.SetBounds(buttonsX, y+9, lipgloss.Width(yesRendered), 1)
+	m.clickDispatcher.Register(yesBtn)
+
+	noBtn.SetBounds(buttonsX+lipgloss.Width(yesRendered)+2, y+9, lipgloss.Width(noRendered), 1)
+	m.clickDispatcher.Register(noBtn)
+
+	return rendered
 }
 
 func (m model) renderProjectDetailModal() string {
@@ -1667,35 +1445,37 @@ func (m model) renderProjectDetailModal() string {
 
 	p := m.projects[m.selectedProject]
 
-	// Menu items with cursor
-	items := []struct {
-		label    string
-		value    string
-		selected bool
-	}{
-		{"Name", p.Name, m.detailCursor == 0},
-		{"Repository", p.RepoURL, m.detailCursor == 1},
-		{"Agents", fmt.Sprintf("%d", p.AgentCount), m.detailCursor == 2},
-	}
-
 	var lines []string
 	header := lipgloss.JoinHorizontal(lipgloss.Center, titleStyle.Render(p.Name), " ", m.getProjectStatusBadge(p))
 	lines = append(lines, header)
 	lines = append(lines, "")
 
-	for _, item := range items {
-		cursor := "  "
-		style := dimStyle
-		if item.selected {
-			cursor = "▸ "
-			style = selectedStyle
-		}
-		lines = append(lines, cursor+style.Render(item.label+":")+dimStyle.Render(" "+item.value))
+	// List Items
+	items := []struct {
+		label string
+		value string
+	}{
+		{"Name", p.Name},
+		{"Repository", p.RepoURL},
+		{"Agents", fmt.Sprintf("%d", p.AgentCount)},
+	}
+
+	listItems := make([]*components.ListItem, len(items))
+	for i, item := range items {
+		idx := i // capture for closure
+		li := components.NewListItem(fmt.Sprintf("%s: %s", item.label, item.value), func() tea.Cmd {
+			return func() tea.Msg {
+				m.detailCursor = idx
+				return tea.KeyMsg{Type: tea.KeyEnter}
+			}
+		})
+		li.SetSelected(m.detailCursor == i)
+		listItems[i] = li
+		lines = append(lines, li.Render())
 	}
 
 	// Root directory (not selectable but displayed)
 	lines = append(lines, "  "+dimStyle.Render("Root Dir:")+dimStyle.Render(" "+m.getProjectRootDir(p)))
-
 	lines = append(lines, "")
 
 	// Beads info
@@ -1704,33 +1484,81 @@ func (m model) renderProjectDetailModal() string {
 	} else {
 		lines = append(lines, dimStyle.Render("  Beads: not configured"))
 	}
-
 	lines = append(lines, "")
 
 	// Buttons
-	runBg := lipgloss.Color("240")
-	deleteBg := lipgloss.Color("240")
-	backBg := lipgloss.Color("240")
-	if m.detailCursor == 3 {
-		runBg = lipgloss.Color("42") // Green for Run
-	}
-	if m.detailCursor == 4 {
-		deleteBg = lipgloss.Color("196")
-	}
-	if m.detailCursor == 5 {
-		backBg = lipgloss.Color("39")
-	}
+	runBtn := components.NewButton("Run", func() tea.Cmd {
+		return func() tea.Msg {
+			m.selectedProjectConfig = &m.projects[m.selectedProject]
+			return tea.QuitMsg{}
+		}
+	})
+	runBtn.SetFocused(m.detailCursor == 3)
 
-	runBtn := lipgloss.NewStyle().Background(runBg).Foreground(lipgloss.Color("255")).Padding(0, 2).Render("Run")
-	deleteBtn := lipgloss.NewStyle().Background(deleteBg).Foreground(lipgloss.Color("255")).Padding(0, 2).Render("Delete")
-	backBtn := lipgloss.NewStyle().Background(backBg).Foreground(lipgloss.Color("255")).Padding(0, 2).Render("Back")
+	deleteBtn := components.NewButton("Delete", func() tea.Cmd {
+		return func() tea.Msg {
+			m.detailCursor = 4
+			return tea.KeyMsg{Type: tea.KeyEnter}
+		}
+	})
+	deleteBtn.SetFocused(m.detailCursor == 4)
 
-	lines = append(lines, runBtn+"  "+deleteBtn+"  "+backBtn)
+	backBtn := components.NewButton("Back", func() tea.Cmd {
+		return func() tea.Msg {
+			m.detailCursor = 5
+			return tea.KeyMsg{Type: tea.KeyEsc}
+		}
+	})
+	backBtn.SetFocused(m.detailCursor == 5)
+
+	copyBtn := components.NewButton("Copy Path (c)", func() tea.Cmd {
+		return m.copyToClipboard(m.getProjectRootDir(p))
+	})
+
+	runRendered := runBtn.Render()
+	deleteRendered := deleteBtn.Render()
+	backRendered := backBtn.Render()
+	copyRendered := copyBtn.Render()
+
+	lines = append(lines, runRendered+"  "+deleteRendered+"  "+backRendered)
 	lines = append(lines, "")
-	lines = append(lines, dimStyle.Render(" (c) copy path"))
+	lines = append(lines, copyRendered)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return modalStyle.Width(60).Render(content)
+	rendered := modalStyle.Width(60).Render(content)
+
+	w := lipgloss.Width(rendered)
+	h := lipgloss.Height(rendered)
+	x := (m.width - w) / 2
+	y := (m.height - h) / 2
+
+	// Registration
+	// modalStyle has Padding(1, 3) and Border
+	contentX := x + 4
+	contentY := y + 2
+
+	// ListItems are on lines 2, 3, 4 of content
+	for i, li := range listItems {
+		li.SetBounds(contentX, contentY+i, w-8, 1)
+		m.clickDispatcher.Register(li)
+	}
+
+	// Buttons are on the 9th line of content (header + empty + 3 items + root + empty + beads + empty)
+	buttonsY := contentY + 9
+	runBtn.SetBounds(contentX, buttonsY, lipgloss.Width(runRendered), 1)
+	m.clickDispatcher.Register(runBtn)
+
+	deleteBtn.SetBounds(contentX+lipgloss.Width(runRendered)+2, buttonsY, lipgloss.Width(deleteRendered), 1)
+	m.clickDispatcher.Register(deleteBtn)
+
+	backBtn.SetBounds(contentX+lipgloss.Width(runRendered)+2+lipgloss.Width(deleteRendered)+2, buttonsY, lipgloss.Width(backRendered), 1)
+	m.clickDispatcher.Register(backBtn)
+
+	// Copy button on line 11
+	copyBtn.SetBounds(contentX, buttonsY+2, lipgloss.Width(copyRendered), 1)
+	m.clickDispatcher.Register(copyBtn)
+
+	return rendered
 }
 
 func (m model) renderEditFieldModal() string {
@@ -1753,23 +1581,48 @@ func (m model) renderEditFieldModal() string {
 	lines = append(lines, dimStyle.Render("────────────────────────────────────────"))
 	lines = append(lines, "")
 
-	// Buttons - highlight based on cursor
-	saveBg := lipgloss.Color("240")
-	cancelBg := lipgloss.Color("240")
-	if m.editCursor == 1 {
-		saveBg = lipgloss.Color("34") // Green when selected
-	}
-	if m.editCursor == 2 {
-		cancelBg = lipgloss.Color("39") // Blue when selected
-	}
+	// Buttons
+	saveBtn := components.NewButton("Save", func() tea.Cmd {
+		return func() tea.Msg {
+			m.editCursor = 1
+			return tea.KeyMsg{Type: tea.KeyEnter}
+		}
+	})
+	saveBtn.SetFocused(m.editCursor == 1)
 
-	saveBtn := lipgloss.NewStyle().Background(saveBg).Foreground(lipgloss.Color("255")).Padding(0, 2).Render("Save")
-	cancelBtn := lipgloss.NewStyle().Background(cancelBg).Foreground(lipgloss.Color("255")).Padding(0, 2).Render("Cancel")
+	cancelBtn := components.NewButton("Cancel", func() tea.Cmd {
+		return func() tea.Msg {
+			m.editCursor = 2
+			return tea.KeyMsg{Type: tea.KeyEnter}
+		}
+	})
+	cancelBtn.SetFocused(m.editCursor == 2)
 
-	lines = append(lines, saveBtn+"  "+cancelBtn)
+	saveRendered := saveBtn.Render()
+	cancelRendered := cancelBtn.Render()
+
+	lines = append(lines, saveRendered+"  "+cancelRendered)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return modalStyle.Width(50).Render(content)
+	rendered := modalStyle.Width(50).Render(content)
+
+	w := lipgloss.Width(rendered)
+	h := lipgloss.Height(rendered)
+	x := (m.width - w) / 2
+	y := (m.height - h) / 2
+
+	contentX := x + 4
+	contentY := y + 2
+
+	// Buttons are on the 6th line of content
+	buttonsY := contentY + 5
+	saveBtn.SetBounds(contentX, buttonsY, lipgloss.Width(saveRendered), 1)
+	m.clickDispatcher.Register(saveBtn)
+
+	cancelBtn.SetBounds(contentX+lipgloss.Width(saveRendered)+2, buttonsY, lipgloss.Width(cancelRendered), 1)
+	m.clickDispatcher.Register(cancelBtn)
+
+	return rendered
 }
 
 func (m model) renderEditAgentCountModal() string {
@@ -1803,70 +1656,53 @@ func (m model) renderEditAgentCountModal() string {
 		lines = append(lines, "")
 	}
 
-	// Buttons - highlight based on cursor
-	applyBg := lipgloss.Color("240")
-	cancelBg := lipgloss.Color("240")
-	if m.agentCursor == 1 {
-		applyBg = lipgloss.Color("34") // Green when selected
-	}
-	if m.agentCursor == 2 {
-		cancelBg = lipgloss.Color("39") // Blue when selected
-	}
+	// Buttons
+	applyBtn := components.NewButton("Apply", func() tea.Cmd {
+		return func() tea.Msg {
+			m.agentCursor = 1
+			return tea.KeyMsg{Type: tea.KeyEnter}
+		}
+	})
+	applyBtn.SetFocused(m.agentCursor == 1)
 
-	applyBtn := lipgloss.NewStyle().Background(applyBg).Foreground(lipgloss.Color("255")).Padding(0, 2).Render("Apply")
-	cancelBtn := lipgloss.NewStyle().Background(cancelBg).Foreground(lipgloss.Color("255")).Padding(0, 2).Render("Cancel")
+	cancelBtn := components.NewButton("Cancel", func() tea.Cmd {
+		return func() tea.Msg {
+			m.agentCursor = 2
+			return tea.KeyMsg{Type: tea.KeyEnter}
+		}
+	})
+	cancelBtn.SetFocused(m.agentCursor == 2)
 
-	lines = append(lines, applyBtn+"  "+cancelBtn)
+	applyRendered := applyBtn.Render()
+	cancelRendered := cancelBtn.Render()
+
+	lines = append(lines, applyRendered+"  "+cancelRendered)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return modalStyle.Width(40).Render(content)
-}
+	rendered := modalStyle.Width(40).Render(content)
 
-func (m model) viewEditAgentCountLeft() string {
-	var b strings.Builder
+	w := lipgloss.Width(rendered)
+	h := lipgloss.Height(rendered)
+	x := (m.width - w) / 2
+	y := (m.height - h) / 2
 
-	if m.selectedProject >= len(m.projects) {
-		return "No project selected"
+	contentX := x + 4
+	contentY := y + 2
+
+	// Calculate Y for buttons. Lines: 0:title, 1:empty, 2:projName, 3:empty, 4:num, 5:empty, 6:diff (opt), 7:empty (opt), buttons
+	buttonsLineIdx := 6
+	if m.desiredAgentCount != p.AgentCount {
+		buttonsLineIdx = 8
 	}
 
-	p := m.projects[m.selectedProject]
+	buttonsY := contentY + buttonsLineIdx
+	applyBtn.SetBounds(contentX, buttonsY, lipgloss.Width(applyRendered), 1)
+	m.clickDispatcher.Register(applyBtn)
 
-	b.WriteString(titleStyle.Render("Agents"))
-	b.WriteString("\n\n")
+	cancelBtn.SetBounds(contentX+lipgloss.Width(applyRendered)+2, buttonsY, lipgloss.Width(cancelRendered), 1)
+	m.clickDispatcher.Register(cancelBtn)
 
-	b.WriteString(sectionStyle.Render(p.Name))
-	b.WriteString("\n\n")
-
-	// Simple display with inline diff
-	b.WriteString(itemStyle.Render("Number of Agents: "))
-	b.WriteString(selectedStyle.Render(fmt.Sprintf("%d", m.desiredAgentCount)))
-
-	diff := m.desiredAgentCount - p.AgentCount
-	if diff > 0 {
-		b.WriteString(successStyle.Render(fmt.Sprintf(" (+%d)", diff)))
-	} else if diff < 0 {
-		b.WriteString(warningStyle.Render(fmt.Sprintf(" (%d)", diff)))
-	}
-	b.WriteString("\n\n")
-
-	// Styled buttons
-	applyBtn := lipgloss.NewStyle().
-		Background(lipgloss.Color("34")).
-		Foreground(lipgloss.Color("255")).
-		Padding(0, 2).
-		Render("Apply")
-
-	cancelBtn := lipgloss.NewStyle().
-		Background(lipgloss.Color("240")).
-		Foreground(lipgloss.Color("255")).
-		Padding(0, 2).
-		Render("Cancel")
-
-	b.WriteString(applyBtn)
-	b.WriteString("  ")
-	b.WriteString(cancelBtn)
-
-	return b.String()
+	return rendered
 }
 
 func (m model) viewStatusPane() string {
@@ -2104,51 +1940,67 @@ func (m model) finishAddAccount() tea.Cmd {
 	}
 }
 
-func (m model) viewManageAccountsLeft() string {
+func (m model) viewManageAccountsLeft(yOffset int) string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("👥 Manage Accounts"))
 	b.WriteString("\n\n")
 
+	contentX := 4
+	contentY := yOffset + 3
+
 	if len(m.accounts) == 0 {
 		b.WriteString(dimStyle.Render("  No accounts found\n"))
 	} else {
 		for i, acc := range m.accounts {
-			cursor := "  "
-			style := itemStyle
-			if i == m.accountCursor {
-				cursor = "▸ "
-				style = selectedStyle
-			}
-
-			status := statusFail
+			status := "✗"
 			if acc.Authenticated {
-				status = statusOK
+				status = "✓"
 			}
+			li := components.NewListItem(fmt.Sprintf("%s %s (%s)", status, acc.Name, acc.AuthType), func() tea.Cmd {
+				idx := i
+				return func() tea.Msg {
+					m.accountCursor = idx
+					return nil
+				}
+			})
+			li.SetSelected(i == m.accountCursor)
+			b.WriteString(li.Render() + "\n")
 
-			b.WriteString(fmt.Sprintf("%s%s %s %s\n",
-				cursor,
-				status,
-				style.Render(acc.Name),
-				dimStyle.Render("("+acc.AuthType+")")))
+			li.SetBounds(contentX, contentY+i, 30, 1)
+			m.clickDispatcher.Register(li)
 		}
 	}
 
 	b.WriteString("\n")
 
-	addBg := lipgloss.Color("240")
-	// Using a special value or just checking if 'a' is pressed?
-	// For now let's just show it as a hint
-	addBtn := lipgloss.NewStyle().
-		Background(addBg).
-		Foreground(lipgloss.Color("255")).
-		Padding(0, 2).
-		Render("Press 'a' to Add Account")
+	addBtn := components.NewButton("Add Account", func() tea.Cmd {
+		return func() tea.Msg {
+			m.screen = screenAddAccountName
+			m.inputBuffer = ""
+			m.inputPrompt = "Account Name"
+			m.inputHint = "e.g., secondary-google-account"
+			return nil
+		}
+	})
+	addBtnRendered := addBtn.Render()
+	b.WriteString(addBtnRendered)
 
-	b.WriteString(addBtn)
+	addBtn.SetBounds(contentX, contentY+len(m.accounts)+1, lipgloss.Width(addBtnRendered), 1)
+	m.clickDispatcher.Register(addBtn)
 
+	backBtn := components.NewButton("Back", func() tea.Cmd {
+		return func() tea.Msg {
+			m.screen = screenMain
+			return nil
+		}
+	})
+	backBtnRendered := backBtn.Render()
 	b.WriteString("\n\n")
-	b.WriteString(dimStyle.Render("Esc to back"))
+	b.WriteString(backBtnRendered)
+
+	backBtn.SetBounds(contentX, contentY+len(m.accounts)+3, lipgloss.Width(backBtnRendered), 1)
+	m.clickDispatcher.Register(backBtn)
 
 	return b.String()
 }
@@ -2180,7 +2032,7 @@ func (m model) viewAddAccountNameLeft() string {
 	return b.String()
 }
 
-func (m model) viewAddAccountAuthTypeLeft() string {
+func (m model) viewAddAccountAuthTypeLeft(yOffset int) string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("👤 Add Account: " + m.newAccountName))
@@ -2189,25 +2041,30 @@ func (m model) viewAddAccountAuthTypeLeft() string {
 	b.WriteString(sectionStyle.Render("Select Authentication Type"))
 	b.WriteString("\n\n")
 
-	apiKeyStyle := itemStyle
-	googleStyle := itemStyle
+	contentX := 4
+	contentY := yOffset + 3
 
-	apiKeyCursor := "  "
-	googleCursor := "  "
+	li1 := components.NewListItem("API Key (Manual)", func() tea.Cmd {
+		return func() tea.Msg {
+			m.dialogCursor = 0
+			return tea.KeyMsg{Type: tea.KeyEnter}
+		}
+	})
+	li1.SetSelected(m.dialogCursor == 0)
+	b.WriteString(li1.Render() + "\n")
+	li1.SetBounds(contentX, contentY, 30, 1)
+	m.clickDispatcher.Register(li1)
 
-	if m.dialogCursor == 0 {
-		apiKeyStyle = selectedStyle
-		apiKeyCursor = "▸ "
-	} else {
-		googleStyle = selectedStyle
-		googleCursor = "▸ "
-	}
-
-	b.WriteString(apiKeyCursor + apiKeyStyle.Render("API Key (Manual)") + "\n")
-	b.WriteString(googleCursor + googleStyle.Render("Google OAuth (Interactive)") + "\n")
-
-	b.WriteString("\n")
-	b.WriteString(dimStyle.Render("Use arrow keys to select • Enter to continue"))
+	li2 := components.NewListItem("Google OAuth (Interactive)", func() tea.Cmd {
+		return func() tea.Msg {
+			m.dialogCursor = 1
+			return tea.KeyMsg{Type: tea.KeyEnter}
+		}
+	})
+	li2.SetSelected(m.dialogCursor == 1)
+	b.WriteString(li2.Render() + "\n")
+	li2.SetBounds(contentX, contentY+1, 30, 1)
+	m.clickDispatcher.Register(li2)
 
 	return b.String()
 }

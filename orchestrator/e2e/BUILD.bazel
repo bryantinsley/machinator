@@ -4,16 +4,16 @@ go_test(
     name = "e2e_test",
     srcs = ["main_test.go"],
     data = [
-        "//orchestrator/cmd/machinator",
-        "//tools/dummy-gemini",
         ":auto_built_binaries",
-        "//testdata/fixture-repo:files",
-        "//templates",
         "//:AGENTS.md",
-        "//:go.mod",
         "//:bd",
+        "//:go.mod",
         "//:mock-bd.sh",
         "//bootstrap:check_quota.sh",
+        "//orchestrator/cmd/machinator",
+        "//templates",
+        "//testdata/fixture-repo:files",
+        "//tools/dummy-gemini",
     ],
     deps = ["@rules_go//go/runfiles"],
 )
@@ -39,8 +39,8 @@ sh_test(
     srcs = ["run_vhs.sh"],
     data = [
         "//orchestrator/cmd/machinator:machinator-linux",
-        "//tools/dummy-gemini:dummy-gemini-linux",
-        "//testdata/vhs-fixture:files",
         "//orchestrator/e2e:crud.tape",
+        "//testdata/vhs-fixture:files",
+        "//tools/dummy-gemini:dummy-gemini-linux",
     ],
 )
