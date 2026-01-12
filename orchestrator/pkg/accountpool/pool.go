@@ -29,16 +29,22 @@ func NewPool() *Pool {
 
 // Add adds an account to the pool.
 func (p *Pool) Add(a Account) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.accounts = append(p.accounts, a)
 }
 
 // GetAccounts returns all accounts in the pool.
 func (p *Pool) GetAccounts() []Account {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	return p.accounts
 }
 
 // NextAvailable returns the next available account using round-robin and quota checking.
 func (p *Pool) NextAvailable() (*Account, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if len(p.accounts) == 0 {
 		return nil, fmt.Errorf("no accounts in pool")
 	}
@@ -70,12 +76,16 @@ func (p *Pool) NextAvailable() (*Account, error) {
 
 // MarkExhausted marks an account as temporarily exhausted.
 func (p *Pool) MarkExhausted(name string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	// Default to 1 hour exhaustion if we don't know the exact reset time
 	p.exhausted[name] = time.Now().Add(1 * time.Hour)
 }
 
 // ResetQuota resets the exhausted status for all accounts.
 func (p *Pool) ResetQuota() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.exhausted = make(map[string]time.Time)
 }
 

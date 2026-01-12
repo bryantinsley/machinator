@@ -14,6 +14,7 @@ import (
 
 	"path/filepath"
 
+	"github.com/bryantinsley/machinator/orchestrator/pkg/accountpool"
 	"github.com/bryantinsley/machinator/orchestrator/pkg/setup"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -129,6 +130,7 @@ type Config struct {
 	IdleTimeout        time.Duration
 	MaxTaskRuntime     time.Duration
 	CooldownPeriod     time.Duration
+	PoolingEnabled     bool
 }
 
 // Messages
@@ -141,6 +143,11 @@ type geminiDoneMsg string
 type taskFailedMsg struct {
 	taskID string
 	reason string
+}
+type taskStartedMsg struct {
+	taskID  string
+	account *accountpool.Account
+	cmd     *exec.Cmd
 }
 
 // Global channels for async communication
@@ -181,6 +188,8 @@ type model struct {
 	exitOnce        bool                 // Exit after one task completion (for E2E)
 	switchToSetup   bool                 // Whether to switch to setup mode
 	toolsCheck      ToolsCheckModel      // Sub-model for tools check
+	accountPool     *accountpool.Pool    // Account pool for rotation
+	activeAccount   *accountpool.Account // Currently active account
 }
 
 func initialModel(projectConfig *setup.ProjectConfig) model {
@@ -196,9 +205,13 @@ func initialModel(projectConfig *setup.ProjectConfig) model {
 		IdleTimeout:        5 * time.Minute,
 		MaxTaskRuntime:     30 * time.Minute,
 		CooldownPeriod:     5 * time.Second,
+		PoolingEnabled:     true, // Enabled by default
 	}
 
 	// Environment overrides for testing
+	if val := os.Getenv("MACHINATOR_POOLING_ENABLED"); val != "" {
+		config.PoolingEnabled = val == "true"
+	}
 	if val := os.Getenv("MACHINATOR_IDLE_TIMEOUT"); val != "" {
 		if d, err := time.ParseDuration(val); err == nil {
 			config.IdleTimeout = d
@@ -231,6 +244,10 @@ func initialModel(projectConfig *setup.ProjectConfig) model {
 		}
 	}
 
+	machinatorDir := setup.GetMachinatorDir()
+	pool := accountpool.NewPool()
+	pool.LoadFromDir(machinatorDir)
+
 	return model{
 		tasks: []Task{},
 		agentActivity: []string{
@@ -255,6 +272,7 @@ func initialModel(projectConfig *setup.ProjectConfig) model {
 		projectRoot:     projectRoot,
 		failedTasks:     make(map[string]time.Time),
 		toolsCheck:      InitialToolsCheckModel(),
+		accountPool:     pool,
 	}
 }
 
@@ -358,14 +376,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "e":
 			if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed {
-				taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks)
+				taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
 				if taskID != "" {
-					m.currentTaskID = taskID
-					m.geminiRunning = true
-					m.taskStartTime = time.Now()
-					m.lastEventTime = time.Now()
-					m.addActivity(fmt.Sprintf("⚡ Executing task: %s", taskID))
-					return m, executeTask(&m, taskID, m.config.AgentName)
+					m.addLog(fmt.Sprintf("⚡ Starting task: %s", taskID))
+					return m, executeTask(taskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled)
 				}
 			}
 		case "?":
@@ -534,6 +548,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.addLog(fmt.Sprintf("✓ Cycle %d: Task %s finished", m.cycle, taskID))
 				m.currentTaskID = ""
 				m.geminiCmd = nil
+				m.activeAccount = nil
 
 				if m.exitOnce {
 					m.addLog("🏁 exit-once mode: Task finished, exiting...")
@@ -542,15 +557,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				// Check for next task
 				if m.toolsCheck.State == ToolsCheckStatePassed {
-					nextTaskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks)
+					nextTaskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
 					if nextTaskID != "" {
 						m.addLog(fmt.Sprintf("✅ Next task: %s", nextTaskID))
-						m.currentTaskID = nextTaskID
-						m.geminiRunning = true
-						m.taskStartTime = time.Now()
-						m.lastEventTime = time.Now()
-						m.addActivity(fmt.Sprintf("⚡ Executing: %s", nextTaskID))
-						cmds = append(cmds, executeTask(&m, nextTaskID, m.config.AgentName))
+						cmds = append(cmds, executeTask(nextTaskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled))
 					} else {
 						m.addLog("⏸ No more ready tasks")
 					}
@@ -579,15 +589,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed && m.tickCount%cooldownSecs == 0 {
 			m.addLog(fmt.Sprintf("🔄 Auto-execute check (%d tasks)", len(m.tasks)))
 			// Only log activity if we actually find something, to reduce spam with short cooldowns
-			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks)
+			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
 			if taskID != "" {
 				m.addLog(fmt.Sprintf("✅ Found ready task: %s", taskID))
-				m.currentTaskID = taskID
-				m.geminiRunning = true
-				m.taskStartTime = time.Now()
-				m.lastEventTime = time.Now()
-				m.addActivity(fmt.Sprintf("⚡ Auto-executing: %s", taskID))
-				cmds = append(cmds, executeTask(&m, taskID, m.config.AgentName))
+				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled))
 			}
 		}
 
@@ -608,6 +613,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.geminiRunning = false
 					m.geminiCmd = nil
 					m.currentTaskID = ""
+					m.activeAccount = nil
 
 					if m.exitOnce {
 						m.addLog("🏁 exit-once mode: Task timed out, exiting...")
@@ -629,6 +635,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.geminiRunning = false
 					m.geminiCmd = nil
 					m.currentTaskID = ""
+					m.activeAccount = nil
 
 					if m.exitOnce {
 						m.addLog("🏁 exit-once mode: Task timed out, exiting...")
@@ -654,15 +661,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addActivity(fmt.Sprintf("📊 Quota: %d%%", m.quotaPercent))
 		// Check for ready tasks if we have tasks and quota
 		if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed && len(m.tasks) > 0 {
-			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks)
+			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
 			if taskID != "" {
 				m.addLog(fmt.Sprintf("✅ Ready to execute: %s", taskID))
-				m.currentTaskID = taskID
-				m.geminiRunning = true
-				m.taskStartTime = time.Now()
-				m.lastEventTime = time.Now()
-				m.addActivity(fmt.Sprintf("⚡ Starting: %s", taskID))
-				cmds = append(cmds, executeTask(&m, taskID, m.config.AgentName))
+				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled))
 			}
 		}
 
@@ -681,15 +683,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.addLog("⚠️  No tasks found - check projectRoot")
 		} else if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed {
 			// Check for ready tasks immediately
-			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks)
+			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
 			if taskID != "" {
 				m.addLog(fmt.Sprintf("✅ Found ready task: %s", taskID))
-				m.currentTaskID = taskID
-				m.geminiRunning = true
-				m.taskStartTime = time.Now()
-				m.lastEventTime = time.Now()
-				m.addActivity(fmt.Sprintf("⚡ Executing: %s", taskID))
-				cmds = append(cmds, executeTask(&m, taskID, m.config.AgentName))
+				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled))
 			}
 		}
 
@@ -707,6 +704,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case logMsg:
 		m.addLog(string(msg))
 
+	case taskStartedMsg:
+		m.currentTaskID = msg.taskID
+		m.activeAccount = msg.account
+		m.geminiCmd = msg.cmd
+		m.geminiRunning = true
+		m.taskStartTime = time.Now()
+		m.lastEventTime = time.Now()
+		accountName := "default"
+		if msg.account != nil {
+			accountName = msg.account.Name
+		}
+		m.addActivity(fmt.Sprintf("⚡ Started task: %s (account: %s)", msg.taskID, accountName))
+		m.addLog(fmt.Sprintf("🚀 Task %s started with account %s", msg.taskID, accountName))
+
 	case taskFailedMsg:
 		// Record the failed task so we don't retry it immediately
 		m.failedTasks[msg.taskID] = time.Now()
@@ -715,6 +726,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addLog(fmt.Sprintf("❌ Task %s failed: %s", msg.taskID, msg.reason))
 		m.currentTaskID = ""
 		m.geminiCmd = nil
+		m.activeAccount = nil
 		// Don't immediately retry - wait for next cycle
 
 	case geminiDoneMsg:
@@ -723,19 +735,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addLog(fmt.Sprintf("✓ Task %s finished", m.currentTaskID))
 		m.currentTaskID = ""
 		m.geminiCmd = nil
+		m.activeAccount = nil
 
 		// Wait a moment before checking for next task (don't spam)
 		m.addLog("🔍 Checking for next task...")
 		if m.toolsCheck.State == ToolsCheckStatePassed {
-			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks)
+			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
 			if taskID != "" {
 				m.addLog(fmt.Sprintf("✅ Next task: %s", taskID))
-				m.currentTaskID = taskID
-				m.geminiRunning = true
-				m.taskStartTime = time.Now()
-				m.lastEventTime = time.Now()
-				m.addActivity(fmt.Sprintf("⚡ Executing: %s", taskID))
-				cmds = append(cmds, executeTask(&m, taskID, m.config.AgentName))
+				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled))
 			} else {
 				m.addLog("⏸ No more ready tasks")
 			}
@@ -787,9 +795,17 @@ func (m *model) addEvent(event ACPEvent) {
 	fatalErrors := []string{
 		"Command rejected because it could not be parsed safely",
 		"FATAL",
+		"Quota exceeded",
+		"429 Too Many Requests",
 	}
 	for _, fatalErr := range fatalErrors {
 		if strings.Contains(event.Content, fatalErr) || strings.Contains(event.Raw, fatalErr) {
+			// Mark account as exhausted if it's a quota error
+			if (strings.Contains(event.Content, "Quota exceeded") || strings.Contains(event.Content, "429")) && m.activeAccount != nil {
+				m.accountPool.MarkExhausted(m.activeAccount.Name)
+				m.addLog(fmt.Sprintf("📉 Account %s marked as exhausted", m.activeAccount.Name))
+			}
+
 			m.cycle++ // Increment cycle when Gemini execution ends (killed)
 			m.addActivity(fmt.Sprintf("💀 Cycle %d: Fatal error, killing Gemini", m.cycle))
 			m.addLog(fmt.Sprintf("💀 Cycle %d: FATAL: %s - killing process", m.cycle, fatalErr))
@@ -803,6 +819,7 @@ func (m *model) addEvent(event ACPEvent) {
 			m.geminiRunning = false
 			m.geminiCmd = nil
 			m.currentTaskID = ""
+			m.activeAccount = nil
 			return
 		}
 	}
@@ -882,6 +899,11 @@ func (m model) View() string {
 	}
 
 	var title string
+	accountInfo := ""
+	if m.activeAccount != nil {
+		accountInfo = fmt.Sprintf("    Account: %s", m.activeAccount.Name)
+	}
+
 	if m.quotaLoaded {
 		quota := strings.Repeat("█", m.quotaPercent/10) + strings.Repeat("░", 10-m.quotaPercent/10)
 		status := "Idle"
@@ -892,8 +914,8 @@ func (m model) View() string {
 			status = fmt.Sprintf("⚡ Running for %s, last active %s ago", formatDuration(elapsed), formatDuration(sinceAction))
 		}
 		title = titleStyle.Render(fmt.Sprintf(
-			"🤖 Machinator    Agent: %s    Quota: %s %d%%    Cycle: %d    %s",
-			m.agentName, quota, m.quotaPercent, m.cycle, status,
+			"🤖 Machinator    Agent: %s%s    Quota: %s %d%%    Cycle: %d    %s",
+			m.agentName, accountInfo, quota, m.quotaPercent, m.cycle, status,
 		))
 	} else {
 		status := "Idle"
@@ -903,8 +925,8 @@ func (m model) View() string {
 			status = fmt.Sprintf("⚡ Running for %s, last active %s ago", formatDuration(elapsed), formatDuration(sinceAction))
 		}
 		title = titleStyle.Render(fmt.Sprintf(
-			"🤖 Machinator    Agent: %s    Quota: Loading...    Cycle: %d    %s",
-			m.agentName, m.cycle, status,
+			"🤖 Machinator    Agent: %s%s    Quota: Loading...    Cycle: %d    %s",
+			m.agentName, accountInfo, m.cycle, status,
 		))
 	}
 
@@ -1270,7 +1292,7 @@ func fetchTasks(projectRoot string) tea.Cmd {
 	}
 }
 
-func findReadyTask(tasks []Task, agentName string, failedTasks map[string]time.Time) string {
+func findReadyTask(tasks []Task, agentName string, failedTasks map[string]time.Time, projectRoot string) string {
 	// First check for in-progress tasks assigned to this agent
 	for _, task := range tasks {
 		if task.Status == "in_progress" && task.Assignee == agentName {
@@ -1284,7 +1306,6 @@ func findReadyTask(tasks []Task, agentName string, failedTasks map[string]time.T
 		}
 	}
 
-	projectRoot := getProjectRoot()
 	cmd := exec.Command("bd", "ready", "--json")
 	cmd.Dir = projectRoot
 	output, err := cmd.Output()
@@ -1306,15 +1327,37 @@ func findReadyTask(tasks []Task, agentName string, failedTasks map[string]time.T
 	return ""
 }
 
-func executeTask(m *model, taskID, agentName string) tea.Cmd {
+func executeTask(taskID, agentName, projectRoot string, pool *accountpool.Pool, poolingEnabled bool) tea.Cmd {
 	return func() tea.Msg {
-		projectRoot := getProjectRoot()
 		logPath := filepath.Join(originalCwd, "machinator", "logs", "tui_debug.log")
+
+		// Select account from pool if enabled
+		var selectedAccount *accountpool.Account
+		accounts := pool.GetAccounts()
+		if poolingEnabled && len(accounts) > 1 {
+			acc, err := pool.NextAvailable()
+			if err != nil {
+				f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				if f != nil {
+					f.WriteString(fmt.Sprintf("[%s] ❌ No available accounts: %v\n", time.Now().Format("15:04:05"), err))
+					f.Close()
+				}
+				return taskFailedMsg{taskID: taskID, reason: fmt.Sprintf("no available accounts: %v", err)}
+			}
+			selectedAccount = acc
+		} else if len(accounts) > 0 {
+			// Just use the first (default) account
+			selectedAccount = &accounts[0]
+		}
 
 		// Log task start
 		f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if f != nil {
-			f.WriteString(fmt.Sprintf("[%s] 🚀 executeTask started: %s\n", time.Now().Format("15:04:05"), taskID))
+			accountName := "default"
+			if selectedAccount != nil {
+				accountName = selectedAccount.Name
+			}
+			f.WriteString(fmt.Sprintf("[%s] 🚀 executeTask started: %s (account: %s)\n", time.Now().Format("15:04:05"), taskID, accountName))
 			f.Close()
 		}
 
@@ -1330,7 +1373,7 @@ func executeTask(m *model, taskID, agentName string) tea.Cmd {
 		}
 
 		// Build directive
-		directive, err := buildDirective(agentName, taskID)
+		directive, err := buildDirective(agentName, taskID, projectRoot)
 		if err != nil {
 			f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if f != nil {
@@ -1396,6 +1439,13 @@ func executeTask(m *model, taskID, agentName string) tea.Cmd {
 		geminiPath := filepath.Join(machinatorDir, "gemini")
 		geminiCmd := exec.Command(geminiPath, "--yolo", "--output-format", "stream-json", directive)
 		geminiCmd.Dir = projectRoot
+
+		// Set environment variables, including HOME for the selected account
+		geminiCmd.Env = os.Environ()
+		if selectedAccount != nil {
+			geminiCmd.Env = append(geminiCmd.Env, "HOME="+selectedAccount.HomeDir)
+		}
+
 		// Merge stderr into stdout for unified output capture
 		geminiCmd.Stderr = geminiCmd.Stdout
 
@@ -1419,7 +1469,6 @@ func executeTask(m *model, taskID, agentName string) tea.Cmd {
 			return taskFailedMsg{taskID: taskID, reason: fmt.Sprintf("gemini start: %v", err)}
 		}
 
-		m.geminiCmd = geminiCmd
 		f3, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if f3 != nil {
 			f3.WriteString(fmt.Sprintf("[%s] ✅ Gemini process started (PID: %d)\n", time.Now().Format("15:04:05"), geminiCmd.Process.Pid))
@@ -1477,14 +1526,11 @@ func executeTask(m *model, taskID, agentName string) tea.Cmd {
 			}
 		}()
 
-		// CRITICAL: Return nil immediately! The goroutine handles everything async.
-		// This allows the Bubble Tea event loop to keep running (processing ticks, etc.)
-		return nil
+		return taskStartedMsg{taskID: taskID, account: selectedAccount, cmd: geminiCmd}
 	}
 }
 
-func buildDirective(agentName, taskID string) (string, error) {
-	projectRoot := getProjectRoot()
+func buildDirective(agentName, taskID, projectRoot string) (string, error) {
 	logPath := filepath.Join(originalCwd, "machinator", "logs", "tui_debug.log")
 
 	taskContext := ""

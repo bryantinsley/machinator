@@ -1,6 +1,9 @@
 package accountpool
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 type AuthType string
 
@@ -16,6 +19,7 @@ type Account struct {
 }
 
 type Pool struct {
+	mu        sync.Mutex
 	accounts  []Account
 	exhausted map[string]time.Time // Track exhausted accounts
 	lastIdx   int                  // Last used account index for round-robin

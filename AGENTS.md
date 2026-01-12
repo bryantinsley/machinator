@@ -18,6 +18,7 @@ bd sync               # Sync with git
     - _Example_: If you run `bd create --deps ...`, run `bd ready` immediately after to confirm dependencies were actually linked correctly.
     - _Example_: If you edit a file, run a build or test to confirm it didn't break.
     - _Anti-Pattern_: "I ran the command, so it must be done." -> **WRONG**.
+
 ## Visual Evidence
 
 When modifying UI, you MUST update visual artifacts (Golden files, VHS tapes) to prove it looks correct.
@@ -28,13 +29,15 @@ For VHS tapes (`.tape` files), do NOT run them locally (slow, sandbox issues). I
 1.  **Modify**: Make your changes to `.tape` files or the code they record.
 2.  **Push**: Commit and push your changes.
 3.  **Gate**: Create a **gate** bead to wait for CI generation:
+
     ```bash
     bd create --type gate --title "Wait for VHS CI" --desc "Waiting for GitHub Action to generate GIFs" --parent <current_task_id>
     ```
-    *(Note: The CI will run VHS on Linux, generate GIFs, and commit them back to the repo. The next agent will pull these changes.)*
 
-3.  **Follow the Vision**: Before major refactors, consult `planning/architecture-vision.md` to ensure alignment with the long-term plan (Unified Binary, Dummy Testing).
-4.  **Preserve History**: Use `git mv` when renaming or moving files to maintain git history. Do not use `rm` or `mv` alone for versioned files.
+    _(Note: The CI will run VHS on Linux, generate GIFs, and commit them back to the repo. The next agent will pull these changes.)_
+
+4.  **Follow the Vision**: Before major refactors, consult `planning/architecture-vision.md` to ensure alignment with the long-term plan (Unified Binary, Dummy Testing).
+5.  **Preserve History**: Use `git mv` when renaming or moving files to maintain git history. Do not use `rm` or `mv` alone for versioned files.
 
 ## Go Environment Setup
 
@@ -84,6 +87,21 @@ These directories are already in `.gitignore`.
 - npm packages in `node_modules/` (project-local)
 - Python packages in a virtualenv within the project
 
+## Documentation Sync
+
+When changing code in these areas, **also update the corresponding docs**:
+
+| Code Area                  | Update This Doc                                  |
+| -------------------------- | ------------------------------------------------ |
+| `~/.machinator/` structure | `planning/directory-structure.md`                |
+| `./machinator/` local dirs | `planning/directory-structure.md`                |
+| Config file formats        | `planning/directory-structure.md`, `README.md`   |
+| UI components              | `planning/ui-component-system.md`                |
+| Directive templates        | `templates/`, `bootstrap/directive_template.txt` |
+| Architecture changes       | `planning/architecture-vision.md`                |
+
+**Docs are part of the change.** Don't merge code that makes docs stale.
+
 ## CI-Gated Operations (CURRENTLY DISABLED)
 
 **WARNING**: GitHub Actions are currently blocked due to billing issues. Use local fallbacks.
@@ -93,6 +111,7 @@ These directories are already in `.gitignore`.
 Since CI is down, use the local Docker wrapper (slow but functional):
 
 1. **Build Linux Binary**:
+
    ```bash
    # Ensure Go env is set first!
    export GOPATH="$(pwd)/.go-cache"
@@ -102,6 +121,7 @@ Since CI is down, use the local Docker wrapper (slow but functional):
    ```
 
 2. **Run VHS with Docker**:
+
    ```bash
    ./scripts/vhs-docker.sh orchestrator/e2e/navigation.tape
    ./scripts/vhs-docker.sh orchestrator/e2e/crud.tape
@@ -110,7 +130,7 @@ Since CI is down, use the local Docker wrapper (slow but functional):
 3. **Verify & Commit**:
    Check `docs/ui-history/*.gif` and commit them.
 
-*(Original CI instructions preserved below for when billing is fixed)*
+_(Original CI instructions preserved below for when billing is fixed)_
 
 For these operations, use the CI-gated workflow:
 
