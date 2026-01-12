@@ -33,4 +33,25 @@ var (
 	StatusActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("46"))  // Green
 	StatusIdleStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // Grey
 	StatusErrorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
+
+	// Dropdown Styles
+	DropdownStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("62")).
+			Padding(0, 1).
+			Width(20)
+
+	DropdownExpandedStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("62")).
+				Padding(0).
+				Background(lipgloss.Color("235"))
+
+	DropdownItemStyle = lipgloss.NewStyle().
+				Padding(0, 1)
+
+	DropdownItemSelectedStyle = lipgloss.NewStyle().
+					Padding(0, 1).
+					Background(lipgloss.Color("62")).
+					Foreground(lipgloss.Color("230"))
 )
