@@ -124,8 +124,11 @@ type DirectiveData struct {
 type Config struct {
 	AgentName          string
 	MaxCycles          int
-	SleepDuration      time.Duration
+	SleepDuration      time.Duration // Default sleep between cycles if nothing to do? Actually looks like CooldownPeriod
 	QuotaCheckInterval time.Duration
+	IdleTimeout        time.Duration
+	MaxTaskRuntime     time.Duration
+	CooldownPeriod     time.Duration
 }
 
 // Messages
@@ -184,18 +187,36 @@ func initialModel(projectConfig *setup.ProjectConfig) model {
 	vp := viewport.New(40, 10)
 	vp.SetContent("")
 
+	// Default config
 	config := Config{
 		AgentName:          getEnvOrDefault("BD_AGENT_NAME", "Gemini-01"),
 		MaxCycles:          10000,
 		SleepDuration:      60 * time.Second,
 		QuotaCheckInterval: 5 * time.Minute,
+		IdleTimeout:        5 * time.Minute,
+		MaxTaskRuntime:     30 * time.Minute,
+		CooldownPeriod:     5 * time.Second,
 	}
 
 	projectRoot := getProjectRoot()
-	// If project config is provided, use it to determine project root
+	// If project config is provided, use it to determine project root and override settings
 	if projectConfig != nil {
 		machinatorDir := setup.GetMachinatorDir()
 		projectRoot = filepath.Join(machinatorDir, "projects", fmt.Sprintf("%d", projectConfig.ID))
+
+		// Override defaults if set in project config
+		if projectConfig.MaxCycles > 0 {
+			config.MaxCycles = projectConfig.MaxCycles
+		}
+		if projectConfig.IdleTimeout > 0 {
+			config.IdleTimeout = projectConfig.IdleTimeout
+		}
+		if projectConfig.MaxTaskRuntime > 0 {
+			config.MaxTaskRuntime = projectConfig.MaxTaskRuntime
+		}
+		if projectConfig.CooldownPeriod > 0 {
+			config.CooldownPeriod = projectConfig.CooldownPeriod
+		}
 	}
 
 	return model{
@@ -537,10 +558,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, fetchTasks(m.projectRoot))
 		}
 
-		// Auto-execute every 60 seconds
-		if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed && m.tickCount%60 == 0 {
+		// Auto-execute check (using CooldownPeriod)
+		cooldownSecs := int(m.config.CooldownPeriod.Seconds())
+		if cooldownSecs < 1 {
+			cooldownSecs = 5 // Safe default
+		}
+
+		if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed && m.tickCount%cooldownSecs == 0 {
 			m.addLog(fmt.Sprintf("🔄 Auto-execute check (%d tasks)", len(m.tasks)))
-			m.addActivity("🔍 Looking for ready tasks...")
+			// Only log activity if we actually find something, to reduce spam with short cooldowns
 			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks)
 			if taskID != "" {
 				m.addLog(fmt.Sprintf("✅ Found ready task: %s", taskID))
@@ -550,23 +576,43 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastEventTime = time.Now()
 				m.addActivity(fmt.Sprintf("⚡ Auto-executing: %s", taskID))
 				cmds = append(cmds, executeTask(&m, taskID, m.config.AgentName))
-			} else {
-				m.addLog("No ready tasks")
 			}
 		}
-		// Check for inactivity timeout (5 minutes with no events)
-		if m.geminiRunning && !m.lastEventTime.IsZero() {
-			sinceAction := time.Since(m.lastEventTime)
-			if sinceAction >= 5*time.Minute {
-				m.addActivity("⏰ Agent timed out (5m inactive) - killing...")
-				m.addLog(fmt.Sprintf("⏰ TIMEOUT: Agent inactive for %s, killing process", formatDuration(sinceAction)))
-				if m.geminiCmd != nil && m.geminiCmd.Process != nil {
-					m.geminiCmd.Process.Kill()
+
+		// Check for timeouts
+		if m.geminiRunning {
+			now := time.Now()
+
+			// 1. Inactivity timeout (no events received)
+			if !m.lastEventTime.IsZero() {
+				sinceAction := now.Sub(m.lastEventTime)
+				if sinceAction >= m.config.IdleTimeout {
+					m.addActivity(fmt.Sprintf("⏰ Agent timed out (%s inactive) - killing...", formatDuration(m.config.IdleTimeout)))
+					m.addLog(fmt.Sprintf("⏰ IDLE TIMEOUT: Agent inactive for %s, killing process", formatDuration(sinceAction)))
+					if m.geminiCmd != nil && m.geminiCmd.Process != nil {
+						m.geminiCmd.Process.Kill()
+					}
+					m.failedTasks[m.currentTaskID] = now
+					m.geminiRunning = false
+					m.geminiCmd = nil
+					m.currentTaskID = ""
 				}
-				m.failedTasks[m.currentTaskID] = time.Now()
-				m.geminiRunning = false
-				m.geminiCmd = nil
-				m.currentTaskID = ""
+			}
+
+			// 2. Max Runtime timeout (task taking too long total)
+			if !m.taskStartTime.IsZero() {
+				runtime := now.Sub(m.taskStartTime)
+				if runtime >= m.config.MaxTaskRuntime {
+					m.addActivity(fmt.Sprintf("⏰ Agent timed out (%s runtime) - killing...", formatDuration(m.config.MaxTaskRuntime)))
+					m.addLog(fmt.Sprintf("⏰ RUNTIME TIMEOUT: Agent ran for %s (max %s), killing process", formatDuration(runtime), formatDuration(m.config.MaxTaskRuntime)))
+					if m.geminiCmd != nil && m.geminiCmd.Process != nil {
+						m.geminiCmd.Process.Kill()
+					}
+					m.failedTasks[m.currentTaskID] = now
+					m.geminiRunning = false
+					m.geminiCmd = nil
+					m.currentTaskID = ""
+				}
 			}
 		}
 

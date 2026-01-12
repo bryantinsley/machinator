@@ -20,6 +20,12 @@ type ProjectConfig struct {
 	TasksDone  int    `json:"tasks_done"`
 	TasksTotal int    `json:"tasks_total"`
 	CreatedAt  string `json:"created_at"`
+
+	// Configurable settings
+	IdleTimeout    time.Duration `json:"idle_timeout,omitempty"`
+	MaxTaskRuntime time.Duration `json:"max_task_runtime,omitempty"`
+	MaxCycles      int           `json:"max_cycles,omitempty"`
+	CooldownPeriod time.Duration `json:"cooldown_period,omitempty"`
 }
 
 type GlobalSettings struct {

@@ -12,3 +12,11 @@ go_binary(
     embed = [":dummy-gemini_lib"],
     visibility = ["//visibility:public"],
 )
+
+go_binary(
+    name = "dummy-gemini-linux",
+    embed = [":dummy-gemini_lib"],
+    goarch = "amd64",
+    goos = "linux",
+    visibility = ["//visibility:public"],
+)
