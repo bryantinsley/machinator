@@ -123,6 +123,16 @@ var (
 // Model Methods
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// RenderInitialView returns the initial view string for headless testing.
+func RenderInitialView() (string, error) {
+	m := initialModel()
+	m.width = 80
+	m.height = 24
+	m.projectsLoaded = true
+	// Mock some data if needed for initial view
+	return m.View(), nil
+}
+
 // Run executes the setup TUI and returns the selected project configuration.
 func Run() (*ProjectConfig, error) {
 	m := initialModel()

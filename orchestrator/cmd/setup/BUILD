@@ -1,9 +1,17 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_cross_binary", "go_library")
+load("//testing:golden.bzl", "golden_test")
 
 go_binary(
     name = "setup",
     embed = [":setup_lib"],
     visibility = ["//visibility:public"],
+)
+
+golden_test(
+    name = "main_screen_golden",
+    args = ["--headless"],
+    binary = ":setup",
+    golden_file = "testdata/main_screen.golden",
 )
 
 go_cross_binary(

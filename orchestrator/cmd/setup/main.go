@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -8,6 +9,19 @@ import (
 )
 
 func main() {
+	headless := flag.Bool("headless", false, "Run in headless mode and dump initial view")
+	flag.Parse()
+
+	if *headless {
+		view, err := setup.RenderInitialView()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Print(view)
+		return
+	}
+
 	config, err := setup.Run()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
