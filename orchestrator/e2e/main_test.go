@@ -16,86 +16,76 @@ type Task struct {
 	Title  string `json:"title"`
 }
 
-func TestOrchestratorE2E(t *testing.T) {
-	if os.Getenv("E2E_SKIP") == "1" {
-		t.Skip("Skipping E2E test")
+type Harness struct {
+	RootDir       string
+	TmpDir        string
+	BinDir        string
+	RepoDir       string
+	MachinatorDir string
+	MachinatorBin string
+	GeminiBin     string
+}
+
+func setupHarness(t *testing.T) *Harness {
+	h := &Harness{}
+	h.RootDir = findProjectRoot(t)
+	h.TmpDir = t.TempDir()
+	h.BinDir = filepath.Join(h.TmpDir, "bin")
+	h.RepoDir = filepath.Join(h.TmpDir, "repo")
+	h.MachinatorDir = filepath.Join(h.TmpDir, ".machinator")
+
+	if err := os.MkdirAll(h.BinDir, 0755); err != nil {
+		t.Fatal(err)
 	}
-
-	// 1. Setup environment
-	root := findProjectRoot(t)
-	tmpDir := t.TempDir()
-	binDir := filepath.Join(tmpDir, "bin")
-	repoDir := filepath.Join(tmpDir, "repo")
-
-	if err := os.MkdirAll(binDir, 0755); err != nil {
+	if err := os.MkdirAll(h.MachinatorDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	t.Logf("Project Root: %s", root)
-	t.Logf("Temp Dir: %s", tmpDir)
+	// Build binaries
+	h.GeminiBin = filepath.Join(h.BinDir, "gemini")
+	buildGoBin(t, h.RootDir, "./tools/dummy-gemini", h.GeminiBin)
 
-	// 2. Build binaries
-	// Build dummy-gemini
-	geminiPath := filepath.Join(binDir, "gemini")
-	buildGoBin(t, root, "./tools/dummy-gemini", geminiPath)
+	h.MachinatorBin = filepath.Join(h.BinDir, "machinator")
+	buildGoBin(t, h.RootDir, "./orchestrator/cmd/machinator", h.MachinatorBin)
 
-	// Build machinator
-	machinatorPath := filepath.Join(binDir, "machinator")
-	buildGoBin(t, root, "./orchestrator/cmd/machinator", machinatorPath)
+	// Copy dummy-gemini to ~/.machinator/gemini
+	if err := copyFile(h.GeminiBin, filepath.Join(h.MachinatorDir, "gemini")); err != nil {
+		t.Fatal(err)
+	}
+	os.Chmod(filepath.Join(h.MachinatorDir, "gemini"), 0755)
 
-	// 3. Setup Fixture Repo
+	return h
+}
+
+func (h *Harness) setupFixture(t *testing.T) {
 	// Copy testdata/fixture-repo to repoDir
-	fixtureSrc := filepath.Join(root, "testdata", "fixture-repo")
-	if err := copyDir(fixtureSrc, repoDir); err != nil {
+	fixtureSrc := filepath.Join(h.RootDir, "testdata", "fixture-repo")
+	if err := copyDir(fixtureSrc, h.RepoDir); err != nil {
 		t.Fatalf("Failed to copy fixture repo: %v", err)
 	}
 
-	// Create templates/directive_template.txt in repoDir (orchestrator expects it relative to CWD if not found elsewhere)
-	// But orchestrator logic looks in runfiles or workspace.
-	// Since we run machinator in repoDir, we should provide templates there or ensure it finds them.
-	// The harness should mimic the real environment.
-	// In real env, machinator binary is usually run from project root or has templates nearby.
-	// Let's copy templates to repoDir/templates
-	copyDir(filepath.Join(root, "templates"), filepath.Join(repoDir, "templates"))
+	// Copy templates
+	copyDir(filepath.Join(h.RootDir, "templates"), filepath.Join(h.RepoDir, "templates"))
 
-	// Also copy AGENTS.md (orchestrator reads it for context)
-	copyFile(filepath.Join(root, "AGENTS.md"), filepath.Join(repoDir, "AGENTS.md"))
+	// Copy AGENTS.md
+	copyFile(filepath.Join(h.RootDir, "AGENTS.md"), filepath.Join(h.RepoDir, "AGENTS.md"))
 
-	// Copy bootstrap/check_quota.sh to repoDir/machinator/check_quota.sh (used by logic)
-	// Actually orchestrator/pkg/orchestrator/quota_check.go uses "bootstrap/check_quota.sh" relative to project root?
-	// No, it uses filepath.Join(projectRoot, "machinator", "check_quota.sh") usually?
-	// Let's check quota_check.go. But assuming it needs it:
-	os.MkdirAll(filepath.Join(repoDir, "machinator"), 0755)
-	// We might not have check_quota.sh in the fixture, but orchestrator might look for it.
-	// Let's dummy it out to avoid errors, or copy real one.
-	// Real one is in bootstrap/check_quota.sh
-	copyFile(filepath.Join(root, "bootstrap", "check_quota.sh"), filepath.Join(repoDir, "machinator", "check_quota.sh"))
-	os.Chmod(filepath.Join(repoDir, "machinator", "check_quota.sh"), 0755)
+	// Copy check_quota.sh
+	os.MkdirAll(filepath.Join(h.RepoDir, "machinator"), 0755)
+	copyFile(filepath.Join(h.RootDir, "bootstrap", "check_quota.sh"), filepath.Join(h.RepoDir, "machinator", "check_quota.sh"))
+	os.Chmod(filepath.Join(h.RepoDir, "machinator", "check_quota.sh"), 0755)
+}
 
-	// 4. Setup Machinator Environment (Mock HOME)
-	machinatorDir := filepath.Join(tmpDir, ".machinator")
-	if err := os.MkdirAll(machinatorDir, 0755); err != nil {
-		t.Fatal(err)
-	}
+func (h *Harness) runMachinator(t *testing.T, envVars []string, timeout time.Duration) {
+	// Sync DB first
+	h.syncDB(t)
 
-	// Copy dummy-gemini to ~/.machinator/gemini
-	if err := copyFile(geminiPath, filepath.Join(machinatorDir, "gemini")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(filepath.Join(machinatorDir, "gemini"), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	// 5. Run Orchestrator
-	// We use the "task-1" from fixture repo.
-	// We expect dummy-gemini (AUTO_CLOSE mode) to close it.
-
-	cmd := exec.Command(machinatorPath, "--once", "--headless")
-	cmd.Dir = repoDir
+	cmd := exec.Command(h.MachinatorBin, "--once", "--headless")
+	cmd.Dir = h.RepoDir
 
 	// Setup Environment
 	env := os.Environ()
-	// Filter out existing HOME
+	// Filter out existing HOME/PATH to isolate
 	var newEnv []string
 	for _, e := range env {
 		if !strings.HasPrefix(e, "HOME=") && !strings.HasPrefix(e, "PATH=") {
@@ -105,52 +95,33 @@ func TestOrchestratorE2E(t *testing.T) {
 	env = newEnv
 
 	// Add binDir to PATH
-	pathVal := binDir + string(os.PathListSeparator) + os.Getenv("PATH")
+	pathVal := h.BinDir + string(os.PathListSeparator) + os.Getenv("PATH")
 	env = append(env, "PATH="+pathVal)
 
 	// Set HOME to tmpDir
-	env = append(env, "HOME="+tmpDir)
+	env = append(env, "HOME="+h.TmpDir)
 
-	// Add other env vars
+	// Default Env
 	env = append(env,
-		"DUMMY_GEMINI_MODE=AUTO_CLOSE", // Tells dummy-gemini to close the task
 		"BD_AGENT_NAME=E2E-Agent",
-		"BUILD_WORKING_DIRECTORY="+repoDir, // Help find templates if needed
+		"BUILD_WORKING_DIRECTORY="+h.RepoDir,
 	)
+
+	// Add custom vars
+	env = append(env, envVars...)
 	cmd.Env = env
 
-	// Verify bd list works before starting
-	// First, run bd import to ensure DB is in sync (since we copied files, timestamps might confuse bd)
-	importCmd := exec.Command("bd", "import", "-i", ".beads/issues.jsonl")
-	importCmd.Dir = repoDir
-	importCmd.Env = env
-	if out, err := importCmd.CombinedOutput(); err != nil {
-		t.Fatalf("bd import failed: %v\nOutput: %s", err, string(out))
-	} else {
-		t.Logf("bd import success: %s", string(out))
-	}
-
-	verifyBdCmd := exec.Command("bd", "list", "--json") // Default mode (uses DB)
-	verifyBdCmd.Dir = repoDir
-	verifyBdCmd.Env = env
-	if out, err := verifyBdCmd.CombinedOutput(); err != nil {
-		t.Logf("Warning: bd list failed in setup: %v\nOutput: %s", err, string(out))
-	} else {
-		t.Logf("bd list check passed: %s", string(out))
-	}
-
 	// Capture output
-	stdoutFile, _ := os.Create(filepath.Join(repoDir, "machinator.stdout"))
-	stderrFile, _ := os.Create(filepath.Join(repoDir, "machinator.stderr"))
+	stdoutFile, _ := os.Create(filepath.Join(h.RepoDir, "machinator.stdout"))
+	stderrFile, _ := os.Create(filepath.Join(h.RepoDir, "machinator.stderr"))
 	cmd.Stdout = stdoutFile
 	cmd.Stderr = stderrFile
 
-	t.Log("Starting machinator...")
+	t.Logf("Starting machinator with timeout %s...", timeout)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Failed to start machinator: %v", err)
 	}
 
-	// Wait for completion (with timeout)
 	done := make(chan error, 1)
 	go func() {
 		done <- cmd.Wait()
@@ -163,36 +134,42 @@ func TestOrchestratorE2E(t *testing.T) {
 		} else {
 			t.Log("Machinator exited successfully")
 		}
-	case <-time.After(60 * time.Second):
+	case <-time.After(timeout):
 		cmd.Process.Kill()
-
-		// Dump logs
-		t.Log("--- TIMEOUT DEBUGGING ---")
-
-		if content, err := os.ReadFile(filepath.Join(repoDir, "machinator.stdout")); err == nil {
-			t.Logf("STDOUT:\n%s", string(content))
-		}
-		if content, err := os.ReadFile(filepath.Join(repoDir, "machinator.stderr")); err == nil {
-			t.Logf("STDERR:\n%s", string(content))
-		}
-
-		logPath := filepath.Join(repoDir, "machinator", "logs", "tui_debug.log")
-		if content, err := os.ReadFile(logPath); err == nil {
-			t.Logf("TUI LOG:\n%s", string(content))
-		} else {
-			t.Logf("TUI LOG not found at %s", logPath)
-		}
-
+		h.dumpLogs(t)
 		t.Fatal("Test timed out waiting for machinator")
 	}
+}
 
-	// 5. Verify Results
-	// Check if task-1 is closed in repoDir/.beads/issues.jsonl
-	// We can use bd list --json --no-db
+func (h *Harness) syncDB(t *testing.T) {
+	// Run bd import to ensure DB is in sync
+	cmd := exec.Command("bd", "import", "-i", ".beads/issues.jsonl")
+	cmd.Dir = h.RepoDir
+	// Need HOME set for bd
+	cmd.Env = append(os.Environ(), "HOME="+h.TmpDir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("bd import failed: %v\nOutput: %s", err, string(out))
+	}
+}
 
-	verifyCmd := exec.Command("bd", "list", "--json", "--no-db")
-	verifyCmd.Dir = repoDir
-	out, err := verifyCmd.Output()
+func (h *Harness) dumpLogs(t *testing.T) {
+	t.Log("--- DEBUG LOGS ---")
+	if content, err := os.ReadFile(filepath.Join(h.RepoDir, "machinator.stdout")); err == nil {
+		t.Logf("STDOUT:\n%s", string(content))
+	}
+	if content, err := os.ReadFile(filepath.Join(h.RepoDir, "machinator.stderr")); err == nil {
+		t.Logf("STDERR:\n%s", string(content))
+	}
+	logPath := filepath.Join(h.RepoDir, "machinator", "logs", "tui_debug.log")
+	if content, err := os.ReadFile(logPath); err == nil {
+		t.Logf("TUI LOG:\n%s", string(content))
+	}
+}
+
+func (h *Harness) getTask(t *testing.T, id string) Task {
+	cmd := exec.Command("bd", "list", "--json", "--no-db")
+	cmd.Dir = h.RepoDir
+	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("Failed to verify with bd: %v", err)
 	}
@@ -202,22 +179,108 @@ func TestOrchestratorE2E(t *testing.T) {
 		t.Fatalf("Failed to parse verification output: %v", err)
 	}
 
-	task1Closed := false
 	for _, task := range tasks {
-		if task.ID == "task-1" {
-			t.Logf("Task 1 status: %s", task.Status)
-			if task.Status == "closed" {
-				task1Closed = true
-			}
+		if task.ID == id {
+			return task
 		}
 	}
+	t.Fatalf("Task %s not found", id)
+	return Task{}
+}
 
-	if !task1Closed {
-		t.Error("task-1 was not closed by the agent")
-		// Dump logs
-		logPath := filepath.Join(repoDir, "machinator", "logs", "tui_debug.log")
-		if content, err := os.ReadFile(logPath); err == nil {
-			t.Logf("--- TUI DEBUG LOG ---\n%s\n---------------------", string(content))
+func TestE2E_Happy(t *testing.T) {
+	if os.Getenv("E2E_SKIP") == "1" {
+		t.Skip("Skipping E2E test")
+	}
+	h := setupHarness(t)
+	h.setupFixture(t)
+
+	// Run with AUTO_CLOSE mode
+	h.runMachinator(t, []string{"DUMMY_GEMINI_MODE=AUTO_CLOSE"}, 60*time.Second)
+
+	task := h.getTask(t, "task-1")
+	if task.Status != "closed" {
+		t.Errorf("Expected task-1 status closed, got %s", task.Status)
+		h.dumpLogs(t)
+	}
+}
+
+func TestE2E_Stuck(t *testing.T) {
+	if os.Getenv("E2E_SKIP") == "1" {
+		t.Skip("Skipping E2E test")
+	}
+	h := setupHarness(t)
+	h.setupFixture(t)
+
+	// Configure short timeouts via env vars
+	env := []string{
+		"DUMMY_GEMINI_MODE=STUCK",
+		"MACHINATOR_IDLE_TIMEOUT=3s",
+		"MACHINATOR_MAX_TASK_RUNTIME=5s",
+	}
+
+	// Run machinator. It should kill the stuck agent and exit (or retry).
+	// Since we use --once, if it kills the agent, does it count as "finished"?
+	// geminiDoneChan is triggered when process exits (even if killed?).
+	// No, Wait() returns error if killed.
+	// In tui.go, we handle process completion in goroutine.
+	// If killed by us (timeout), we set geminiRunning=false and add failedTasks.
+	// We do NOT send to geminiDoneChan in that case?
+	// Actually, the goroutine waits for Wait(). If we kill process, Wait() returns error.
+	// The goroutine sends to geminiDoneChan.
+	// So it should cycle.
+	// Since we kill it, it should count as a failure.
+
+	h.runMachinator(t, env, 20*time.Second)
+
+	// Task should NOT be closed.
+	task := h.getTask(t, "task-1")
+	if task.Status == "closed" {
+		t.Error("Expected task-1 to NOT be closed (stuck agent)")
+	}
+
+	// Check logs for timeout message
+	logPath := filepath.Join(h.RepoDir, "machinator", "logs", "tui_debug.log")
+	content, _ := os.ReadFile(logPath)
+	if !strings.Contains(string(content), "TIMEOUT") {
+		t.Error("Logs should contain TIMEOUT message")
+		t.Logf("LOGS:\n%s", string(content))
+	}
+}
+func TestE2E_Error(t *testing.T) {
+	if os.Getenv("E2E_SKIP") == "1" {
+		t.Skip("Skipping E2E test")
+	}
+	h := setupHarness(t)
+	h.setupFixture(t)
+
+	// Run with ERROR mode
+	h.runMachinator(t, []string{"DUMMY_GEMINI_MODE=ERROR"}, 30*time.Second)
+
+	// Task should still be open (or in_progress/failed depending on how orchestrator handles failure)
+	// Orchestrator marks failed task in memory map, but doesn't change status back to open?
+	// `executeTask` updates status to `in_progress`.
+	// If it fails, it stays `in_progress`?
+
+	task := h.getTask(t, "task-1")
+	// It should be in_progress (since we started it) but failed execution.
+	if task.Status != "in_progress" {
+		t.Logf("Expected task-1 status in_progress, got %s", task.Status)
+	}
+
+	// Check logs for error message
+	logPath := filepath.Join(h.RepoDir, "machinator", "logs", "tui_debug.log")
+	content, _ := os.ReadFile(logPath)
+	if !strings.Contains(string(content), "Quota exceeded") && !strings.Contains(string(content), "Error: Quota exceeded") {
+		// DUMMY_GEMINI_MODE=ERROR prints "Error: Quota exceeded or service unavailable" to stderr
+		// Orchestrator captures it?
+		// "Usage of ... flag provided but not defined: -dump-quota" - this was fixed.
+
+		// In ERROR mode, dummy-gemini exits with 1.
+		// Orchestrator logs: "⚠️ Gemini exited with error: exit status 1"
+		if !strings.Contains(string(content), "Gemini exited with error") {
+			t.Error("Logs should contain Gemini exit error")
+			t.Logf("LOGS:\n%s", string(content))
 		}
 	}
 }
@@ -227,8 +290,6 @@ func findProjectRoot(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// We are in orchestrator/e2e, so go up 2 levels
-	// But let's be robust
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir
@@ -244,13 +305,7 @@ func findProjectRoot(t *testing.T) string {
 func buildGoBin(t *testing.T, root, pkg, outPath string) {
 	cmd := exec.Command("go", "build", "-o", outPath, pkg)
 	cmd.Dir = root
-	// Ensure we use local cache to avoid permission errors
-	env := os.Environ()
-	// We assume GOCACHE/GOPATH are set in the shell running the test,
-	// but if not, we might rely on the test runner.
-	// Since we run this test via `go test`, we assume env is sane.
-	cmd.Env = env
-
+	cmd.Env = os.Environ()
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to build %s: %v\nOutput: %s", pkg, err, string(output))
 	}

@@ -2,6 +2,26 @@
 
 Machinator is a TUI-based orchestrator that uses Gemini AI to automatically work through tasks managed by [beads](https://github.com/steveyegge/beads). It handles task discovery, agent directives, quota management, and continuous operation.
 
+## The Story: Built by Agents, For Agents
+
+**Machinator was bootstrapped and developed by the very multi-agent system it creates.**
+
+The project began as a reaction to complexity. After exploring Steve Yegge's [Gas Town](https://github.com/steveyegge/gastown) orchestration system and reading his Medium articles about multi-agent coordination, it became clear that a simpler approach was needed first—something that could keep a single Gemini CLI productive without worrying about context rot, stalls, and the overhead of full multi-agent choreography.
+
+The original motivation was practical: while building [FilmSchool.app](https://filmschool.app), too much time was spent babysitting AI agents instead of reviewing their work. The goal was simple: **keep agents working, 24/7, without human intervention**.
+
+### The Bootstrap Journey
+
+1. **Hand-written shell scripts** — A simple bash dispatch loop that fetched tasks from beads, built directives, and launched Gemini in a tmux pane.
+
+2. **Claude Opus planning** — Worked with Claude to design the architecture and generate beads tasks for improving the bootstrap system.
+
+3. **Gemini execution** — The bootstrap orchestrator ran Gemini agents that implemented the improvements—building a Go-based Bubble Tea TUI, adding quota management, timeout handling, and the unblocking mode.
+
+4. **Self-improvement** — The system now orchestrates its own development. Multiple AI agents (Gemini, Claude, GPT) contribute to the codebase, coordinated through beads and guided by `AGENTS.md`.
+
+The result: **an orchestrator that was built by AI agents, orchestrated by a simpler version of itself, and now continues to improve through the same process it enables.**
+
 ## Quick Start
 
 ```bash

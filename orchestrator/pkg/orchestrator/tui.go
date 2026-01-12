@@ -198,6 +198,18 @@ func initialModel(projectConfig *setup.ProjectConfig) model {
 		CooldownPeriod:     5 * time.Second,
 	}
 
+	// Environment overrides for testing
+	if val := os.Getenv("MACHINATOR_IDLE_TIMEOUT"); val != "" {
+		if d, err := time.ParseDuration(val); err == nil {
+			config.IdleTimeout = d
+		}
+	}
+	if val := os.Getenv("MACHINATOR_MAX_TASK_RUNTIME"); val != "" {
+		if d, err := time.ParseDuration(val); err == nil {
+			config.MaxTaskRuntime = d
+		}
+	}
+
 	projectRoot := getProjectRoot()
 	// If project config is provided, use it to determine project root and override settings
 	if projectConfig != nil {
@@ -596,6 +608,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.geminiRunning = false
 					m.geminiCmd = nil
 					m.currentTaskID = ""
+
+					if m.exitOnce {
+						m.addLog("🏁 exit-once mode: Task timed out, exiting...")
+						return m, tea.Quit
+					}
 				}
 			}
 
@@ -612,6 +629,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.geminiRunning = false
 					m.geminiCmd = nil
 					m.currentTaskID = ""
+
+					if m.exitOnce {
+						m.addLog("🏁 exit-once mode: Task timed out, exiting...")
+						return m, tea.Quit
+					}
 				}
 			}
 		}
