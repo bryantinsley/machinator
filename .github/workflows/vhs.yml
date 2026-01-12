@@ -1,0 +1,41 @@
+name: VHS Terminal Recording
+
+on:
+  push:
+    paths:
+      - "orchestrator/**"
+      - "**/*.tape"
+  workflow_dispatch:
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install VHS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg ttyd
+          go install github.com/charmbracelet/vhs@latest
+
+      - name: Build Binaries
+        run: |
+          go build -o setup-tui-linux ./orchestrator/cmd/setup
+          go build -o machinator-linux ./orchestrator/cmd/machinator
+
+      - name: Run VHS tapes
+        run: |
+          vhs orchestrator/e2e/navigation.tape
+          vhs orchestrator/e2e/crud.tape
+          vhs orchestrator/e2e/orchestrator_run.tape
+
+      - name: Upload GIFs
+        uses: actions/upload-artifact@v4
+        with:
+          name: vhs-gifs
+          path: docs/ui-history/*.gif
