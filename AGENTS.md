@@ -18,7 +18,21 @@ bd sync               # Sync with git
     - _Example_: If you run `bd create --deps ...`, run `bd ready` immediately after to confirm dependencies were actually linked correctly.
     - _Example_: If you edit a file, run a build or test to confirm it didn't break.
     - _Anti-Pattern_: "I ran the command, so it must be done." -> **WRONG**.
-2.  **Visual Evidence**: When modifying UI, you MUST update visual artifacts (Golden files, VHS tapes) to prove it looks correct.
+## Visual Evidence
+
+When modifying UI, you MUST update visual artifacts (Golden files, VHS tapes) to prove it looks correct.
+
+**VHS Recordings (CI Gated)**
+For VHS tapes (`.tape` files), do NOT run them locally (slow, sandbox issues). Instead:
+
+1.  **Modify**: Make your changes to `.tape` files or the code they record.
+2.  **Push**: Commit and push your changes.
+3.  **Gate**: Create a **gate** bead to wait for CI generation:
+    ```bash
+    bd create --type gate --title "Wait for VHS CI" --desc "Waiting for GitHub Action to generate GIFs" --parent <current_task_id>
+    ```
+    *(Note: The CI will run VHS on Linux, generate GIFs, and commit them back to the repo. The next agent will pull these changes.)*
+
 3.  **Follow the Vision**: Before major refactors, consult `planning/architecture-vision.md` to ensure alignment with the long-term plan (Unified Binary, Dummy Testing).
 4.  **Preserve History**: Use `git mv` when renaming or moving files to maintain git history. Do not use `rm` or `mv` alone for versioned files.
 

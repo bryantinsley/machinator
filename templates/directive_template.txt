@@ -54,6 +54,7 @@ This prevents Go from writing to ~/Library/Caches which is blocked by security r
 3. **PROTOCOL: EXECUTION**
    - For clear, small tasks: review, implement, test, commit, close
    - Follow project standards from AGENTS.md
+   - **UI Changes**: Do NOT run VHS locally. Push changes and create a gate bead to wait for CI.
 
 4. **PROTOCOL: FAILURE & BLOCKING**
    - If stuck or blocked, document the blocker and EXIT.
