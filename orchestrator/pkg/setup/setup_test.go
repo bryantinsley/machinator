@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bryantinsley/machinator/orchestrator/pkg/ui/components"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
 )
@@ -473,6 +474,26 @@ func TestAddAccountAuthTypeGolden(t *testing.T) {
 	m.screen = screenAddAccountAuthType
 	m.newAccountName = "test-acc"
 	m.dialogCursor = 0
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	tm.Send(tea.Quit())
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
+}
+
+func TestAddProjectBranchGolden(t *testing.T) {
+	m := initialModel()
+	m.width = 80
+	m.height = 24
+	m.screen = screenAddProjectBranch
+	m.newRepoURL = "https://github.com/test/repo"
+	m.branches = []string{"main", "develop", "feature/test"}
+	m.branchSelector = components.NewDropdown("Branch", m.branches, nil)
+	m.branchSelector.Selected = 0
 
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
 	tm.Send(tea.Quit())

@@ -3,6 +3,8 @@ package setup
 import (
 	"path/filepath"
 	"time"
+
+	"github.com/bryantinsley/machinator/orchestrator/pkg/ui/components"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -13,6 +15,7 @@ type ProjectConfig struct {
 	ID         int    `json:"id"`
 	Name       string `json:"name"`
 	RepoURL    string `json:"repo_url"`
+	Branch     string `json:"branch"`
 	AgentCount int    `json:"agent_count"`
 	HasBeads   bool   `json:"has_beads"`
 	TasksReady int    `json:"tasks_ready"`
@@ -47,6 +50,7 @@ const (
 	screenProjectDetail
 	screenAddProject
 	screenAddProjectInput
+	screenAddProjectBranch
 	screenAddProjectCloning
 	screenEditAgentCount
 	screenEditProjectName
@@ -109,6 +113,9 @@ type model struct {
 	newProjectID   int
 	newProjectName string
 	newRepoURL     string
+	newBranch      string
+	branches       []string
+	branchSelector *components.Dropdown
 	newProjectDir  string
 	newAgentDir    string
 	hasBeads       bool
@@ -208,5 +215,10 @@ type agentActionMsg struct {
 }
 
 type agentProgressMsg string
+
+type fetchBranchesMsg struct {
+	branches []string
+	err      error
+}
 
 type tickMsg time.Time

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bryantinsley/machinator/orchestrator/pkg/ui/components"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -382,6 +383,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.screen = screenProjectDetail
 		return m, m.reloadProjects()
+
+	case fetchBranchesMsg:
+		if msg.err != nil {
+			m.addStatus("✗ " + msg.err.Error())
+			// Fallback to manual entry for name, but keep URL?
+			// Or go back to input?
+			// Let's go back to input step 0 (URL) so user can fix it
+			m.screen = screenAddProjectInput
+			m.inputStep = 0
+			m.inputPrompt = "Repository URL (Error fetching branches)"
+		} else {
+			m.branches = msg.branches
+			// Add "Create new..." option
+			// For now, just existing branches. User can type new branch name if we use a combobox?
+			// Dropdown is select-only.
+			// Requirement: "Include option to create new branch"
+			// We can add a special item "[Create new branch]"
+			// But for now let's just list branches.
+
+			// Initialize Dropdown
+			// We need to import components package.
+			// Assuming it is imported as "components" (need to verify imports)
+			m.branchSelector = components.NewDropdown("Branch", m.branches, nil)
+			m.branchSelector.SetFocused(true) // Focus it
+
+			m.screen = screenAddProjectBranch
+			m.addStatus(fmt.Sprintf("✓ Found %d branches", len(m.branches)))
+		}
 	}
 
 	return m, nil
@@ -412,6 +441,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleProjectDetailKeys(key)
 	case screenAddProjectInput:
 		return m.handleAddProjectInputKeys(key, msg)
+	case screenAddProjectBranch:
+		return m.handleAddProjectBranchKeys(key, msg)
 	case screenAddProjectCloning, screenApplyingAgents:
 		// No input during clone/apply
 		return m, nil
@@ -816,10 +847,10 @@ func (m model) handleAddProjectInputKeys(key string, msg tea.KeyMsg) (tea.Model,
 		if m.inputStep == 0 {
 			m.newRepoURL = m.inputBuffer
 			m.newProjectName = m.deriveProjectName(m.inputBuffer)
-			m.inputStep = 1
-			m.inputBuffer = m.newProjectName
-			m.inputPrompt = "Project name"
-			m.inputHint = "Press Enter to accept"
+
+			// Start fetching branches
+			m.addStatus("Fetching branches...")
+			return m, m.fetchBranches(m.newRepoURL)
 		} else {
 			m.newProjectName = m.inputBuffer
 			m.setupNewProjectPaths()
@@ -838,6 +869,61 @@ func (m model) handleAddProjectInputKeys(key string, msg tea.KeyMsg) (tea.Model,
 		m.inputBuffer += " "
 	}
 	return m, nil
+}
+
+func (m model) handleAddProjectBranchKeys(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.branchSelector == nil {
+		return m, nil
+	}
+
+	switch key {
+	case "esc":
+		m.screen = screenAddProjectInput
+		m.inputStep = 0
+		return m, nil
+	case "up", "k":
+		if m.branchSelector.Selected > 0 {
+			m.branchSelector.Selected--
+		}
+	case "down", "j":
+		if m.branchSelector.Selected < len(m.branchSelector.Options)-1 {
+			m.branchSelector.Selected++
+		}
+	case "enter":
+		// Confirm selection
+		selectedBranch := m.branchSelector.Options[m.branchSelector.Selected]
+		m.newBranch = selectedBranch
+
+		// Proceed to Step 1 (Name)
+		m.inputStep = 1
+		m.inputBuffer = m.newProjectName
+		m.inputPrompt = "Project name"
+		m.inputHint = "Press Enter to accept"
+		m.screen = screenAddProjectInput
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m model) viewAddProjectBranchLeft() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("🌿 Select Branch"))
+	b.WriteString("\n\n")
+
+	b.WriteString(dimStyle.Render(m.newRepoURL))
+	b.WriteString("\n\n")
+
+	b.WriteString(sectionStyle.Render("Branch"))
+	b.WriteString("\n")
+
+	if m.branchSelector != nil {
+		b.WriteString(m.branchSelector.Render())
+	}
+
+	b.WriteString("\n\n")
+	b.WriteString(dimStyle.Render("Up/Down to select • Enter to continue"))
+
+	return b.String()
 }
 
 func (m model) handleConfirmExitKeys(key string) (tea.Model, tea.Cmd) {
@@ -971,6 +1057,10 @@ func (m model) View() string {
 		rightContent = m.viewStatusPane()
 	case screenAddProjectInput:
 		topContent = m.viewAddProjectInputLeft()
+		bottomContent = m.viewDoctinator()
+		rightContent = m.viewStatusPane()
+	case screenAddProjectBranch:
+		topContent = m.viewAddProjectBranchLeft()
 		bottomContent = m.viewDoctinator()
 		rightContent = m.viewStatusPane()
 	case screenAddProjectCloning, screenApplyingAgents:
@@ -2259,12 +2349,49 @@ func (m model) updateGemini() tea.Cmd {
 	}
 }
 
+func (m model) fetchBranches(url string) tea.Cmd {
+	return func() tea.Msg {
+		// Use ls-remote to get heads
+		cmd := exec.Command("git", "ls-remote", "--heads", url)
+		out, err := cmd.Output()
+		if err != nil {
+			return fetchBranchesMsg{err: fmt.Errorf("git error: %v", err)}
+		}
+
+		var branches []string
+		lines := strings.Split(string(out), "\n")
+		for _, line := range lines {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				ref := parts[1]
+				branch := strings.TrimPrefix(ref, "refs/heads/")
+				branches = append(branches, branch)
+			}
+		}
+
+		if len(branches) == 0 {
+			// Maybe it's a valid repo but empty, or authentication failed silently
+			// Allow proceeding with "main" or "master" as fallback manual entry?
+			// For now return error to prompt user
+			return fetchBranchesMsg{err: fmt.Errorf("no branches found (check URL/auth)")}
+		}
+
+		return fetchBranchesMsg{branches: branches}
+	}
+}
+
 func (m model) cloneRepo() tea.Cmd {
 	return func() tea.Msg {
 		os.MkdirAll(filepath.Dir(m.newAgentDir), 0755)
 		os.RemoveAll(m.newAgentDir)
 
-		cmd := exec.Command("git", "clone", m.newRepoURL, m.newAgentDir)
+		args := []string{"clone"}
+		if m.newBranch != "" {
+			args = append(args, "-b", m.newBranch)
+		}
+		args = append(args, m.newRepoURL, m.newAgentDir)
+
+		cmd := exec.Command("git", args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return cloneDoneMsg{success: false, err: fmt.Errorf("clone failed: %s\n%s", err, string(out))}
 		}
@@ -2302,7 +2429,13 @@ func (m model) recloneAllAgents(p ProjectConfig) tea.Cmd {
 				default:
 				}
 
-				cmd := exec.Command("git", "clone", p.RepoURL, agentDir)
+				args := []string{"clone"}
+				if p.Branch != "" {
+					args = append(args, "-b", p.Branch)
+				}
+				args = append(args, p.RepoURL, agentDir)
+
+				cmd := exec.Command("git", args...)
 				if _, err := cmd.CombinedOutput(); err != nil {
 					mu.Lock()
 					errCount++
@@ -2409,7 +2542,13 @@ func (m model) applyAgentChanges(p ProjectConfig, desiredCount int) tea.Cmd {
 					default:
 					}
 
-					cmd := exec.Command("git", "clone", p.RepoURL, agentDir)
+					args := []string{"clone"}
+					if p.Branch != "" {
+						args = append(args, "-b", p.Branch)
+					}
+					args = append(args, p.RepoURL, agentDir)
+
+					cmd := exec.Command("git", args...)
 					if _, err := cmd.CombinedOutput(); err != nil {
 						mu.Lock()
 						errCount++
@@ -2483,6 +2622,7 @@ func (m *model) saveNewProject() {
 		ID:         m.newProjectID,
 		Name:       m.newProjectName,
 		RepoURL:    m.newRepoURL,
+		Branch:     m.newBranch,
 		AgentCount: 1,
 		HasBeads:   m.hasBeads,
 		TasksReady: m.beadsTasks,
