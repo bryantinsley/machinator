@@ -20,6 +20,7 @@ func main() {
 	_ = flag.Bool("yolo", false, "YOLO mode")
 	outputFormat := flag.String("output-format", "", "Output format")
 	version := flag.Bool("version", false, "Show version")
+	dumpQuota := flag.Bool("dump-quota", false, "Dump quota information")
 
 	// Flags for compatibility but ignored
 	_ = flag.String("system", "", "System prompt")
@@ -31,9 +32,17 @@ func main() {
 		return
 	}
 
+	if *dumpQuota {
+		fmt.Println(`{"quota": 100, "remaining": 1000000}`)
+		return
+	}
+
 	// If output-format is stream-json, treat as JSON
+
 	if *outputFormat == "stream-json" {
+
 		*isJSON = true
+
 	}
 
 	mode := os.Getenv("DUMMY_GEMINI_MODE")

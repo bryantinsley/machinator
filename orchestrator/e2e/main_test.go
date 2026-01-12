@@ -13,167 +13,257 @@ import (
 type Task struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
+	Title  string `json:"title"`
 }
 
 func TestOrchestratorE2E(t *testing.T) {
-	// Find project root
-	root, err := os.Getwd()
-	if err != nil {
+	if os.Getenv("E2E_SKIP") == "1" {
+		t.Skip("Skipping E2E test")
+	}
+
+	// 1. Setup environment
+	root := findProjectRoot(t)
+	tmpDir := t.TempDir()
+	binDir := filepath.Join(tmpDir, "bin")
+	repoDir := filepath.Join(tmpDir, "repo")
+
+	if err := os.MkdirAll(binDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	for {
-		if _, err := os.Stat(filepath.Join(root, "WORKSPACE")); err == nil {
-			break
-		}
-		if _, err := os.Stat(filepath.Join(root, "MODULE.bazel")); err == nil {
-			break
-		}
-		parent := filepath.Dir(root)
-		if parent == root {
-			t.Fatal("could not find project root")
-		}
-		root = parent
-	}
-	t.Logf("Project root: %s", root)
 
-	// 1. Setup temp directory
-	tmpDir, err := os.MkdirTemp("", "machinator-e2e-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	t.Logf("Project Root: %s", root)
+	t.Logf("Temp Dir: %s", tmpDir)
 
-	projectDir := filepath.Join(tmpDir, "project")
-	os.MkdirAll(projectDir, 0755)
+	// 2. Build binaries
+	// Build dummy-gemini
+	geminiPath := filepath.Join(binDir, "gemini")
+	buildGoBin(t, root, "./tools/dummy-gemini", geminiPath)
 
-	binDir := filepath.Join(tmpDir, "bin")
-	os.MkdirAll(binDir, 0755)
+	// Build machinator
+	machinatorPath := filepath.Join(binDir, "machinator")
+	buildGoBin(t, root, "./orchestrator/cmd/machinator", machinatorPath)
 
-	t.Logf("Temp dir: %s", tmpDir)
-
-	// 2. Build binaries using bazel
-	buildBin(t, root, "//tools/fixture-gen", filepath.Join(binDir, "fixture-gen"))
-	buildBin(t, root, "//tools/dummy-gemini", filepath.Join(binDir, "gemini"))
-	buildBin(t, root, "//:machinator", filepath.Join(binDir, "machinator"))
-
-	// 3. Generate fixture repo
-	cmd := exec.Command(filepath.Join(binDir, "fixture-gen"), projectDir)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("fixture-gen failed: %v\nOutput: %s", err, string(out))
+	// 3. Setup Fixture Repo
+	// Copy testdata/fixture-repo to repoDir
+	fixtureSrc := filepath.Join(root, "testdata", "fixture-repo")
+	if err := copyDir(fixtureSrc, repoDir); err != nil {
+		t.Fatalf("Failed to copy fixture repo: %v", err)
 	}
 
-	// 4. Run orchestrator
-	path := os.Getenv("PATH")
-	newPath := binDir + ":" + path
+	// Create templates/directive_template.txt in repoDir (orchestrator expects it relative to CWD if not found elsewhere)
+	// But orchestrator logic looks in runfiles or workspace.
+	// Since we run machinator in repoDir, we should provide templates there or ensure it finds them.
+	// The harness should mimic the real environment.
+	// In real env, machinator binary is usually run from project root or has templates nearby.
+	// Let's copy templates to repoDir/templates
+	copyDir(filepath.Join(root, "templates"), filepath.Join(repoDir, "templates"))
 
-	orchestratorCmd := exec.Command(filepath.Join(binDir, "machinator"), "--once", "--headless")
-	orchestratorCmd.Dir = projectDir
-	orchestratorCmd.Env = append(os.Environ(),
-		"PATH="+newPath,
-		"GEMINI_MODE=AUTO_CLOSE",
-		"BD_AGENT_NAME=Gemini-01",
-		// Pass BUILD_WORKING_DIRECTORY so it knows where to find templates
-		"BUILD_WORKING_DIRECTORY="+projectDir,
+	// Also copy AGENTS.md (orchestrator reads it for context)
+	copyFile(filepath.Join(root, "AGENTS.md"), filepath.Join(repoDir, "AGENTS.md"))
+
+	// Copy bootstrap/check_quota.sh to repoDir/machinator/check_quota.sh (used by logic)
+	// Actually orchestrator/pkg/orchestrator/quota_check.go uses "bootstrap/check_quota.sh" relative to project root?
+	// No, it uses filepath.Join(projectRoot, "machinator", "check_quota.sh") usually?
+	// Let's check quota_check.go. But assuming it needs it:
+	os.MkdirAll(filepath.Join(repoDir, "machinator"), 0755)
+	// We might not have check_quota.sh in the fixture, but orchestrator might look for it.
+	// Let's dummy it out to avoid errors, or copy real one.
+	// Real one is in bootstrap/check_quota.sh
+	copyFile(filepath.Join(root, "bootstrap", "check_quota.sh"), filepath.Join(repoDir, "machinator", "check_quota.sh"))
+	os.Chmod(filepath.Join(repoDir, "machinator", "check_quota.sh"), 0755)
+
+	// 4. Setup Machinator Environment (Mock HOME)
+	machinatorDir := filepath.Join(tmpDir, ".machinator")
+	if err := os.MkdirAll(machinatorDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Copy dummy-gemini to ~/.machinator/gemini
+	if err := copyFile(geminiPath, filepath.Join(machinatorDir, "gemini")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(machinatorDir, "gemini"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// 5. Run Orchestrator
+	// We use the "task-1" from fixture repo.
+	// We expect dummy-gemini (AUTO_CLOSE mode) to close it.
+
+	cmd := exec.Command(machinatorPath, "--once", "--headless")
+	cmd.Dir = repoDir
+
+	// Setup Environment
+	env := os.Environ()
+	// Filter out existing HOME
+	var newEnv []string
+	for _, e := range env {
+		if !strings.HasPrefix(e, "HOME=") && !strings.HasPrefix(e, "PATH=") {
+			newEnv = append(newEnv, e)
+		}
+	}
+	env = newEnv
+
+	// Add binDir to PATH
+	pathVal := binDir + string(os.PathListSeparator) + os.Getenv("PATH")
+	env = append(env, "PATH="+pathVal)
+
+	// Set HOME to tmpDir
+	env = append(env, "HOME="+tmpDir)
+
+	// Add other env vars
+	env = append(env,
+		"DUMMY_GEMINI_MODE=AUTO_CLOSE", // Tells dummy-gemini to close the task
+		"BD_AGENT_NAME=E2E-Agent",
+		"BUILD_WORKING_DIRECTORY="+repoDir, // Help find templates if needed
 	)
+	cmd.Env = env
 
-	// Create templates dir in projectDir and copy directive_template.txt
-	os.MkdirAll(filepath.Join(projectDir, "templates"), 0755)
-	os.MkdirAll(filepath.Join(projectDir, "machinator", "logs"), 0755) // Orchestrator expects this
-
-	tmplPath := filepath.Join(root, "templates", "directive_template.txt")
-	tmplData, err := os.ReadFile(tmplPath)
-	if err != nil {
-		t.Fatalf("failed to read template: %v", err)
-	}
-	os.WriteFile(filepath.Join(projectDir, "templates", "directive_template.txt"), tmplData, 0644)
-
-	// Also need AGENTS.md
-	agentsData, _ := os.ReadFile(filepath.Join(root, "AGENTS.md"))
-	os.WriteFile(filepath.Join(projectDir, "AGENTS.md"), agentsData, 0644)
-
-	// Copy check_quota.sh
-	os.MkdirAll(filepath.Join(projectDir, "machinator"), 0755)
-	quotaData, _ := os.ReadFile(filepath.Join(root, "bootstrap", "check_quota.sh"))
-	os.WriteFile(filepath.Join(projectDir, "machinator", "check_quota.sh"), quotaData, 0755)
-
-	t.Log("Starting orchestrator...")
-	err = orchestratorCmd.Start()
-	if err != nil {
-		t.Fatalf("failed to start orchestrator: %v", err)
+	// Verify bd list works before starting
+	// First, run bd import to ensure DB is in sync (since we copied files, timestamps might confuse bd)
+	importCmd := exec.Command("bd", "import", "-i", ".beads/issues.jsonl")
+	importCmd.Dir = repoDir
+	importCmd.Env = env
+	if out, err := importCmd.CombinedOutput(); err != nil {
+		t.Fatalf("bd import failed: %v\nOutput: %s", err, string(out))
+	} else {
+		t.Logf("bd import success: %s", string(out))
 	}
 
-	// Wait for it to hopefully process the first task
-	// Increasing to 60s because it takes some time to initialize and run the task
-	time.Sleep(60 * time.Second)
-	orchestratorCmd.Process.Kill()
+	verifyBdCmd := exec.Command("bd", "list", "--json") // Default mode (uses DB)
+	verifyBdCmd.Dir = repoDir
+	verifyBdCmd.Env = env
+	if out, err := verifyBdCmd.CombinedOutput(); err != nil {
+		t.Logf("Warning: bd list failed in setup: %v\nOutput: %s", err, string(out))
+	} else {
+		t.Logf("bd list check passed: %s", string(out))
+	}
 
-	// 5. Verify results
-	verifyCmd := exec.Command("bd", "show", "bead-1", "--json")
-	verifyCmd.Dir = projectDir
+	// Capture output
+	stdoutFile, _ := os.Create(filepath.Join(repoDir, "machinator.stdout"))
+	stderrFile, _ := os.Create(filepath.Join(repoDir, "machinator.stderr"))
+	cmd.Stdout = stdoutFile
+	cmd.Stderr = stderrFile
+
+	t.Log("Starting machinator...")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Failed to start machinator: %v", err)
+	}
+
+	// Wait for completion (with timeout)
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Logf("Machinator exited with error: %v", err)
+		} else {
+			t.Log("Machinator exited successfully")
+		}
+	case <-time.After(60 * time.Second):
+		cmd.Process.Kill()
+
+		// Dump logs
+		t.Log("--- TIMEOUT DEBUGGING ---")
+
+		if content, err := os.ReadFile(filepath.Join(repoDir, "machinator.stdout")); err == nil {
+			t.Logf("STDOUT:\n%s", string(content))
+		}
+		if content, err := os.ReadFile(filepath.Join(repoDir, "machinator.stderr")); err == nil {
+			t.Logf("STDERR:\n%s", string(content))
+		}
+
+		logPath := filepath.Join(repoDir, "machinator", "logs", "tui_debug.log")
+		if content, err := os.ReadFile(logPath); err == nil {
+			t.Logf("TUI LOG:\n%s", string(content))
+		} else {
+			t.Logf("TUI LOG not found at %s", logPath)
+		}
+
+		t.Fatal("Test timed out waiting for machinator")
+	}
+
+	// 5. Verify Results
+	// Check if task-1 is closed in repoDir/.beads/issues.jsonl
+	// We can use bd list --json --no-db
+
+	verifyCmd := exec.Command("bd", "list", "--json", "--no-db")
+	verifyCmd.Dir = repoDir
 	out, err := verifyCmd.Output()
 	if err != nil {
-		t.Fatalf("failed to run bd show: %v", err)
+		t.Fatalf("Failed to verify with bd: %v", err)
 	}
 
 	var tasks []Task
 	if err := json.Unmarshal(out, &tasks); err != nil {
-		t.Fatalf("failed to parse bd show output: %v\nOutput: %s", err, string(out))
+		t.Fatalf("Failed to parse verification output: %v", err)
 	}
 
-	if len(tasks) == 0 {
-		t.Fatal("bd show returned no tasks")
-	}
-
-	if tasks[0].Status != "closed" {
-		t.Errorf("Expected bead-1 to be closed, but got %s", tasks[0].Status)
-
-		// Print logs for debugging
-		logPath := filepath.Join(projectDir, "machinator", "logs", "tui_debug.log")
-		if logData, err := os.ReadFile(logPath); err == nil {
-			t.Logf("Orchestrator logs:\n%s", string(logData))
-		} else {
-			t.Logf("Could not read logs at %s: %v", logPath, err)
+	task1Closed := false
+	for _, task := range tasks {
+		if task.ID == "task-1" {
+			t.Logf("Task 1 status: %s", task.Status)
+			if task.Status == "closed" {
+				task1Closed = true
+			}
 		}
-	} else {
-		t.Log("Success: bead-1 is closed")
+	}
+
+	if !task1Closed {
+		t.Error("task-1 was not closed by the agent")
+		// Dump logs
+		logPath := filepath.Join(repoDir, "machinator", "logs", "tui_debug.log")
+		if content, err := os.ReadFile(logPath); err == nil {
+			t.Logf("--- TUI DEBUG LOG ---\n%s\n---------------------", string(content))
+		}
 	}
 }
 
-func buildBin(t *testing.T, root, target, dest string) {
-	t.Logf("Building %s...", target)
-	cmd := exec.Command("bazel", "build", target)
-	cmd.Dir = root
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("bazel build %s failed: %v\nOutput: %s", target, err, string(out))
-	}
-
-	// Use 'bazel cquery' to find the output file, but try to be very specific
-	outCmd := exec.Command("bazel", "cquery", "--output=files", target)
-	outCmd.Dir = root
-	out, err := outCmd.CombinedOutput()
+func findProjectRoot(t *testing.T) string {
+	dir, err := os.Getwd()
 	if err != nil {
-		t.Fatalf("bazel cquery failed: %v\nOutput: %s", err, string(out))
+		t.Fatal(err)
 	}
-
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	var src string
-	for _, line := range lines {
-		if strings.HasPrefix(line, "bazel-out/") {
-			src = filepath.Join(root, line)
-			break
+	// We are in orchestrator/e2e, so go up 2 levels
+	// But let's be robust
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
 		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("Could not find project root (go.mod)")
+		}
+		dir = parent
 	}
+}
 
-	if src == "" {
-		t.Fatalf("could not find binary path in cquery output: %s", string(out))
+func buildGoBin(t *testing.T, root, pkg, outPath string) {
+	cmd := exec.Command("go", "build", "-o", outPath, pkg)
+	cmd.Dir = root
+	// Ensure we use local cache to avoid permission errors
+	env := os.Environ()
+	// We assume GOCACHE/GOPATH are set in the shell running the test,
+	// but if not, we might rely on the test runner.
+	// Since we run this test via `go test`, we assume env is sane.
+	cmd.Env = env
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to build %s: %v\nOutput: %s", pkg, err, string(output))
 	}
+}
 
-	t.Logf("Copying %s to %s", src, dest)
+func copyDir(src, dst string) error {
+	return exec.Command("cp", "-R", src, dst).Run()
+}
+
+func copyFile(src, dst string) error {
 	input, err := os.ReadFile(src)
 	if err != nil {
-		t.Fatalf("failed to read %s: %v", src, err)
+		return err
 	}
-	if err := os.WriteFile(dest, input, 0755); err != nil {
-		t.Fatalf("failed to write %s: %v", dest, err)
-	}
+	return os.WriteFile(dst, input, 0644)
 }
