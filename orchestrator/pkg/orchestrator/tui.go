@@ -105,6 +105,14 @@ var (
 			Foreground(lipgloss.Color("46"))
 )
 
+type OrchestratorState int
+
+const (
+	StateRunning OrchestratorState = iota
+	StatePaused
+	StateStopped
+)
+
 // Task represents a beads task
 type Task struct {
 	ID       string `json:"id"`
@@ -192,6 +200,7 @@ type model struct {
 	accountPool     *accountpool.Pool    // Account pool for rotation
 	activeAccount   *accountpool.Account // Currently active account
 	agentGrid       *agentgrid.AgentGrid // Grid of agents
+	state           OrchestratorState    // Current orchestration state
 }
 
 func initialModel(projectConfig *setup.ProjectConfig) model {
@@ -280,6 +289,7 @@ func initialModel(projectConfig *setup.ProjectConfig) model {
 		toolsCheck:      InitialToolsCheckModel(),
 		accountPool:     pool,
 		agentGrid:       grid,
+		state:           StateRunning,
 	}
 }
 
@@ -413,8 +423,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.addActivity("🔄 Refreshing...")
 				return m, tea.Batch(checkQuota(), fetchTasks(m.projectRoot))
 			}
+		case "p":
+			if m.state == StateRunning {
+				m.state = StatePaused
+				m.addActivity("⏸ Paused orchestration (current task will finish)")
+			}
+		case "s":
+			if m.state != StateRunning {
+				m.state = StateRunning
+				m.addActivity("▶ Resumed orchestration")
+			}
+		case "x":
+			if m.state != StateStopped {
+				m.state = StateStopped
+				m.addActivity("⏹ Stopped orchestration (killing agents...)")
+				if m.geminiCmd != nil && m.geminiCmd.Process != nil {
+					m.geminiCmd.Process.Kill()
+				}
+				// Force cleanup
+				if m.currentTaskID != "" {
+					m.failedTasks[m.currentTaskID] = time.Now()
+				}
+				m.geminiRunning = false
+				m.geminiCmd = nil
+				m.currentTaskID = ""
+				m.activeAccount = nil
+			}
+
 		case "e":
-			if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed {
+			if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed && m.state == StateRunning {
 				taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
 				if taskID != "" {
 					m.addLog(fmt.Sprintf("⚡ Starting task: %s", taskID))
@@ -436,7 +473,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "?":
-			m.addActivity("📖 Keys: q=quit r=raw e=execute +/-=agents S=setup ↑↓=scroll Enter=details Esc=close")
+			m.addActivity("📖 Keys: s=start p=pause x=stop e=exec +/-=agents q=quit")
 
 		// Navigation keys - behavior depends on context
 		case "up", "k":
@@ -633,7 +670,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cooldownSecs = 5 // Safe default
 		}
 
-		if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed && m.tickCount%cooldownSecs == 0 {
+		if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed && m.state == StateRunning && m.tickCount%cooldownSecs == 0 {
 			m.addLog(fmt.Sprintf("🔄 Auto-execute check (%d tasks)", len(m.tasks)))
 			// Only log activity if we actually find something, to reduce spam with short cooldowns
 			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
@@ -951,26 +988,26 @@ func (m model) View() string {
 		accountInfo = fmt.Sprintf("    Account: %s", m.activeAccount.Name)
 	}
 
+	// Determine status string
+	status := "Idle"
+	if m.state == StatePaused {
+		status = "⏸ Paused"
+	} else if m.state == StateStopped {
+		status = "⏹ Stopped"
+	} else if m.geminiRunning {
+		// Calculate elapsed times
+		elapsed := time.Since(m.taskStartTime)
+		sinceAction := time.Since(m.lastEventTime)
+		status = fmt.Sprintf("⚡ Running for %s, last active %s ago", formatDuration(elapsed), formatDuration(sinceAction))
+	}
+
 	if m.quotaLoaded {
 		quota := strings.Repeat("█", m.quotaPercent/10) + strings.Repeat("░", 10-m.quotaPercent/10)
-		status := "Idle"
-		if m.geminiRunning {
-			// Calculate elapsed times
-			elapsed := time.Since(m.taskStartTime)
-			sinceAction := time.Since(m.lastEventTime)
-			status = fmt.Sprintf("⚡ Running for %s, last active %s ago", formatDuration(elapsed), formatDuration(sinceAction))
-		}
 		title = titleStyle.Render(fmt.Sprintf(
 			"🤖 Machinator    Agent: %s%s    Quota: %s %d%%    Cycle: %d    %s",
 			m.agentName, accountInfo, quota, m.quotaPercent, m.cycle, status,
 		))
 	} else {
-		status := "Idle"
-		if m.geminiRunning {
-			elapsed := time.Since(m.taskStartTime)
-			sinceAction := time.Since(m.lastEventTime)
-			status = fmt.Sprintf("⚡ Running for %s, last active %s ago", formatDuration(elapsed), formatDuration(sinceAction))
-		}
 		title = titleStyle.Render(fmt.Sprintf(
 			"🤖 Machinator    Agent: %s%s    Quota: Loading...    Cycle: %d    %s",
 			m.agentName, accountInfo, m.cycle, status,
@@ -1220,7 +1257,18 @@ func (m model) View() string {
 		)
 	}
 
-	statusBar := statusBarStyle.Width(m.width).Render("q: quit  e: execute  ↑↓: scroll  Enter: details  r: raw/refresh  S: setup  Tab: panel  ?: help")
+	// Dynamic status bar based on state
+	controls := ""
+	switch m.state {
+	case StateRunning:
+		controls = "p: pause  x: stop"
+	case StatePaused:
+		controls = "s: resume  x: stop"
+	case StateStopped:
+		controls = "s: start"
+	}
+
+	statusBar := statusBarStyle.Width(m.width).Render(fmt.Sprintf("%s  |  e: execute  +/-: agents  q: quit  ?: help", controls))
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, content, statusBar)
 }
