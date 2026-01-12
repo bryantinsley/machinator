@@ -104,6 +104,12 @@ var (
 
 	resultStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("46"))
+
+	modalStyle = lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			BorderForeground(lipgloss.Color("62")).
+			Padding(1, 3).
+			Align(lipgloss.Center)
 )
 
 type OrchestratorState int
@@ -180,6 +186,7 @@ type model struct {
 	detailScroll    int        // Scroll offset for detail view content
 	activityScroll  int        // Scroll offset for activity panel
 	confirmQuit     bool       // Whether we're waiting for quit confirmation
+	showHelp        bool       // Whether to show keyboard help modal
 	logs            viewport.Model
 	quotas          map[string]int
 	quotaLoaded     bool
@@ -419,6 +426,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// If help is shown, any key dismisses it
+		if m.showHelp {
+			m.showHelp = false
+			return m, nil
+		}
+
 		// Handle quit confirmation first
 		if m.confirmQuit {
 			switch msg.String() {
@@ -532,7 +545,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "?":
-			m.addActivity("📖 Keys: s=start p=pause x=stop e=exec +/-=agents q=quit")
+			m.showHelp = true
+			return m, nil
 
 		// Navigation keys - behavior depends on context
 		case "up", "k":
@@ -960,6 +974,43 @@ func (m *model) applyFilter() {
 	}
 }
 
+func (m model) renderHelpModal() string {
+	helpTitle := titleStyle.Render("⌨ Keyboard Shortcuts")
+
+	shortcuts := []struct {
+		key  string
+		desc string
+	}{
+		{"?", "Toggle help"},
+		{"s", "Start/Resume orchestration"},
+		{"p", "Pause orchestration"},
+		{"x", "Stop orchestration/Kill agents"},
+		{"e", "Execute next ready task"},
+		{"+/-", "Add/Remove agents"},
+		{"r", "Refresh tasks/quota"},
+		{"q", "Quit"},
+		{"S", "Switch to Setup mode"},
+		{"Tab", "Switch focus between panels"},
+		{"↑/↓/k/j", "Navigate event history"},
+		{"Enter", "View event details"},
+		{"Esc", "Close details/Back"},
+		{"ctrl+c", "Force quit"},
+	}
+
+	var b strings.Builder
+	b.WriteString(helpTitle + "\n\n")
+
+	for _, s := range shortcuts {
+		key := lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true).Render(s.key)
+		desc := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Render(s.desc)
+		b.WriteString(fmt.Sprintf("%10s : %s\n", key, desc))
+	}
+
+	b.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("Press any key to dismiss"))
+
+	return modalStyle.Render(b.String())
+}
+
 func (m *model) addActivity(activity string) {
 	timestamp := time.Now().Format("15:04:05")
 	m.agentActivity = append(m.agentActivity, fmt.Sprintf("[%s] %s", timestamp, activity))
@@ -1369,7 +1420,15 @@ func (m model) View() string {
 
 	// If showing event details, overlay a detail panel
 	// If showing quit confirmation, show modal
-	if m.confirmQuit {
+	if m.showHelp {
+		content = lipgloss.Place(
+			m.width,
+			panelHeight+2,
+			lipgloss.Center,
+			lipgloss.Center,
+			m.renderHelpModal(),
+		)
+	} else if m.confirmQuit {
 		modalStyle := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("196")).

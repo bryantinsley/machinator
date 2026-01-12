@@ -474,9 +474,20 @@ func (m *model) addStatus(msg string) {
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	// If help is shown, any key dismisses it
+	if m.showHelp {
+		m.showHelp = false
+		return m, nil
+	}
+
 	// Global keys
 	if key == "ctrl+c" {
 		return m, tea.Quit
+	}
+
+	if key == "?" {
+		m.showHelp = true
+		return m, nil
 	}
 
 	switch m.screen {
@@ -1077,17 +1088,21 @@ func (m model) View() string {
 
 	// Modal overlays for various screens
 	var modal string
-	switch m.screen {
-	case screenConfirmExit:
-		modal = m.renderExitDialog()
-	case screenConfirmDeleteProject:
-		modal = m.renderDeleteDialog()
-	case screenProjectDetail:
-		modal = m.renderProjectDetailModal()
-	case screenEditProjectName, screenEditProjectRepo:
-		modal = m.renderEditFieldModal()
-	case screenEditAgentCount:
-		modal = m.renderEditAgentCountModal()
+	if m.showHelp {
+		modal = m.renderHelpModal()
+	} else {
+		switch m.screen {
+		case screenConfirmExit:
+			modal = m.renderExitDialog()
+		case screenConfirmDeleteProject:
+			modal = m.renderDeleteDialog()
+		case screenProjectDetail:
+			modal = m.renderProjectDetailModal()
+		case screenEditProjectName, screenEditProjectRepo:
+			modal = m.renderEditFieldModal()
+		case screenEditAgentCount:
+			modal = m.renderEditAgentCountModal()
+		}
 	}
 
 	if modal != "" {
@@ -1406,6 +1421,38 @@ func (m model) viewAddProjectCloningLeft(yOffset int) string {
 	b.WriteString(statusLoading + " " + m.progressMsg)
 
 	return b.String()
+}
+
+func (m model) renderHelpModal() string {
+	helpTitle := titleStyle.Render("⌨ Keyboard Shortcuts")
+
+	shortcuts := []struct {
+		key  string
+		desc string
+	}{
+		{"?", "Toggle help"},
+		{"q/x", "Quit/Exit"},
+		{"r", "Run selected project"},
+		{"a", "Add new project"},
+		{"↑/↓/k/j", "Navigate lists"},
+		{"Enter", "Select/Confirm"},
+		{"Esc", "Back/Cancel"},
+		{"Tab", "Switch focus"},
+		{"ctrl+c", "Force quit"},
+	}
+
+	var b strings.Builder
+	b.WriteString(helpTitle + "\n\n")
+
+	for _, s := range shortcuts {
+		key := lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true).Render(s.key)
+		desc := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Render(s.desc)
+		b.WriteString(fmt.Sprintf("%10s : %s\n", key, desc))
+	}
+
+	b.WriteString("\n" + dimStyle.Render("Press any key to dismiss"))
+
+	return modalStyle.Render(b.String())
 }
 
 func (m model) renderExitDialog() string {

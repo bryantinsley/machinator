@@ -106,6 +106,7 @@ type model struct {
 	width, height  int
 	cursor         int
 	err            error
+	showHelp       bool
 	statusMessages []string
 
 	// Accounts

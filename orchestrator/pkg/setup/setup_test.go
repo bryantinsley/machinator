@@ -647,19 +647,63 @@ func TestAddAccountAPIKeyGolden(t *testing.T) {
 }
 
 func TestAddAccountGoogleInfoGolden(t *testing.T) {
+
 	m := initialModel()
+
 	m.width = 80
+
 	m.height = 24
+
 	m.screen = screenAddAccountGoogleInfo
+
 	m.newAccountName = "test-acc"
+
 	m.machinatorDir = "/Users/bryantinsley/.machinator"
 
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+
 	tm.Send(tea.Quit())
+
 	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
 	out, err := io.ReadAll(tm.FinalOutput(t))
+
 	if err != nil {
+
 		t.Fatal(err)
+
 	}
+
 	teatest.RequireEqualOutput(t, out)
+
+}
+
+func TestHelpModalGolden(t *testing.T) {
+
+	m := initialModel()
+
+	m.width = 80
+
+	m.height = 24
+
+	m.screen = screenMain
+
+	m.showHelp = true
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+
+	tm.Send(tea.Quit())
+
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	out, err := io.ReadAll(tm.FinalOutput(t))
+
+	if err != nil {
+
+		t.Fatal(err)
+
+	}
+
+	teatest.RequireEqualOutput(t, out)
+
 }
