@@ -887,13 +887,16 @@ func (m model) View() string {
 	exitBtnHeight := 1
 
 	leftWidth := m.width/2 - 2
-	rightWidth := m.width/2 - 2
+	rightWidth := m.width - leftWidth - 4
 
 	if leftWidth < 30 {
 		leftWidth = 30
+		rightWidth = m.width - leftWidth - 4
 	}
 	if rightWidth < 30 {
 		rightWidth = 30
+		// If right is too small, we might overflow width if we force it, but let's try to be safe
+		// Ideally we need min width support or scroll
 	}
 
 	// Total height available for both left and right sides (must match)

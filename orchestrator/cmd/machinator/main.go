@@ -23,41 +23,49 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Startup logic:
-	// 1. If --setup flag is provided, launch setup.
-	// 2. If .beads does not exist in CWD, launch setup.
-	// 3. Otherwise, launch orchestrator.
-
-	beadsDir := filepath.Join(cwd, ".beads")
-	_, beadsErr := os.Stat(beadsDir)
-
-	if *forceSetup || os.IsNotExist(beadsErr) {
-		fmt.Println("No .beads directory found or setup forced. Launching setup wizard...")
-		config, err := setup.Run()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Setup error: %v\n", err)
-			os.Exit(1)
-		}
-
-		if config == nil {
-			fmt.Println("Setup cancelled or no project selected.")
-			return
-		}
-
-		// After setup, if a project was selected, we could potentially
-		// change directory to that project and run orchestrator.
-		// For now, we'll just exit as the task doesn't specify auto-launch after setup.
-		fmt.Printf("Project %s ready. Run machinator inside the project directory to start orchestration.\n", config.Name)
-		return
-	}
-
 	// Ensure Machinator tools are in PATH
 	machinatorDir := setup.GetMachinatorDir()
 	os.Setenv("PATH", machinatorDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	// Launch orchestrator
-	if err := orchestrator.Run(*debug, *once, *headless); err != nil {
-		fmt.Fprintf(os.Stderr, "Orchestrator error: %v\n", err)
-		os.Exit(1)
+	// Initial state
+	beadsDir := filepath.Join(cwd, ".beads")
+	_, beadsErr := os.Stat(beadsDir)
+
+	// Determine initial mode
+	runSetup := *forceSetup || os.IsNotExist(beadsErr)
+
+	var config *setup.ProjectConfig
+
+	for {
+		if runSetup {
+			// Clear screen before launching setup
+			fmt.Print("\033[H\033[2J")
+
+			newConfig, err := setup.Run()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Setup error: %v\n", err)
+				os.Exit(1)
+			}
+			if newConfig == nil {
+				fmt.Println("Setup cancelled or no project selected.")
+				os.Exit(0)
+			}
+			config = newConfig
+			runSetup = false // Switch to orchestrator
+		} else {
+			// Launch orchestrator
+			err := orchestrator.Run(*debug, *once, *headless, config)
+			if err == orchestrator.ErrSwitchToSetup {
+				runSetup = true
+				config = nil // Reset config so setup starts fresh? Or keep it? Setup doesn't take input config.
+				continue
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Orchestrator error: %v\n", err)
+				os.Exit(1)
+			}
+			// Normal exit
+			break
+		}
 	}
 }

@@ -236,7 +236,7 @@ func TestNoOutputTruncation(t *testing.T) {
 
 func TestMainScreenGolden(t *testing.T) {
 	m := initialModel()
-	m.width = 80
+	m.width = 81
 	m.height = 24
 	m.screen = screenMain
 	m.projectsLoaded = true
@@ -246,7 +246,7 @@ func TestMainScreenGolden(t *testing.T) {
 	}
 	m.cursor = 1
 
-	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(81, 24))
 	tm.Send(tea.Quit())
 	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 	out, err := io.ReadAll(tm.FinalOutput(t))

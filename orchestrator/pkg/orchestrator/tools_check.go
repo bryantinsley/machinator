@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bryantinsley/machinator/orchestrator/pkg/setup"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -146,9 +147,11 @@ func checkGeminiCLI() tea.Msg {
 	// Give the UI a moment to render "Checking..."
 	time.Sleep(500 * time.Millisecond)
 
-	path, err := exec.LookPath("gemini")
-	if err != nil {
-		return toolsCheckResultMsg{err: fmt.Errorf("command 'gemini' not found in PATH")}
+	machinatorDir := setup.GetMachinatorDir()
+	path := filepath.Join(machinatorDir, "gemini")
+
+	if _, err := os.Stat(path); err != nil {
+		return toolsCheckResultMsg{err: fmt.Errorf("managed gemini not found at %s", path)}
 	}
 
 	cmd := exec.Command(path, "--version")
@@ -197,7 +200,9 @@ func installGeminiCLI() tea.Msg {
 
 		// Let's force a rename if we can find it.
 		// Or better, build it specifically as 'gemini'.
-		buildCmd := exec.Command("go", "build", "-o", filepath.Join(os.Getenv("GOPATH"), "bin", "gemini"), "./tools/dummy-gemini")
+		machinatorDir := setup.GetMachinatorDir()
+		os.MkdirAll(machinatorDir, 0755)
+		buildCmd := exec.Command("go", "build", "-o", filepath.Join(machinatorDir, "gemini"), "./tools/dummy-gemini")
 		buildCmd.Dir = projectRoot
 		out2, err2 := buildCmd.CombinedOutput()
 		output += "\nBuild output:\n" + string(out2)
