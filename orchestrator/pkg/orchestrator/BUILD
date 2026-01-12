@@ -14,6 +14,7 @@ go_library(
     deps = [
         "//orchestrator/pkg/accountpool",
         "//orchestrator/pkg/setup",
+        "//orchestrator/pkg/ui/agentgrid",
         "@com_github_charmbracelet_bubbles//viewport",
         "@com_github_charmbracelet_bubbletea//:bubbletea",
         "@com_github_charmbracelet_lipgloss//:lipgloss",

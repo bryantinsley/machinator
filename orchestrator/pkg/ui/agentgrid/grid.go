@@ -37,6 +37,34 @@ func NewAgentGrid(cards []*AgentCard, cols int) *AgentGrid {
 	return grid
 }
 
+func (g *AgentGrid) AddCard(card *AgentCard) {
+	g.Cards = append(g.Cards, card)
+	// Update dispatcher
+	g.updateDispatcher()
+}
+
+func (g *AgentGrid) RemoveCard(index int) {
+	if index >= 0 && index < len(g.Cards) {
+		g.Cards = append(g.Cards[:index], g.Cards[index+1:]...)
+		g.updateDispatcher()
+		// Adjust focus if needed
+		if g.FocusIndex >= len(g.Cards) && len(g.Cards) > 0 {
+			g.FocusIndex = len(g.Cards) - 1
+			g.Cards[g.FocusIndex].SetFocused(true)
+		} else if len(g.Cards) == 0 {
+			g.FocusIndex = 0
+		}
+	}
+}
+
+func (g *AgentGrid) updateDispatcher() {
+	clickables := make([]components.Clickable, len(g.Cards))
+	for i, c := range g.Cards {
+		clickables[i] = c
+	}
+	g.Dispatcher = components.NewClickDispatcher(clickables)
+}
+
 func (g *AgentGrid) SetSize(width, height int) {
 	g.width = width
 	g.height = height

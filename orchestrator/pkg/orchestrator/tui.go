@@ -16,6 +16,7 @@ import (
 
 	"github.com/bryantinsley/machinator/orchestrator/pkg/accountpool"
 	"github.com/bryantinsley/machinator/orchestrator/pkg/setup"
+	"github.com/bryantinsley/machinator/orchestrator/pkg/ui/agentgrid"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -190,6 +191,7 @@ type model struct {
 	toolsCheck      ToolsCheckModel      // Sub-model for tools check
 	accountPool     *accountpool.Pool    // Account pool for rotation
 	activeAccount   *accountpool.Account // Currently active account
+	agentGrid       *agentgrid.AgentGrid // Grid of agents
 }
 
 func initialModel(projectConfig *setup.ProjectConfig) model {
@@ -248,6 +250,10 @@ func initialModel(projectConfig *setup.ProjectConfig) model {
 	pool := accountpool.NewPool()
 	pool.LoadFromDir(machinatorDir)
 
+	// Create initial agent card
+	card := agentgrid.NewAgentCard(config.AgentName, agentgrid.StatusIdle, "", nil)
+	grid := agentgrid.NewAgentGrid([]*agentgrid.AgentCard{card}, 2)
+
 	return model{
 		tasks: []Task{},
 		agentActivity: []string{
@@ -273,6 +279,7 @@ func initialModel(projectConfig *setup.ProjectConfig) model {
 		failedTasks:     make(map[string]time.Time),
 		toolsCheck:      InitialToolsCheckModel(),
 		accountPool:     pool,
+		agentGrid:       grid,
 	}
 }
 
@@ -324,6 +331,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.toolsCheck, cmd = m.toolsCheck.Update(msg)
 	if cmd != nil {
 		cmds = append(cmds, cmd)
+	}
+
+	// Update AgentGrid state (sync with model)
+	if len(m.agentGrid.Cards) > 0 {
+		card := m.agentGrid.Cards[0]
+		card.Task = m.currentTaskID
+		if m.geminiRunning {
+			card.Status = agentgrid.StatusActive
+		} else if _, failed := m.failedTasks[m.currentTaskID]; failed {
+			card.Status = agentgrid.StatusError
+		} else {
+			card.Status = agentgrid.StatusIdle
+		}
+	}
+
+	// Delegate to AgentGrid if focused
+	if m.focusPanel == 0 { // Grid focused
+		var gridModel tea.Model
+		gridModel, cmd = m.agentGrid.Update(msg)
+		m.agentGrid = gridModel.(*agentgrid.AgentGrid)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	} else if _, ok := msg.(tea.MouseMsg); ok {
+		// Always pass mouse events to grid (it handles hit testing)
+		// Note: hit testing requires correct X/Y offsets which we might not have yet
+		var gridModel tea.Model
+		gridModel, cmd = m.agentGrid.Update(msg)
+		m.agentGrid = gridModel.(*agentgrid.AgentGrid)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 
 	// Still process messages even if tools check is active,
@@ -382,8 +421,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, executeTask(taskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled)
 				}
 			}
+		case "+", "=":
+			// Add a new agent
+			name := fmt.Sprintf("%s-%d", m.config.AgentName, len(m.agentGrid.Cards)+1)
+			m.agentGrid.AddCard(agentgrid.NewAgentCard(name, agentgrid.StatusIdle, "", nil))
+			m.addActivity(fmt.Sprintf("➕ Added agent: %s", name))
+
+		case "-", "_":
+			// Remove last agent (but keep at least one)
+			if len(m.agentGrid.Cards) > 1 {
+				name := m.agentGrid.Cards[len(m.agentGrid.Cards)-1].Name
+				m.agentGrid.RemoveCard(len(m.agentGrid.Cards) - 1)
+				m.addActivity(fmt.Sprintf("➖ Removed agent: %s", name))
+			}
+
 		case "?":
-			m.addActivity("📖 Keys: q=quit r=raw e=execute S=setup ↑↓=scroll Enter=details Esc=close")
+			m.addActivity("📖 Keys: q=quit r=raw e=execute +/-=agents S=setup ↑↓=scroll Enter=details Esc=close")
 
 		// Navigation keys - behavior depends on context
 		case "up", "k":
@@ -393,7 +446,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.detailScroll--
 				}
 				// Don't do anything else
-			} else if m.focusPanel == 1 {
+			} else if m.focusPanel == 2 {
 				// Activity panel focused - change selection
 				if m.eventCursor < len(m.eventHistory)-1 {
 					m.eventCursor++
@@ -404,7 +457,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// ONLY scroll in detail view - never change events
 				m.detailScroll++
 				// Don't do anything else
-			} else if m.focusPanel == 1 {
+			} else if m.focusPanel == 2 {
 				// Activity panel focused - change selection
 				if m.eventCursor > 0 {
 					m.eventCursor--
@@ -427,7 +480,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "enter", " ":
-			if m.focusPanel == 1 && len(m.eventHistory) > 0 {
+			if m.focusPanel == 2 && len(m.eventHistory) > 0 {
 				if !m.showEventDetail {
 					// Entering detail view - capture the actual array index
 					m.detailEventIdx = len(m.eventHistory) - 1 - m.eventCursor
@@ -447,11 +500,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showRawDetail = false
 			m.detailScroll = 0
 		case "tab":
-			// Cycle through panels
-			m.focusPanel = (m.focusPanel + 1) % 2
+			// Cycle through panels: 0=Grid, 1=Tasks, 2=Activity
+			m.focusPanel = (m.focusPanel + 1) % 3
 		case "shift+tab":
 			// Cycle backwards through panels
-			m.focusPanel = (m.focusPanel + 1) % 2
+			m.focusPanel = (m.focusPanel - 1 + 3) % 3
 		case "home":
 			if m.showEventDetail {
 				m.detailScroll = 0
@@ -479,46 +532,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseMsg:
-		// Handle mouse clicks in activity panel
+		// Handle mouse clicks
 		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
-			panelWidth := m.width / 3
-			// Check if click is in activity panel (middle panel)
-			if msg.X >= panelWidth && msg.X < panelWidth*2 {
-				// Focus on activity panel
-				m.focusPanel = 1
+			// Rough hit testing
+			// Grid is at top (approx Y=3 to Y=15)
+			// Tasks/Activity below
 
-				// Calculate which event was clicked based on Y position
-				// Account for panel header (3 lines) and border
-				clickedLine := msg.Y - 5 // Adjust for title bar and panel header
-				if clickedLine >= 0 && clickedLine < len(m.eventHistory) {
-					// Calculate actual event index (events are displayed newest first)
-					newCursor := len(m.eventHistory) - 1 - clickedLine
-					if newCursor >= 0 && newCursor < len(m.eventHistory) {
-						if newCursor == m.eventCursor {
-							// Clicked same item - toggle details
-							m.showEventDetail = !m.showEventDetail
-						} else {
-							m.eventCursor = newCursor
-						}
-					}
-				}
-			} else if msg.X < panelWidth {
-				// Clicked on tasks panel
+			if msg.Y < 15 {
 				m.focusPanel = 0
-				m.showEventDetail = false
 			} else {
-				// Clicked on logs panel
-				m.focusPanel = 2
-				m.showEventDetail = false
+				tasksWidth := m.width / 4
+				if msg.X < tasksWidth {
+					m.focusPanel = 1
+				} else {
+					m.focusPanel = 2
+				}
+			}
+
+			// Handle clicks in activity panel
+			if m.focusPanel == 2 {
+				// Calculate which event was clicked based on Y position
+				// Account for header lines (Title + Grid + Panel Header)
+				// Grid ~12 lines, Title ~3, Header ~3 => ~18 lines offset?
+				// This is getting fragile. Let's just use relative click for now.
+
+				// For now, just focus. Detailed click handling requires accurate Y offset.
 			}
 		} else if msg.Action == tea.MouseActionMotion && msg.Button == tea.MouseButtonWheelUp {
 			// Scroll up in activity
-			if m.focusPanel == 1 && m.eventCursor < len(m.eventHistory)-1 {
+			if m.focusPanel == 2 && m.eventCursor < len(m.eventHistory)-1 {
 				m.eventCursor++
 			}
 		} else if msg.Action == tea.MouseActionMotion && msg.Button == tea.MouseButtonWheelDown {
 			// Scroll down in activity
-			if m.focusPanel == 1 && m.eventCursor > 0 {
+			if m.focusPanel == 2 && m.eventCursor > 0 {
 				m.eventCursor--
 			}
 		}
@@ -939,9 +986,9 @@ func (m model) View() string {
 	tasksBorder := panelStyle
 	activityBorder := panelStyle
 
-	if m.focusPanel == 0 {
+	if m.focusPanel == 1 {
 		tasksBorder = tasksBorder.BorderForeground(lipgloss.Color("205"))
-	} else {
+	} else if m.focusPanel == 2 {
 		activityBorder = activityBorder.BorderForeground(lipgloss.Color("205"))
 	}
 
@@ -973,7 +1020,7 @@ func (m model) View() string {
 
 	// Agent activity panel (wide - 3/4 of screen)
 	activityHeader := "🤖 Agent Activity"
-	if m.focusPanel == 1 {
+	if m.focusPanel == 2 {
 		activityHeader += " (↑↓ scroll, Enter=details)"
 	}
 	activityContent := activityHeader + "\n\n"
@@ -1006,7 +1053,7 @@ func (m model) View() string {
 		activity := m.agentActivity[i]
 		// Check if this line corresponds to the selected event
 		eventIdx := len(m.agentActivity) - 1 - i
-		if eventIdx >= 0 && eventIdx < len(m.eventHistory) && eventIdx == m.eventCursor && m.focusPanel == 1 {
+		if eventIdx >= 0 && eventIdx < len(m.eventHistory) && eventIdx == m.eventCursor && m.focusPanel == 2 {
 			// Highlight selected line
 			activityContent += "▶ " + activity + "\n"
 		} else {
@@ -1025,6 +1072,10 @@ func (m model) View() string {
 	agentPanel := activityBorder.Width(activityWidth).Height(panelHeight).Render(activityContent)
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, tasksPanel, agentPanel)
+
+	// Add Agent Grid
+	grid := m.agentGrid.View()
+	content := lipgloss.JoinVertical(lipgloss.Left, grid, panels)
 
 	// If showing event details, overlay a detail panel
 	// If showing quit confirmation, show modal
@@ -1045,7 +1096,7 @@ func (m model) View() string {
 		quitModal := modalStyle.Render(modalContent)
 
 		// Overlay on top of panels
-		panels = lipgloss.Place(
+		content = lipgloss.Place(
 			m.width,
 			panelHeight+2,
 			lipgloss.Center,
@@ -1160,7 +1211,7 @@ func (m model) View() string {
 
 		detailPanel := detailStyle.Render(detailContent)
 
-		panels = lipgloss.Place(
+		content = lipgloss.Place(
 			m.width,
 			panelHeight+2,
 			lipgloss.Center,
@@ -1171,7 +1222,7 @@ func (m model) View() string {
 
 	statusBar := statusBarStyle.Width(m.width).Render("q: quit  e: execute  ↑↓: scroll  Enter: details  r: raw/refresh  S: setup  Tab: panel  ?: help")
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, panels, statusBar)
+	return lipgloss.JoinVertical(lipgloss.Left, title, content, statusBar)
 }
 
 // Run executes the orchestrator TUI.
