@@ -107,6 +107,25 @@ if [ -n "$UI_CHANGES" ]; then
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 6. Check for stale VHS GIFs
+# ═══════════════════════════════════════════════════════════════════════════════
+TAPE_DIR="orchestrator/e2e"
+GIF_DIR="docs/ui-history"
+
+for tape in "$TAPE_DIR"/*.tape; do
+    if [ -f "$tape" ]; then
+        base=$(basename "$tape" .tape)
+        gif="$GIF_DIR/$base.gif"
+        
+        if [ -f "$gif" ]; then
+            if [ "$tape" -nt "$gif" ]; then
+                echo "⚠️  Warning: $base.gif may be stale. Run scripts/update-ui.sh"
+            fi
+        fi
+    fi
+done
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Result
 # ═══════════════════════════════════════════════════════════════════════════════
 if [ $FAILED -eq 1 ]; then
