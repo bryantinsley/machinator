@@ -4,7 +4,6 @@
 (allow default)
 
 ;; 2. Set the default policy for WRITES to DENY.
-;;    (Note: This is different from denying "/" specifically. It sets the baseline for the operation.)
 (deny file-write*)
 
 ;; 3. Whitelist specific WRITE paths
@@ -27,18 +26,32 @@
     (subpath "/var/folders")
     (subpath "/private/var/folders")
     
-    ;; Devices
-    (literal "/dev/null")
-    (literal "/dev/zero")
-    (literal "/dev/dtracehelper")
-    (literal "/dev/tty")
-    (literal "/dev/stdin")
-    (literal "/dev/stdout")
-    (literal "/dev/stderr")
-    (literal "/dev/ptmx")
+    ;; All devices - ttyd needs PTY access
+    (subpath "/dev")
 )
 
-;; 4. Explicitly allow READ everywhere (redundant with allow default, but safely explicit)
+;; 4. Explicitly allow READ everywhere
 (allow file-read*
     (subpath "/")
 )
+
+;; 5. Allow all file operations on devices (needed for ttyd PTY)
+(allow file-ioctl
+    (subpath "/dev")
+)
+
+;; 6. Allow pseudo-terminal operations
+(allow pseudo-tty)
+
+;; 7. Allow process operations (ttyd spawns shells)
+(allow process-fork)
+(allow process-exec)
+
+;; 8. Allow network operations (ttyd serves on localhost)
+(allow network*)
+
+;; 9. Allow mach operations (IPC, needed for some terminal ops)
+(allow mach*)
+
+;; 10. Allow sysctl reads (system info)
+(allow sysctl-read)
