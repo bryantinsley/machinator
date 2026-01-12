@@ -19,8 +19,14 @@ func main() {
 	isJSON := flag.Bool("json", false, "Output in JSON format")
 	_ = flag.Bool("yolo", false, "YOLO mode")
 	outputFormat := flag.String("output-format", "", "Output format")
+	version := flag.Bool("version", false, "Show version")
 
 	flag.Parse()
+
+	if *version {
+		fmt.Println("dummy-gemini v0.1.0")
+		return
+	}
 
 	// If output-format is stream-json, treat as JSON
 	if *outputFormat == "stream-json" {

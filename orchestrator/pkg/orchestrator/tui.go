@@ -258,10 +258,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Delegate to tools check if not passed
-	if m.toolsCheck.State != ToolsCheckStatePassed {
-		m.toolsCheck, cmd = m.toolsCheck.Update(msg)
-		return m, cmd
+	m.toolsCheck, cmd = m.toolsCheck.Update(msg)
+	if cmd != nil {
+		cmds = append(cmds, cmd)
 	}
+
+	// Still process messages even if tools check is active,
+	// but we'll be careful about what we do.
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -302,7 +305,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(checkQuota(), fetchTasks(m.projectRoot))
 			}
 		case "e":
-			if !m.geminiRunning {
+			if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed {
 				taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks)
 				if taskID != "" {
 					m.currentTaskID = taskID
@@ -486,17 +489,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				// Check for next task
-				nextTaskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks)
-				if nextTaskID != "" {
-					m.addLog(fmt.Sprintf("✅ Next task: %s", nextTaskID))
-					m.currentTaskID = nextTaskID
-					m.geminiRunning = true
-					m.taskStartTime = time.Now()
-					m.lastEventTime = time.Now()
-					m.addActivity(fmt.Sprintf("⚡ Executing: %s", nextTaskID))
-					cmds = append(cmds, executeTask(&m, nextTaskID, m.config.AgentName))
-				} else {
-					m.addLog("⏸ No more ready tasks")
+				if m.toolsCheck.State == ToolsCheckStatePassed {
+					nextTaskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks)
+					if nextTaskID != "" {
+						m.addLog(fmt.Sprintf("✅ Next task: %s", nextTaskID))
+						m.currentTaskID = nextTaskID
+						m.geminiRunning = true
+						m.taskStartTime = time.Now()
+						m.lastEventTime = time.Now()
+						m.addActivity(fmt.Sprintf("⚡ Executing: %s", nextTaskID))
+						cmds = append(cmds, executeTask(&m, nextTaskID, m.config.AgentName))
+					} else {
+						m.addLog("⏸ No more ready tasks")
+					}
 				}
 			}
 		default:
@@ -514,7 +519,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Auto-execute every 60 seconds
-		if !m.geminiRunning && m.tickCount%60 == 0 {
+		if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed && m.tickCount%60 == 0 {
 			m.addLog(fmt.Sprintf("🔄 Auto-execute check (%d tasks)", len(m.tasks)))
 			m.addActivity("🔍 Looking for ready tasks...")
 			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks)
@@ -561,7 +566,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addLog(fmt.Sprintf("✅ Quota loaded: %d%%", m.quotaPercent))
 		m.addActivity(fmt.Sprintf("📊 Quota: %d%%", m.quotaPercent))
 		// Check for ready tasks if we have tasks and quota
-		if !m.geminiRunning && len(m.tasks) > 0 {
+		if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed && len(m.tasks) > 0 {
 			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks)
 			if taskID != "" {
 				m.addLog(fmt.Sprintf("✅ Ready to execute: %s", taskID))
@@ -587,7 +592,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addActivity(fmt.Sprintf("📋 %d tasks loaded", len(msg)))
 		if len(msg) == 0 {
 			m.addLog("⚠️  No tasks found - check projectRoot")
-		} else if !m.geminiRunning {
+		} else if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed {
 			// Check for ready tasks immediately
 			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks)
 			if taskID != "" {
@@ -634,17 +639,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Wait a moment before checking for next task (don't spam)
 		m.addLog("🔍 Checking for next task...")
-		taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks)
-		if taskID != "" {
-			m.addLog(fmt.Sprintf("✅ Next task: %s", taskID))
-			m.currentTaskID = taskID
-			m.geminiRunning = true
-			m.taskStartTime = time.Now()
-			m.lastEventTime = time.Now()
-			m.addActivity(fmt.Sprintf("⚡ Executing: %s", taskID))
-			cmds = append(cmds, executeTask(&m, taskID, m.config.AgentName))
-		} else {
-			m.addLog("⏸ No more ready tasks")
+		if m.toolsCheck.State == ToolsCheckStatePassed {
+			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks)
+			if taskID != "" {
+				m.addLog(fmt.Sprintf("✅ Next task: %s", taskID))
+				m.currentTaskID = taskID
+				m.geminiRunning = true
+				m.taskStartTime = time.Now()
+				m.lastEventTime = time.Now()
+				m.addActivity(fmt.Sprintf("⚡ Executing: %s", taskID))
+				cmds = append(cmds, executeTask(&m, taskID, m.config.AgentName))
+			} else {
+				m.addLog("⏸ No more ready tasks")
+			}
 		}
 	}
 

@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "acp_events.go",
         "quota_check.go",
+        "tools_check.go",
         "tui.go",
         "tui_helper.go",
     ],
