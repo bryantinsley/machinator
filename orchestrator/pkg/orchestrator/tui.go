@@ -522,6 +522,8 @@ func (m model) Init() tea.Cmd {
 	}
 	return tea.Batch(
 		tick(),
+		waitForACPEvent(acpEventChan),
+		waitForGeminiDone(geminiDoneChan),
 		checkQuota(m.accountPool),
 		fetchTasks(m.repoPath, m.projectBranch),
 		m.toolsCheck.Init(),
@@ -571,28 +573,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.toolsCheck, cmd = m.toolsCheck.Update(msg)
 	if cmd != nil {
 		cmds = append(cmds, cmd)
-	}
-
-	// Update AgentGrid state (sync with per-agent state)
-	for i, card := range m.agentGrid.Cards {
-		agentID := i + 1
-		if agent, exists := m.agents[agentID]; exists {
-			card.Task = agent.CurrentTaskID
-			if agent.Running {
-				card.Status = agentgrid.StatusActive
-				// Show elapsed time in the card
-				if !agent.TaskStartTime.IsZero() {
-					elapsed := time.Since(agent.TaskStartTime)
-					card.Elapsed = formatDuration(elapsed)
-				}
-			} else if _, failed := agent.FailedTasks[agent.CurrentTaskID]; failed {
-				card.Status = agentgrid.StatusError
-				card.Elapsed = ""
-			} else {
-				card.Status = agentgrid.StatusIdle
-				card.Elapsed = ""
-			}
-		}
 	}
 
 	// Delegate to AgentGrid if focused
@@ -672,6 +652,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.state != StateRunning {
 				m.state = StateRunning
 				m.addActivity("▶ Resumed orchestration")
+
+				// Immediate agent sync to avoid "frozen" UI before first cooldown tick
+				for i, card := range m.agentGrid.Cards {
+					agentID := i + 1
+					if _, exists := m.agents[agentID]; !exists {
+						m.agents[agentID] = &AgentState{
+							ID:          agentID,
+							Name:        card.Name,
+							WorktreeDir: filepath.Join(m.projectRoot, "agents", fmt.Sprintf("%d", agentID)),
+							Running:     false,
+							FailedTasks: make(map[string]time.Time),
+						}
+					}
+				}
 			}
 		case "x":
 			if m.state != StateStopped {
@@ -884,31 +878,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m.tickCount++
 
-		// Check for any pending ACP events from the goroutine
-		for {
-			select {
-			case eventMsg := <-acpEventChan:
-				m.addEvent(eventMsg.Event)
-			default:
-				// No more events
-				goto doneProcessingEvents
-			}
-		}
-	doneProcessingEvents:
-
-		// Check for Gemini completion - route to Update handler
-		select {
-		case doneMsg := <-geminiDoneChan:
-			// Route through Update handler so both legacy and multi-agent code can process it
-			// FIX: Must include tick() to keep the loop alive!
-			return m, tea.Batch(
-				func() tea.Msg { return doneMsg },
-				tick(),
-			)
-		default:
-			// No completion messages
-		}
-
 		// Periodic operations (based on tickCount, not cycle)
 		if m.tickCount%25 == 0 { // Every 25 seconds
 			m.addLog("🔄 Quota check")
@@ -975,46 +944,53 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.geminiRunning {
 			now := time.Now()
 
-			// 1. Inactivity timeout (no events received)
-			if !m.lastEventTime.IsZero() {
-				sinceAction := now.Sub(m.lastEventTime)
-				if sinceAction >= m.config.IdleTimeout {
-					m.addActivity(fmt.Sprintf("⏰ Agent timed out (%s inactive) - killing...", formatDuration(m.config.IdleTimeout)))
-					m.addLog(fmt.Sprintf("⏰ IDLE TIMEOUT: Agent inactive for %s, killing process", formatDuration(sinceAction)))
-					if m.geminiCmd != nil && m.geminiCmd.Process != nil {
-						m.geminiCmd.Process.Kill()
-					}
-					m.failedTasks[m.currentTaskID] = now
-					m.geminiRunning = false
-					m.geminiCmd = nil
-					m.currentTaskID = ""
-					m.activeAccount = nil
+			// Check each running agent for timeout
+			for _, agent := range m.agents {
+				if !agent.Running {
+					continue
+				}
 
-					if m.exitOnce {
-						m.addLog("🏁 exit-once mode: Task timed out, exiting...")
-						return m, tea.Quit
+				// 1. Inactivity timeout (no events received)
+				if !agent.LastEventTime.IsZero() {
+					sinceAction := now.Sub(agent.LastEventTime)
+					if sinceAction >= m.config.IdleTimeout {
+						m.addActivity(fmt.Sprintf("⏰ Agent %d timed out (%s inactive) - killing...", agent.ID, formatDuration(m.config.IdleTimeout)))
+						m.addLog(fmt.Sprintf("⏰ IDLE TIMEOUT: Agent %d inactive for %s, killing process", agent.ID, formatDuration(sinceAction)))
+						if agent.Cmd != nil && agent.Cmd.Process != nil {
+							agent.Cmd.Process.Kill()
+						}
+						agent.FailedTasks[agent.CurrentTaskID] = now
+						agent.Running = false
+						agent.CurrentTaskID = ""
+						agent.Cmd = nil
+						agent.Account = nil
+
+						if m.exitOnce {
+							m.addLog("🏁 exit-once mode: Task timed out, exiting...")
+							return m, tea.Quit
+						}
 					}
 				}
-			}
 
-			// 2. Max Runtime timeout (task taking too long total)
-			if !m.taskStartTime.IsZero() {
-				runtime := now.Sub(m.taskStartTime)
-				if runtime >= m.config.MaxTaskRuntime {
-					m.addActivity(fmt.Sprintf("⏰ Agent timed out (%s runtime) - killing...", formatDuration(m.config.MaxTaskRuntime)))
-					m.addLog(fmt.Sprintf("⏰ RUNTIME TIMEOUT: Agent ran for %s (max %s), killing process", formatDuration(runtime), formatDuration(m.config.MaxTaskRuntime)))
-					if m.geminiCmd != nil && m.geminiCmd.Process != nil {
-						m.geminiCmd.Process.Kill()
-					}
-					m.failedTasks[m.currentTaskID] = now
-					m.geminiRunning = false
-					m.geminiCmd = nil
-					m.currentTaskID = ""
-					m.activeAccount = nil
+				// 2. Max Runtime timeout (task taking too long total)
+				if !agent.TaskStartTime.IsZero() {
+					runtime := now.Sub(agent.TaskStartTime)
+					if runtime >= m.config.MaxTaskRuntime {
+						m.addActivity(fmt.Sprintf("⏰ Agent %d timed out (%s runtime) - killing...", agent.ID, formatDuration(m.config.MaxTaskRuntime)))
+						m.addLog(fmt.Sprintf("⏰ RUNTIME TIMEOUT: Agent %d ran for %s (max %s), killing process", agent.ID, formatDuration(runtime), formatDuration(m.config.MaxTaskRuntime)))
+						if agent.Cmd != nil && agent.Cmd.Process != nil {
+							agent.Cmd.Process.Kill()
+						}
+						agent.FailedTasks[agent.CurrentTaskID] = now
+						agent.Running = false
+						agent.CurrentTaskID = ""
+						agent.Cmd = nil
+						agent.Account = nil
 
-					if m.exitOnce {
-						m.addLog("🏁 exit-once mode: Task timed out, exiting...")
-						return m, tea.Quit
+						if m.exitOnce {
+							m.addLog("🏁 exit-once mode: Task timed out, exiting...")
+							return m, tea.Quit
+						}
 					}
 				}
 			}
@@ -1064,10 +1040,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		displayText := FormatACPEventForDisplay(event, 100)
 		m.addActivity(displayText)
 
+		// Update agent activity time
+		if agent, exists := m.agents[msg.AgentID]; exists {
+			agent.LastEventTime = time.Now()
+		}
+		m.lastEventTime = time.Now() // Global legacy fallback
+
 		// Also log important events
 		if event.Type == ACPEventToolUse || event.Type == ACPEventError {
 			m.addLog(displayText)
 		}
+
+		// Reschedule listener
+		cmds = append(cmds, waitForACPEvent(acpEventChan))
 
 	case logMsg:
 		m.addLog(string(msg))
@@ -1119,6 +1104,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.activeAccount = nil
 
 	case geminiDoneMsg:
+		// Reschedule listener
+		cmds = append(cmds, waitForGeminiDone(geminiDoneChan))
+
 		// Release the completed task claim
 		releaseTask(msg.TaskID)
 		// Update per-agent state and start next task
@@ -1182,6 +1170,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Legacy single-agent state
 		m.geminiRunning = false
+		for _, a := range m.agents {
+			if a.Running {
+				m.geminiRunning = true
+				break
+			}
+		}
 		m.currentTaskID = ""
 		m.geminiCmd = nil
 		m.activeAccount = nil
@@ -1213,6 +1207,45 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case toggleQuotaMsg:
 		m.expandQuota = !m.expandQuota
 	}
+
+	// Post-update synchronization:
+	// 1. Update AgentGrid state (sync with per-agent state)
+	for i, card := range m.agentGrid.Cards {
+		agentID := i + 1
+		if agent, exists := m.agents[agentID]; exists {
+			card.Task = agent.CurrentTaskID
+			if agent.Running {
+				card.Status = agentgrid.StatusActive
+				// Show elapsed time in the card
+				if !agent.TaskStartTime.IsZero() {
+					elapsed := time.Since(agent.TaskStartTime)
+					card.Elapsed = formatDuration(elapsed)
+				}
+			} else if _, failed := agent.FailedTasks[agent.CurrentTaskID]; failed {
+				card.Status = agentgrid.StatusError
+				card.Elapsed = ""
+			} else {
+				card.Status = agentgrid.StatusIdle
+				card.Elapsed = ""
+			}
+		}
+	}
+
+	// 2. Sync global geminiRunning state and first agent's task info for title bar
+	anyRunning := false
+	for _, agent := range m.agents {
+		if agent.Running {
+			if !anyRunning {
+				// Update global task info from the first running agent found
+				m.currentTaskID = agent.CurrentTaskID
+				m.taskStartTime = agent.TaskStartTime
+				m.lastEventTime = agent.LastEventTime
+				m.activeAccount = agent.Account
+			}
+			anyRunning = true
+		}
+	}
+	m.geminiRunning = anyRunning
 
 	m.logs, cmd = m.logs.Update(msg)
 	cmds = append(cmds, cmd)
@@ -2208,6 +2241,18 @@ func tick() tea.Cmd {
 	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
+}
+
+func waitForACPEvent(ch <-chan acpEventMsg) tea.Cmd {
+	return func() tea.Msg {
+		return <-ch
+	}
+}
+
+func waitForGeminiDone(ch <-chan geminiDoneMsg) tea.Cmd {
+	return func() tea.Msg {
+		return <-ch
+	}
 }
 
 func fetchTasks(projectRoot, branch string) tea.Cmd {

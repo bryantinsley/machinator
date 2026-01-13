@@ -104,14 +104,14 @@ func TestMultiAgentCycling(t *testing.T) {
 
 	// tui.go Update:
 	/*
-			if agent, exists := m.agents[msg.AgentID]; exists {
-				agent.Running = false
-	            ...
-	            if taskID != "" && claimTask(taskID, msg.AgentID) {
-	                ...
-	                cmds = append(cmds, executeTask(...))
-	            }
-	        }
+				if agent, exists := m.agents[msg.AgentID]; exists {
+					agent.Running = false
+		            ...
+		            if taskID != "" && claimTask(taskID, msg.AgentID) {
+		                ...
+		                cmds = append(cmds, executeTask(...))
+		            }
+		        }
 	*/
 
 	// So the agent.Running is set to false initially.
