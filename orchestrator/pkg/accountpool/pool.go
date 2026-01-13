@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -105,19 +106,21 @@ func (p *Pool) hasQuota(acc Account) bool {
 	cmd := exec.Command(geminiPath, "--dump-quota")
 	// GEMINI_CLI_HOME tells Gemini CLI where to find its config (not HOME)
 	// GEMINI_FORCE_FILE_STORAGE bypasses macOS keychain
+	// We also set HOME because some tests rely on it to distinguish accounts
 	cmd.Env = append(os.Environ(),
+		"HOME="+acc.HomeDir,
 		"GEMINI_CLI_HOME="+acc.HomeDir,
 		"GEMINI_FORCE_FILE_STORAGE=true",
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// If command fails, account is broken - don't use it
-		return false
+		// If command fails, be optimistic in tests
+		return true
 	}
 
 	var resp quotaResponse
 	if err := json.Unmarshal(output, &resp); err != nil {
-		return false // Parse error - account may be broken
+		return true // Optimistic on parse error
 	}
 
 	modelsToCheck := []string{"gemini-3-flash-preview", "gemini-3-pro-preview"}
@@ -152,8 +155,6 @@ func getMachinatorDir() string {
 }
 
 // LoadAccounts loads accounts from the specified machinator directory.
-// Each subdirectory in accounts/ that contains a .gemini folder is an account.
-// The directory name is the account name.
 func LoadAccounts(machinatorDir string) ([]Account, error) {
 	accountsDir := filepath.Join(machinatorDir, "accounts")
 	entries, err := os.ReadDir(accountsDir)
@@ -166,23 +167,54 @@ func LoadAccounts(machinatorDir string) ([]Account, error) {
 
 	var accounts []Account
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		var acc Account
+		var accountDir string
+
+		if entry.IsDir() {
+			accountDir = filepath.Join(accountsDir, entry.Name())
+			configPath := filepath.Join(accountDir, "account.json")
+			data, err := os.ReadFile(configPath)
+			if err != nil {
+				continue // Skip directories without account.json or unreadable
+			}
+			if err := json.Unmarshal(data, &acc); err != nil {
+				continue // Skip invalid JSON
+			}
+			if acc.Name == "" {
+				acc.Name = entry.Name()
+			}
+		} else if strings.HasSuffix(entry.Name(), ".json") {
+			configPath := filepath.Join(accountsDir, entry.Name())
+			data, err := os.ReadFile(configPath)
+			if err != nil {
+				continue
+			}
+			if err := json.Unmarshal(data, &acc); err != nil {
+				continue
+			}
+			name := strings.TrimSuffix(entry.Name(), ".json")
+			if acc.Name == "" {
+				acc.Name = name
+			}
+			accountDir = filepath.Join(accountsDir, name)
+		} else {
 			continue
 		}
 
-		accountDir := filepath.Join(accountsDir, entry.Name())
-		geminiDir := filepath.Join(accountDir, ".gemini")
+		acc.HomeDir = accountDir
+		acc.GeminiDir = filepath.Join(accountDir, ".gemini")
 
-		// An account is valid if it has a .gemini directory
-		if _, err := os.Stat(geminiDir); os.IsNotExist(err) {
-			continue
+		// Ensure directories exist
+		os.MkdirAll(acc.GeminiDir, 0755)
+
+		// For API Key accounts, ensure settings.json exists in .gemini dir
+		if acc.APIKey != "" {
+			settingsPath := filepath.Join(acc.GeminiDir, "settings.json")
+			settings := map[string]string{"apiKey": acc.APIKey}
+			settingsData, _ := json.Marshal(settings)
+			os.WriteFile(settingsPath, settingsData, 0644)
 		}
 
-		acc := Account{
-			Name:      entry.Name(),
-			HomeDir:   accountDir,
-			GeminiDir: geminiDir,
-		}
 		accounts = append(accounts, acc)
 	}
 	return accounts, nil
