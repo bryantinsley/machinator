@@ -29,16 +29,18 @@ jobs:
 
       - name: Build Binaries
         run: |
-          go build -o machinator-linux ./orchestrator/cmd/machinator
+          GOOS=linux GOARCH=amd64 go build -o machinator-linux ./orchestrator/cmd/machinator
 
       - name: Run VHS tapes
         run: |
           # Ensure target directory exists
           mkdir -p docs/ui-history
-          vhs orchestrator/e2e/navigation.tape
-          vhs orchestrator/e2e/crud.tape
-          vhs orchestrator/e2e/orchestrator_run.tape
-          vhs orchestrator/e2e/orchestrator_main.tape
+
+          # Run all tape files in orchestrator/e2e
+          for tape in orchestrator/e2e/*.tape; do
+            echo "Running VHS for $tape..."
+            vhs "$tape"
+          done
 
       - name: Upload GIFs
         uses: actions/upload-artifact@v4
