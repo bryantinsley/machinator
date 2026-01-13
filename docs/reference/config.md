@@ -107,6 +107,7 @@ These environment variables can be used to override default settings or provide 
 | :--- | :--- | :--- |
 | `BD_AGENT_NAME` | The base name for agents (e.g., "Gemini-01"). Agents are numbered if multiple are running. | `Gemini-01` |
 | `MACHINATOR_DIR` | Custom home directory for Machinator data and configuration. | `~/.machinator` |
+| `MACHINATOR_BRANCH_PROTECTION` | Set to `pr-required` to enforce PR workflow for agents. | `none` |
 | `MACHINATOR_POOLING_ENABLED` | Set to `false` to disable automatic account pooling/rotation. | `true` |
 | `MACHINATOR_IDLE_TIMEOUT` | Global override for the idle timeout (uses Go duration string format like `10m`, `5s`). | Value from `project.json` |
 | `MACHINATOR_MAX_TASK_RUNTIME` | Global override for the maximum task runtime (uses Go duration string format like `1h`). | Value from `project.json` |
@@ -135,6 +136,7 @@ This template defines the base instructions for all agents. It uses Go `text/tem
 | :--- | :--- |
 | `{{.AgentName}}` | The name of the agent (from `BD_AGENT_NAME`). |
 | `{{.TaskID}}` | The ID of the current Beads task. |
+| `{{.BranchProtection}}` | PR workflow enforcement status (`none` or `pr-required`). |
 | `{{.TaskContext}}` | Full details of the task (from `bd show <id>`). |
 | `{{.ProjectContext}}` | Contextual information from the first 100 lines of `AGENTS.md`. |
 

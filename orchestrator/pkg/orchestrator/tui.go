@@ -367,7 +367,7 @@ func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
 
 	// Default config
 	config := Config{
-		AgentName:          getEnvOrDefault("BD_AGENT_NAME", "CoderAgent"),
+		AgentName:          getEnvOrDefault("BD_AGENT_NAME", "Gemini-01"),
 		MaxCycles:          10000,
 		SleepDuration:      60 * time.Second,
 		QuotaCheckInterval: 5 * time.Minute,

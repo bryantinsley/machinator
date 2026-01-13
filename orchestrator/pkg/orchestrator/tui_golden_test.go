@@ -77,7 +77,7 @@ func TestTUI_Golden(t *testing.T) {
 			name: "AgentGrid2",
 			setup: func(m *model) {
 				m.ready = true
-				m.agentGrid.AddCard(agentgrid.NewAgentCard("CoderAgent-2", agentgrid.StatusIdle, "", nil))
+				m.agentGrid.AddCard(agentgrid.NewAgentCard("Gemini-2", agentgrid.StatusIdle, "", nil))
 			},
 		},
 		{
@@ -85,7 +85,7 @@ func TestTUI_Golden(t *testing.T) {
 			setup: func(m *model) {
 				m.ready = true
 				for i := 2; i <= 3; i++ {
-					m.agentGrid.AddCard(agentgrid.NewAgentCard(fmt.Sprintf("CoderAgent-%d", i), agentgrid.StatusIdle, "", nil))
+					m.agentGrid.AddCard(agentgrid.NewAgentCard(fmt.Sprintf("Gemini-%d", i), agentgrid.StatusIdle, "", nil))
 				}
 			},
 		},

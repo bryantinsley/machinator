@@ -40,6 +40,7 @@ The result: **an orchestrator built by AI agents, orchestrated by a simpler vers
 bazel run //:machinator
 
 # Alternatively, build and run with Go
+# Ensure you set up the local Go cache first (see AGENTS.md)
 go build -o machinator ./orchestrator/cmd/machinator
 ./machinator
 ```
@@ -67,7 +68,7 @@ graph TD
     H -->|completes| J[Task Done]
     J -->|loop| B
 
-    A -->|5min timeout| K[Kill & Retry]
+    A -->|Timeout Handling| K[Kill & Retry]
     K --> B
 ```
 
@@ -85,18 +86,23 @@ graph TD
 │ ✓ jkl       │ [14:32:12] 🔧 run_shell_command: go test ./...        │
 │              │ [14:32:15] ✅ All tests passed                       │
 ├──────────────┴──────────────────────────────────────────────────────┤
-│ q: quit  e: execute  ↑↓: scroll  Enter: details  r: raw  ?: help   │
+│ s: start  p: pause  x: stop  e: execute  +/-: agents  q: quit  ?: help │
 ╰─────────────────────────────────────────────────────────────────────╯
 ```
 
 **Key bindings:**
 
-- `q` — Quit (with confirmation if Gemini running)
-- `e` — Execute next ready task
-- `↑↓` — Scroll through events
-- `Enter` — View event details
-- `r` — Toggle raw JSON view
-- `Tab` — Switch panel focus
+- `s` — Start/Resume orchestration
+- `p` — Pause orchestration
+- `x` — Stop orchestration (kills running agents)
+- `e` — Manually execute next ready task
+- `+`/`-` — Increase/Decrease concurrent agent count
+- `r` — Refresh tasks and quota
+- `q` — Quit (with confirmation)
+- `Tab` — Switch panel focus (Grid, Tasks, Activity)
+- `↑`/`↓` — Scroll through activity events
+- `Enter` — View event details (and toggle `r` for raw JSON in detail view)
+- `?` — Show help modal
 
 ### Visual Demos
 
@@ -116,18 +122,21 @@ Editing project details and managing agent counts.
 
 ### Environment Variables
 
-- `BD_AGENT_NAME` — Agent identifier (default: "Gemini-01")
+- `BD_AGENT_NAME` — Agent identifier (default: "CoderAgent")
+- `MACHINATOR_BRANCH_PROTECTION` — Set to `pr-required` to enforce PR workflow (default: `none`)
+- `MACHINATOR_POOLING_ENABLED` — Enable/disable Gemini account pooling (default: `true`)
 
 ### Templates
 
 Edit `templates/directive_template.txt` to customize agent behavior. The template uses Go text/template syntax with these variables:
 
-| Variable              | Description                   |
-| --------------------- | ----------------------------- |
-| `{{.AgentName}}`      | Agent identifier              |
-| `{{.TaskID}}`         | Current task ID               |
-| `{{.TaskContext}}`    | Output of `bd show <task-id>` |
-| `{{.ProjectContext}}` | First 100 lines of AGENTS.md  |
+| Variable              | Description                        |
+| --------------------- | ---------------------------------- |
+| `{{.AgentName}}`      | Agent identifier                   |
+| `{{.TaskID}}`         | Current task ID                    |
+| `{{.BranchProtection}}`| PR workflow enforcement status      |
+| `{{.TaskContext}}`    | Output of `bd show <task-id>`      |
+| `{{.ProjectContext}}` | First 100 lines of AGENTS.md       |
 
 ## Development
 
@@ -171,6 +180,7 @@ bazel run :machinator -- --debug
 bazel test //...
 
 # Run all tests with Go
+# Ensure local Go cache is configured!
 go test ./...
 ```
 
@@ -179,10 +189,12 @@ go test ./...
 ```
 .
 ├── orchestrator/                # Go source code
-│   ├── tui.go                   # Main TUI (Bubble Tea)
-│   ├── acp_events.go            # Gemini stream-json parser
-│   ├── quota_check.go           # API quota management
-│   └── tui_helper.go            # Helper functions
+│   ├── cmd/machinator/          # Main entry point (main.go)
+│   └── pkg/                     # Core logic
+│       ├── orchestrator/        # TUI and orchestration loop
+│       ├── ui/                  # TUI components and styles
+│       ├── accountpool/         # Multi-account quota management
+│       └── setup/               # Project initialization
 ├── templates/                   # Agent directive templates
 │   ├── directive_template.txt   # Main agent instructions
 │   ├── unblocking_directive.txt # Unblocking mode template
@@ -190,7 +202,7 @@ go test ./...
 ├── scripts/
 │   ├── dev_setup.sh             # Development environment setup
 │   └── hooks/                   # Git hooks (beads + buildifier)
-├── BUILD                        # Bazel build (alias to //orchestrator:tui)
+├── BUILD                        # Bazel root build file
 ├── MODULE.bazel                 # Bazel module dependencies
 ├── go.mod / go.sum              # Go dependencies
 └── AGENTS.md                    # Agent instructions for this project
