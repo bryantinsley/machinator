@@ -277,6 +277,29 @@ func clearRetry(taskID string) {
 	delete(taskRetryCount, taskID)
 }
 
+// Track completed tasks to avoid re-picking them before bd closes them
+var completedTasks = make(map[string]time.Time)
+
+func markTaskCompleted(taskID string) {
+	claimedTasksMu.Lock()
+	defer claimedTasksMu.Unlock()
+	completedTasks[taskID] = time.Now()
+}
+
+func isTaskCompleted(taskID string) bool {
+	claimedTasksMu.Lock()
+	defer claimedTasksMu.Unlock()
+	if completedAt, exists := completedTasks[taskID]; exists {
+		// Consider completed for 10 minutes to give bd time to sync
+		if time.Since(completedAt) < 10*time.Minute {
+			return true
+		}
+		// Expired - clean up
+		delete(completedTasks, taskID)
+	}
+	return false
+}
+
 type model struct {
 	width           int
 	height          int
@@ -1130,7 +1153,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			} else {
-				clearRetry(msg.TaskID) // Success - clear any retry count
+				clearRetry(msg.TaskID)        // Success - clear any retry count
+				markTaskCompleted(msg.TaskID) // Prevent re-picking before bd syncs
 				m.addActivity(fmt.Sprintf("✅ Agent %d: Task %s completed", msg.AgentID, msg.TaskID))
 				m.addLog(fmt.Sprintf("✓ Agent %d: Task %s finished", msg.AgentID, msg.TaskID))
 
@@ -2221,6 +2245,10 @@ func findReadyTask(tasks []Task, agentName string, failedTasks map[string]time.T
 			for _, task := range readyTasks {
 				// Skip if already claimed by another agent
 				if isTaskClaimed(task.ID) {
+					continue
+				}
+				// Skip if recently completed (agent finished but bd not synced yet)
+				if isTaskCompleted(task.ID) {
 					continue
 				}
 				if failedTime, failed := failedTasks[task.ID]; failed {
