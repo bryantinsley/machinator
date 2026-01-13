@@ -56,3 +56,9 @@ go_test(
     embed = [":orchestrator"],
     tags = ["fast"],
 )
+
+go_test(
+    name = "worktree_test",
+    srcs = ["worktree_test.go"],
+    embed = [":orchestrator"],
+)

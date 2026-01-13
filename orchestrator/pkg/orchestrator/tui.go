@@ -1126,12 +1126,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Check for uncommitted changes left behind
 			agentDir := filepath.Join(m.projectRoot, "agents", fmt.Sprintf("%d", msg.AgentID))
-			statusCmd := exec.Command("git", "status", "--porcelain")
+			statusCmd := execCommand("git", "status", "--porcelain")
 			statusCmd.Dir = agentDir
 			if output, err := statusCmd.Output(); err == nil && len(output) > 0 {
 				// Check if changes are minor (1 file, <20 lines diff)
 				fileCount := len(strings.Split(strings.TrimSpace(string(output)), "\n"))
-				diffCmd := exec.Command("git", "diff", "--stat")
+				diffCmd := execCommand("git", "diff", "--stat")
 				diffCmd.Dir = agentDir
 				diffOutput, _ := diffCmd.Output()
 				lineCount := parseDiffStat(string(diffOutput))
@@ -1140,7 +1140,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Minor changes - just discard
 					m.addActivity(fmt.Sprintf("🗑️ Agent %d: Minor changes discarded (%d lines)", msg.AgentID, lineCount))
 					m.addLog(fmt.Sprintf("🗑️ Agent %d: Task %s minor changes discarded:\n%s", msg.AgentID, msg.TaskID, string(output)))
-					discardCmd := exec.Command("git", "checkout", "--", ".")
+					discardCmd := execCommand("git", "checkout", "--", ".")
 					discardCmd.Dir = agentDir
 					discardCmd.Run()
 				} else {
@@ -2454,20 +2454,20 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 			}
 
 			args := []string{"-C", repoDir, "worktree", "add", "--detach", agentDir, branch}
-			cmd := exec.Command("git", args...)
+			cmd := execCommand("git", args...)
 			if out, err := cmd.CombinedOutput(); err != nil {
 				return taskFailedMsg{agentID: agentID, taskID: taskID, reason: fmt.Sprintf("failed to create worktree: %s", string(out))}
 			}
 
 			// Configure git hooks
-			hooksCmd := exec.Command("git", "config", "core.hooksPath", "scripts/hooks")
+			hooksCmd := execCommand("git", "config", "core.hooksPath", "scripts/hooks")
 			hooksCmd.Dir = agentDir
 			hooksCmd.Run()
 
 			// Initialize beads from JSONL
 			beadsDir := filepath.Join(agentDir, ".beads")
 			if _, err := os.Stat(beadsDir); err == nil {
-				bdInit := exec.Command("bd", "--sandbox", "init", "--from-jsonl")
+				bdInit := execCommand("bd", "--sandbox", "init", "--from-jsonl")
 				bdInit.Dir = agentDir
 				bdInit.Run()
 			}
@@ -2481,7 +2481,7 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 
 		if pConfig.Branch != "" {
 			// Check current branch
-			cmd := exec.Command("git", "branch", "--show-current")
+			cmd := execCommand("git", "branch", "--show-current")
 			cmd.Dir = agentDir
 			out, _ := cmd.Output()
 			currentBranch := strings.TrimSpace(string(out))
@@ -2499,23 +2499,23 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 				}
 
 				// Discard any local changes that would block checkout
-				resetCmd := exec.Command("git", "reset", "--hard")
+				resetCmd := execCommand("git", "reset", "--hard")
 				resetCmd.Dir = agentDir
 				resetCmd.Run()
 
 				// First fetch the latest
-				fetchCmd := exec.Command("git", "fetch", "origin", pConfig.Branch)
+				fetchCmd := execCommand("git", "fetch", "origin", pConfig.Branch)
 				fetchCmd.Dir = agentDir
 				fetchCmd.Run()
 
 				// Delete old task branch if it exists (force fresh start)
-				deleteCmd := exec.Command("git", "branch", "-D", taskBranch)
+				deleteCmd := execCommand("git", "branch", "-D", taskBranch)
 				deleteCmd.Dir = agentDir
 				deleteCmd.Run() // Ignore errors
 
 				// Create and checkout task branch from origin/<target branch>
 				// Use -B to force create/reset even if branch exists
-				checkout := exec.Command("git", "checkout", "-B", taskBranch, "origin/"+pConfig.Branch)
+				checkout := execCommand("git", "checkout", "-B", taskBranch, "origin/"+pConfig.Branch)
 				checkout.Dir = agentDir
 				if err := checkout.Run(); err != nil {
 					return taskFailedMsg{agentID: agentID, taskID: taskID, reason: fmt.Sprintf("failed to create branch %s: %v", taskBranch, err)}
@@ -2525,14 +2525,14 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 
 		// Ensure beads database is initialized/refreshed from JSONL before update
 		// This is needed because git checkout may have pulled new JSONL content
-		bdInitCmd := exec.Command("bd", "--sandbox", "init", "--from-jsonl")
+		bdInitCmd := execCommand("bd", "--sandbox", "init", "--from-jsonl")
 		bdInitCmd.Dir = agentDir
 		bdInitCmd.Run() // Ignore errors - file might not exist
 
 		// Update task status to in_progress
 		// Use --sandbox to disable daemon and auto-sync
 		// cmd.Dir MUST be agentDir (agent worktree) not repo
-		bdUpdateCmd := exec.Command("bd", "--sandbox", "update", taskID, "--status=in_progress", fmt.Sprintf("--assignee=%s", agentName))
+		bdUpdateCmd := execCommand("bd", "--sandbox", "update", taskID, "--status=in_progress", fmt.Sprintf("--assignee=%s", agentName))
 		bdUpdateCmd.Dir = agentDir
 		if err := bdUpdateCmd.Run(); err != nil {
 			f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -2610,7 +2610,7 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 		modelFlag := "gemini-3-flash-preview" // Default to Flash (cheaper, faster)
 
 		// Fetch task description to check for CHALLENGE tag
-		bdShowCmd := exec.Command("bd", "--sandbox", "show", taskID, "--json")
+		bdShowCmd := execCommand("bd", "--sandbox", "show", taskID, "--json")
 		bdShowCmd.Dir = repoPath
 		if taskOutput, err := bdShowCmd.Output(); err == nil {
 			var taskData map[string]interface{}
@@ -2635,7 +2635,7 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 		}
 
 		// Ensure we have the latest code before launching gemini
-		pullCmd := exec.Command("git", "pull", "--ff-only")
+		pullCmd := execCommand("git", "pull", "--ff-only")
 		pullCmd.Dir = agentDir
 		if out, err := pullCmd.CombinedOutput(); err != nil {
 			output := string(out)
@@ -2659,7 +2659,7 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 		machinatorDir := setup.GetMachinatorDir()
 		geminiPath := filepath.Join(machinatorDir, "gemini")
 		geminiArgs := []string{"--yolo", "--sandbox", "--model", modelFlag, "--output-format", "stream-json", directive}
-		geminiCmd := exec.Command(geminiPath, geminiArgs...)
+		geminiCmd := execCommand(geminiPath, geminiArgs...)
 		geminiCmd.Dir = agentDir
 
 		// Log the full command for debugging
@@ -2778,7 +2778,7 @@ func buildDirective(agentName, taskID, projectRoot string) (string, error) {
 	logPath := orchestratorLogPath()
 
 	taskContext := ""
-	cmd := exec.Command("bd", "--sandbox", "show", taskID)
+	cmd := execCommand("bd", "--sandbox", "show", taskID)
 	cmd.Dir = projectRoot
 	if output, err := cmd.Output(); err == nil {
 		taskContext = string(output)
@@ -2787,7 +2787,7 @@ func buildDirective(agentName, taskID, projectRoot string) (string, error) {
 	// Use absolute path for AGENTS.md
 	agentsPath := filepath.Join(originalCwd, "AGENTS.md")
 	projectContext := ""
-	if output, err := exec.Command("head", "-100", agentsPath).Output(); err == nil {
+	if output, err := execCommand("head", "-100", agentsPath).Output(); err == nil {
 		projectContext = string(output)
 	}
 
