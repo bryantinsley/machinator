@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bryantinsley/machinator/orchestrator/pkg/accountpool"
 	"github.com/bryantinsley/machinator/orchestrator/pkg/ui/agentgrid"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
@@ -41,6 +42,7 @@ func TestTUI_Golden(t *testing.T) {
 					"flash": {Flash: 80, Pro: 50},
 					"pro":   {Flash: 100, Pro: 20},
 				}
+				m.activeAccount = &accountpool.Account{Name: "flash"}
 				// Add tasks
 				m.tasks = []Task{
 					{ID: "task-1", Title: "Fix bug", Status: "in_progress"},
@@ -149,6 +151,7 @@ func TestTUI_Golden(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			os.Setenv("CLICOLOR_FORCE", "1")
 			m := initialModel(nil, false)
 			m.width = 120
 			m.height = 40

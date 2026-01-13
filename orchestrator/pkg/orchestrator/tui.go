@@ -1410,22 +1410,38 @@ func (m model) renderQuotaHearts(percent int, flash bool) string {
 	var result string
 	heart := "♥"
 
-	// True color: red (#990000) to grey (#535360)
-	// RGB: red = (153, 0, 0), grey = (83, 83, 96)
+	// Gradient colors: Red (0-20%) -> Orange (20-40%) -> Yellow (40-60%) -> Light Green (60-80%) -> Green (80-100%)
+	colors := []string{
+		"#990000", // Dark Red
+		"#FF4500", // OrangeRed
+		"#FFD700", // Gold
+		"#ADFF2F", // GreenYellow
+		"#008000", // Green
+	}
 
 	for i := 0; i < 5; i++ {
 		var heartStyle lipgloss.Style
 		if i < fullHearts {
-			// Full red heart
-			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#990000"))
+			// Full heart with its specific gradient color
+			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colors[i]))
 		} else if i == fullHearts && partialPercent > 0 {
-			// Transitioning heart - blend from red to grey
-			// partialPercent 19 = almost full (red), 1 = almost empty (grey)
-			// Linear interpolation: color = red + (grey - red) * (20 - partial) / 20
-			ratio := float64(20-partialPercent) / 20.0
-			r := int(153.0 - (153.0-83.0)*ratio)
-			g := int(0.0 + 83.0*ratio)
-			b := int(0.0 + 96.0*ratio)
+			// Transitioning heart - blend from its natural color to grey
+			// ratio 1.0 = almost full (natural color), 0.0 = almost empty (grey)
+			ratio := float64(partialPercent) / 20.0
+
+			// Get target RGB (natural color for this position)
+			targetHex := colors[i]
+			var tr, tg, tb int
+			fmt.Sscanf(targetHex, "#%02X%02X%02X", &tr, &tg, &tb)
+
+			// Get grey RGB (#535360)
+			gr, gg, gb := 83, 83, 96
+
+			// Linear interpolation
+			r := int(float64(gr) + float64(tr-gr)*ratio)
+			g := int(float64(gg) + float64(tg-gg)*ratio)
+			b := int(float64(gb) + float64(tb-gb)*ratio)
+
 			hexColor := fmt.Sprintf("#%02X%02X%02X", r, g, b)
 			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(hexColor))
 		} else {
@@ -1435,8 +1451,18 @@ func (m model) renderQuotaHearts(percent int, flash bool) string {
 		result += heartStyle.Render(heart)
 	}
 
-	// Flash effect when below 10% - alternate with pink
-	if percent < 10 && percent > 0 && flash {
+	// Refreshing animation - alternate between colored and cyan
+	if m.refreshingQuota && flash {
+		cyanStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFFF"))
+		result = ""
+		for i := 0; i < 5; i++ {
+			result += cyanStyle.Render(heart)
+		}
+		return result
+	}
+
+	// Flash effect when below 20% (low quota) - alternate with pink
+	if percent < 20 && percent > 0 && flash {
 		pinkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF69B4")) // Hot pink
 		// Re-render all filled hearts as pink for flash effect
 		result = ""
@@ -1479,6 +1505,12 @@ func (m model) View() string {
 	accountInfo := ""
 	if m.activeAccount != nil {
 		accountInfo = fmt.Sprintf("    Account: %s", m.activeAccount.Name)
+		if q, ok := m.quotas[m.activeAccount.Name]; ok {
+			// Add compact quota hearts to title bar
+			fHearts := m.renderQuotaHearts(q.Flash, m.tickCount%2 == 0 && q.Flash < 20)
+			pHearts := m.renderQuotaHearts(q.Pro, m.tickCount%2 == 0 && q.Pro < 20)
+			accountInfo += fmt.Sprintf(" [F:%s P:%s]", fHearts, pHearts)
+		}
 	}
 
 	// Determine status string

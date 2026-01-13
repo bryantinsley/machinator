@@ -59,7 +59,9 @@ func (b *Button) SetBounds(x, y, width, height int) {
 // Render renders the button
 func (b *Button) Render() string {
 	var style lipgloss.Style
-	if b.focused {
+	if b.Dimmed {
+		style = styles.ButtonDimmedStyle
+	} else if b.focused {
 		style = styles.ButtonFocusedStyle
 	} else {
 		style = styles.ButtonStyle
