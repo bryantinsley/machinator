@@ -310,6 +310,7 @@ type model struct {
 	geminiCmd       *exec.Cmd
 	projectRoot     string
 	repoPath        string               // Path to the git repo (projectRoot/repo for managed projects)
+	projectBranch   string               // Branch to pull from
 	failedTasks     map[string]time.Time // Track tasks that failed, with retry cooldown
 	lastTaskAttempt time.Time            // Prevent rapid task execution attempts
 	focusPanel      int                  // 0=tasks, 1=activity
@@ -362,11 +363,16 @@ func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
 
 	projectRoot := getProjectRoot()
 	repoPath := projectRoot // Default: repo is same as project root (cwd mode)
+	projectBranch := "main" // Default branch
 	// If project config is provided, use it to determine project root and override settings
 	if projectConfig != nil {
 		machinatorDir := setup.GetMachinatorDir()
 		projectRoot = filepath.Join(machinatorDir, "projects", fmt.Sprintf("%d", projectConfig.ID))
 		repoPath = filepath.Join(projectRoot, "repo") // Managed projects have repo in subdirectory
+
+		if projectConfig.Branch != "" {
+			projectBranch = projectConfig.Branch
+		}
 
 		// Override defaults if set in project config
 		if projectConfig.MaxCycles > 0 {
@@ -443,6 +449,7 @@ func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
 		geminiRunning:   false,
 		projectRoot:     projectRoot,
 		repoPath:        repoPath,
+		projectBranch:   projectBranch,
 		failedTasks:     make(map[string]time.Time),
 		toolsCheck:      InitialToolsCheckModel(),
 		accountPool:     pool,
@@ -486,7 +493,7 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		tick(),
 		checkQuota(m.accountPool),
-		fetchTasks(m.repoPath),
+		fetchTasks(m.repoPath, m.projectBranch),
 		m.toolsCheck.Init(),
 	)
 }
@@ -602,7 +609,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				// Refresh tasks/quota
 				m.addActivity("🔄 Refreshing...")
-				return m, tea.Batch(checkQuota(m.accountPool), fetchTasks(m.repoPath))
+				return m, tea.Batch(checkQuota(m.accountPool), fetchTasks(m.repoPath, m.projectBranch))
 			}
 		case "p":
 			if m.state == StateRunning {
@@ -876,7 +883,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.tickCount%50 == 0 { // Every 50 seconds
 			m.addLog("🔄 Task fetch")
-			cmds = append(cmds, fetchTasks(m.repoPath))
+			cmds = append(cmds, fetchTasks(m.repoPath, m.projectBranch))
 		}
 
 		// Auto-execute check (using CooldownPeriod)
@@ -2078,21 +2085,22 @@ func tick() tea.Cmd {
 	})
 }
 
-func fetchTasks(projectRoot string) tea.Cmd {
+func fetchTasks(projectRoot, branch string) tea.Cmd {
 	return func() tea.Msg {
 		// Debug log
 		logPath := orchestratorLogPath()
 		f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if f != nil {
-			f.WriteString(fmt.Sprintf("[%s] fetchTasks() started, projectRoot=%s\n", time.Now().Format("15:04:05"), projectRoot))
+			f.WriteString(fmt.Sprintf("[%s] fetchTasks() started, projectRoot=%s, branch=%s\n", time.Now().Format("15:04:05"), projectRoot, branch))
 		}
 
-		// Pull latest from main to sync beads database
-		pullCmd := exec.Command("git", "pull", "--rebase", "origin", "main")
+		// Pull latest to sync beads database
+		// Use --ff-only to avoid merge conflicts as requested by task machinator-tmo
+		pullCmd := exec.Command("git", "pull", "--ff-only", "origin", branch)
 		pullCmd.Dir = projectRoot
 		if pullErr := pullCmd.Run(); pullErr != nil {
 			if f != nil {
-				f.WriteString(fmt.Sprintf("[%s] git pull warning: %v (continuing anyway)\n", time.Now().Format("15:04:05"), pullErr))
+				f.WriteString(fmt.Sprintf("[%s] git pull warning (branch %s): %v (continuing anyway)\n", time.Now().Format("15:04:05"), branch, pullErr))
 			}
 		}
 
@@ -2491,6 +2499,28 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 						}
 					}
 				}
+			}
+		}
+
+		// Ensure we have the latest code before launching gemini
+		pullCmd := exec.Command("git", "pull", "--ff-only")
+		pullCmd.Dir = agentDir
+		if out, err := pullCmd.CombinedOutput(); err != nil {
+			output := string(out)
+			// Only fail if it's a fast-forward error or conflict
+			if strings.Contains(output, "Not possible to fast-forward") || strings.Contains(output, "Conflict") {
+				f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				if f != nil {
+					f.WriteString(fmt.Sprintf("[%s] ❌ git pull conflict: %s\n", time.Now().Format("15:04:05"), output))
+					f.Close()
+				}
+				return taskFailedMsg{agentID: agentID, taskID: taskID, reason: "BLOCKED: GIT_CONFLICT"}
+			}
+			// Log other errors (like no upstream) but continue
+			f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if f != nil {
+				f.WriteString(fmt.Sprintf("[%s] ℹ️ git pull skipped/failed: %v\n", time.Now().Format("15:04:05"), strings.TrimSpace(output)))
+				f.Close()
 			}
 		}
 
