@@ -959,6 +959,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if agent.Cmd != nil && agent.Cmd.Process != nil {
 							agent.Cmd.Process.Kill()
 						}
+						releaseTask(agent.CurrentTaskID)
+						m.failedTasks[agent.CurrentTaskID] = now
 						agent.FailedTasks[agent.CurrentTaskID] = now
 						agent.Running = false
 						agent.CurrentTaskID = ""
@@ -981,6 +983,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if agent.Cmd != nil && agent.Cmd.Process != nil {
 							agent.Cmd.Process.Kill()
 						}
+						releaseTask(agent.CurrentTaskID)
+						m.failedTasks[agent.CurrentTaskID] = now
 						agent.FailedTasks[agent.CurrentTaskID] = now
 						agent.Running = false
 						agent.CurrentTaskID = ""
@@ -992,6 +996,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							return m, tea.Quit
 						}
 					}
+				}
+			}
+
+			// Update legacy geminiRunning flag
+			m.geminiRunning = false
+			for _, a := range m.agents {
+				if a.Running {
+					m.geminiRunning = true
+					break
 				}
 			}
 		}
