@@ -16,6 +16,7 @@ go_library(
         "//orchestrator/pkg/setup",
         "//orchestrator/pkg/ui/agentgrid",
         "//orchestrator/pkg/ui/components",
+        "//orchestrator/pkg/ui/styles",
         "@com_github_charmbracelet_bubbles//viewport",
         "@com_github_charmbracelet_bubbletea//:bubbletea",
         "@com_github_charmbracelet_lipgloss//:lipgloss",
