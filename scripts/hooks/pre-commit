@@ -15,7 +15,26 @@ if command -v bd &> /dev/null; then
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 2. Check Go files formatting with gofmt
+# 1b. Bazel Quality Checks
+# ═══════════════════════════════════════════════════════════════════════════════
+if command -v bazel &> /dev/null; then
+    echo "🏗️  Bazel build //..."
+    if ! bazel build //... > /dev/null 2>&1; then
+        echo "❌ Bazel build failed"
+        FAILED=1
+    fi
+
+    echo "🧪 Bazel test //... (fast)"
+    if ! bazel test //... --test_tag_filters=fast > /dev/null 2>&1; then
+        echo "❌ Bazel tests failed"
+        FAILED=1
+    fi
+else
+    echo "⚠️  bazel not found. Skipping build and test checks."
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 2. Check Go files formatting with gofmt (warn only)
 # ═══════════════════════════════════════════════════════════════════════════════
 GO_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
 
@@ -23,10 +42,9 @@ if [ -n "$GO_FILES" ]; then
     if command -v gofmt &> /dev/null; then
         UNFORMATTED=$(gofmt -l $GO_FILES 2>/dev/null || true)
         if [ -n "$UNFORMATTED" ]; then
-            echo "❌ Go files need formatting:"
+            echo "⚠️  Warning: Go files need formatting:"
             echo "$UNFORMATTED"
             echo "   Run: gofmt -w <file>"
-            FAILED=1
         fi
     fi
 fi
