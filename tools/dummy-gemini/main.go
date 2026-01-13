@@ -1,13 +1,25 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 )
+
+// ACPEvent represents a simplified version of the event structure
+type ACPEvent struct {
+	Type     string                 `json:"type"`
+	Role     string                 `json:"role,omitempty"`
+	Content  string                 `json:"content,omitempty"`
+	ToolName string                 `json:"tool_name,omitempty"`
+	ToolID   string                 `json:"tool_id,omitempty"`
+	ToolArgs map[string]interface{} `json:"args,omitempty"`
+	Status   string                 `json:"status,omitempty"`
+	Model    string                 `json:"model,omitempty"`
+}
 
 func main() {
 	// Define flags
@@ -16,9 +28,9 @@ func main() {
 	_ = flag.Int("tokens", 0, "Token limit")
 	_ = flag.String("model", "", "Model name")
 	_ = flag.Float64("temperature", 0.0, "Sampling temperature")
-	isJSON := flag.Bool("json", false, "Output in JSON format")
+	_ = flag.Bool("json", false, "Output in JSON format (ignored, we use stream-json if requested or default for ACP)")
 	_ = flag.Bool("yolo", false, "YOLO mode")
-	outputFormat := flag.String("output-format", "", "Output format")
+	_ = flag.String("output-format", "", "Output format")
 	version := flag.Bool("version", false, "Show version")
 	dumpQuota := flag.Bool("dump-quota", false, "Dump quota information")
 
@@ -28,7 +40,7 @@ func main() {
 	flag.Parse()
 
 	if *version {
-		fmt.Println("dummy-gemini v0.1.0")
+		fmt.Println("dummy-gemini v0.2.0")
 		return
 	}
 
@@ -37,40 +49,64 @@ func main() {
 		return
 	}
 
-	// If output-format is stream-json, treat as JSON
-
-	if *outputFormat == "stream-json" {
-
-		*isJSON = true
-
-	}
-
-	mode := os.Getenv("DUMMY_GEMINI_MODE")
+	mode := strings.ToLower(os.Getenv("DUMMY_GEMINI_MODE"))
 	if mode == "" {
-		mode = os.Getenv("GEMINI_MODE")
+		mode = strings.ToLower(os.Getenv("GEMINI_MODE"))
 	}
+	if mode == "" {
+		mode = "happy"
+	}
+
+	// Default to stream-json style for most modes as requested by task ("Outputs ACP-format JSON events")
+	// Unless specified otherwise by mode-specific logic.
 
 	switch mode {
-	case "ERROR":
-		fmt.Fprintln(os.Stderr, "Error: Quota exceeded or service unavailable")
-		os.Exit(1)
-	case "STUCK":
-		// Hang indefinitely (well, for an hour)
-		time.Sleep(1 * time.Hour)
-		printHappy(*isJSON)
-	case "SCRIPTED":
-		printScripted(*isJSON)
-	case "AUTO_CLOSE":
-		// AUTO_CLOSE logic is specific to the E2E test harness
-		printAutoClose(*isJSON, flag.Arg(0))
-	case "HAPPY":
-		fallthrough
+	case "error":
+		printError()
+	case "stuck":
+		// Hang indefinitely
+		select {}
+	case "scripted":
+		printScripted()
+	case "happy":
+		printHappy()
 	default:
-		printHappy(*isJSON)
+		// Fallback for any other modes that might have been there
+		if mode == "auto_close" {
+			printAutoClose(flag.Arg(0))
+		} else {
+			printHappy()
+		}
 	}
 }
 
-func printScripted(isJSON bool) {
+func emit(event ACPEvent) {
+	b, _ := json.Marshal(event)
+	fmt.Println(string(b))
+}
+
+func printHappy() {
+	emit(ACPEvent{Type: "init", Model: "dummy-model-3.5"})
+	time.Sleep(1 * time.Second)
+	emit(ACPEvent{
+		Type:    "message",
+		Role:    "assistant",
+		Content: "This is a happy mock response from dummy-gemini.",
+	})
+	time.Sleep(1 * time.Second)
+	emit(ACPEvent{Type: "result", Status: "success"})
+}
+
+func printError() {
+	emit(ACPEvent{
+		Type:    "error",
+		Status:  "failure",
+		Content: "Quota exceeded: You have reached your limit.",
+	})
+	os.Exit(1)
+}
+
+func printScripted() {
 	scriptPath := os.Getenv("DUMMY_GEMINI_SCRIPT")
 	if scriptPath == "" {
 		fmt.Fprintln(os.Stderr, "Error: DUMMY_GEMINI_SCRIPT env var not set")
@@ -83,11 +119,12 @@ func printScripted(isJSON bool) {
 		os.Exit(1)
 	}
 
+	// We assume the script file already contains the JSON events line by line
 	fmt.Print(string(content))
 }
 
-func printAutoClose(isJSON bool, directive string) {
-	// Find TaskID in directive. It's usually after "execute Beads Task: " or "Task "
+func printAutoClose(directive string) {
+	// Find TaskID in directive. It's usually after "Beads Task: " or "Task "
 	taskID := "unknown"
 	if idx := strings.Index(directive, "Beads Task: "); idx != -1 {
 		rest := directive[idx+len("Beads Task: "):]
@@ -96,28 +133,31 @@ func printAutoClose(isJSON bool, directive string) {
 		rest := directive[idx+len("Task "):]
 		taskID = extractFirstWord(rest)
 	}
-	// Clean up taskID (strip trailing punctuation and whitespace)
+	// Clean up taskID
 	taskID = strings.TrimFunc(taskID, func(r rune) bool {
 		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-')
 	})
 
-	if !isJSON {
-		fmt.Printf("Simulating closing task %s\n", taskID)
-		return
-	}
+	emit(ACPEvent{Type: "init", Model: "dummy-model-3.5"})
+	emit(ACPEvent{
+		Type:    "message",
+		Role:    "assistant",
+		Content: fmt.Sprintf("I will now close task %s.", taskID),
+	})
+	emit(ACPEvent{
+		Type:     "tool_use",
+		ToolName: "run_shell_command",
+		ToolID:   "t1",
+		ToolArgs: map[string]interface{}{"command": fmt.Sprintf("./bd close %s", taskID)},
+	})
 
-	// Output stream-json events
-	fmt.Printf(`{"type": "init", "model": "dummy-model"}` + "\n")
-	fmt.Printf(`{"type": "message", "role": "assistant", "content": "I will now close task %s."}`+"\n", taskID)
-	fmt.Printf(`{"type": "tool_use", "tool_name": "run_shell_command", "tool_id": "t1", "args": {"command": "bd close %s"}}`+"\n", taskID)
-
-	// Actually execute the command so the state changes in the fixture repo
-	// We need to make sure we don't have weird characters in taskID
-	cmd := exec.Command("bd", "close", taskID)
-	_ = cmd.Run()
-
-	fmt.Printf(`{"type": "tool_result", "tool_id": "t1", "status": "success", "output": "Closed %s"}`+"\n", taskID)
-	fmt.Printf(`{"type": "result", "status": "success"}` + "\n")
+	emit(ACPEvent{
+		Type:    "tool_result",
+		ToolID:  "t1",
+		Status:  "success",
+		Content: fmt.Sprintf("Closed %s", taskID),
+	})
+	emit(ACPEvent{Type: "result", Status: "success"})
 }
 
 func extractFirstWord(s string) string {
@@ -129,12 +169,4 @@ func extractFirstWord(s string) string {
 		return s
 	}
 	return s[:idx]
-}
-
-func printHappy(isJSON bool) {
-	if isJSON {
-		fmt.Println(`{"response": "mock response"}`)
-	} else {
-		fmt.Println("mock response")
-	}
 }
