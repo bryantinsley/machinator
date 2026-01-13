@@ -25,10 +25,11 @@ const (
 
 // regenerateGeminiWrapper recreates the gemini wrapper script to apply any code fixes
 func regenerateGeminiWrapper(geminiCLIDir, geminiPath string) {
-	// Use --prefix to preserve caller's working directory for sandbox
+	// Call node directly with index.js to preserve working directory
+	indexJs := filepath.Join(geminiCLIDir, "packages", "cli", "dist", "index.js")
 	wrapperContent := fmt.Sprintf(`#!/bin/bash
-npm run start --prefix "%s" -- "$@"
-`, geminiCLIDir)
+exec node "%s" "$@"
+`, indexJs)
 	os.WriteFile(geminiPath, []byte(wrapperContent), 0755)
 }
 
