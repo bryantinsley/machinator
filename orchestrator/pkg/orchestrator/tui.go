@@ -1989,53 +1989,62 @@ func (m model) View() string {
 	var barButtons []*components.Button
 
 	// Start/Resume button
-	startLabel := "▶ s: start"
+	startLabel := "start"
 	if m.state == StatePaused {
-		startLabel = "▶ s: resume"
+		startLabel = "resume"
 	}
-	startBtn := components.NewButton(startLabel, func() tea.Cmd {
+	startBtn := components.NewButtonWithShortcut("s", startLabel, func() tea.Cmd {
 		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")} }
 	})
+	startBtn.Label = "▶ " + startBtn.Label
 	startBtn.Dimmed = m.state == StateRunning
+	startBtn.Active = m.state == StatePaused || m.state == StateStopped
 	barButtons = append(barButtons, startBtn)
 
 	// Pause button
-	pauseBtn := components.NewButton("⏸ p: pause", func() tea.Cmd {
+	pauseBtn := components.NewButtonWithShortcut("p", "pause", func() tea.Cmd {
 		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")} }
 	})
+	pauseBtn.Label = "⏸ " + pauseBtn.Label
 	pauseBtn.Dimmed = m.state != StateRunning
+	pauseBtn.Active = m.state == StateRunning // Highlight pause when running
 	barButtons = append(barButtons, pauseBtn)
 
 	// Stop button
-	stopBtn := components.NewButton("⏹ x: stop", func() tea.Cmd {
+	stopBtn := components.NewButtonWithShortcut("x", "stop", func() tea.Cmd {
 		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")} }
 	})
+	stopBtn.Label = "⏹ " + stopBtn.Label
 	stopBtn.Dimmed = m.state == StateStopped
 	barButtons = append(barButtons, stopBtn)
 
 	// Execute button
-	execBtn := components.NewButton("⚡ e: execute", func() tea.Cmd {
+	execBtn := components.NewButtonWithShortcut("e", "execute", func() tea.Cmd {
 		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")} }
 	})
+	execBtn.Label = "⚡ " + execBtn.Label
 	execBtn.Dimmed = m.state != StateRunning
 	barButtons = append(barButtons, execBtn)
 
 	// Agents button
-	agentsBtn := components.NewButton("🤖 +/-: agents", func() tea.Cmd {
+	agentsBtn := components.NewButtonWithShortcut("+/-", "agents", func() tea.Cmd {
 		return func() tea.Msg { return nil } // No-op, just shows it's interactive
 	})
+	agentsBtn.Label = "🤖 " + agentsBtn.Label
 	barButtons = append(barButtons, agentsBtn)
 
 	// Quit button
-	quitBtn := components.NewButton("⏻ q: quit", func() tea.Cmd {
+	quitBtn := components.NewButtonWithShortcut("q", "quit", func() tea.Cmd {
 		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")} }
 	})
+	quitBtn.Label = "⏻ " + quitBtn.Label
 	barButtons = append(barButtons, quitBtn)
 
 	// Help button
-	helpBtn := components.NewButton("? ?: help", func() tea.Cmd {
+	helpBtn := components.NewButtonWithShortcut("?", "help", func() tea.Cmd {
 		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")} }
 	})
+	helpBtn.Label = "? " + helpBtn.Label
 	barButtons = append(barButtons, helpBtn)
 
 	var renderedButtons []string

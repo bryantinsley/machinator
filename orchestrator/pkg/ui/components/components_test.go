@@ -29,8 +29,15 @@ func TestButton_Click(t *testing.T) {
 	if btn.Contains(5, 5) {
 		t.Error("Button should not contain point outside bounds")
 	}
-	// Typically HandleClick wouldn't be called if Contains is false,
-	// but the dispatcher handles that check.
+}
+
+func TestButton_Render(t *testing.T) {
+	btn := NewButtonWithShortcut("s", "start", nil)
+	rendered := btn.Render()
+	if rendered == "" {
+		t.Error("Rendered button should not be empty")
+	}
+	// We don't check exact content because of lipgloss styling
 }
 
 func TestListItem_Click(t *testing.T) {

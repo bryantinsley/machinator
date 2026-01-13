@@ -8,13 +8,15 @@ import (
 
 // Button is a clickable action trigger
 type Button struct {
-	Label   string
-	OnClick func() tea.Cmd
+	Shortcut string
+	Label    string
+	OnClick  func() tea.Cmd
 
 	x, y          int
 	width, height int
 	focused       bool
 	Dimmed        bool
+	Active        bool
 }
 
 // NewButton creates a new button with the given label and click handler
@@ -22,6 +24,15 @@ func NewButton(label string, onClick func() tea.Cmd) *Button {
 	return &Button{
 		Label:   label,
 		OnClick: onClick,
+	}
+}
+
+// NewButtonWithShortcut creates a new button with a shortcut and label
+func NewButtonWithShortcut(shortcut, label string, onClick func() tea.Cmd) *Button {
+	return &Button{
+		Shortcut: shortcut,
+		Label:    label,
+		OnClick:  onClick,
 	}
 }
 
@@ -59,15 +70,31 @@ func (b *Button) SetBounds(x, y, width, height int) {
 // Render renders the button
 func (b *Button) Render() string {
 	var style lipgloss.Style
+	var keyStyle lipgloss.Style
+
 	if b.Dimmed {
 		style = styles.ButtonDimmedStyle
+		keyStyle = styles.KeyDimmedStyle
 	} else if b.focused {
 		style = styles.ButtonFocusedStyle
+		keyStyle = styles.KeyStyle // Keep key bright even if focused? Or maybe another style
 	} else {
 		style = styles.ButtonStyle
+		keyStyle = styles.KeyStyle
 	}
 
-	rendered := style.Render(b.Label)
+	if b.Active {
+		// Highlight active state (e.g. "Running" mode)
+		style = style.Copy().Background(lipgloss.Color("62")).Foreground(lipgloss.Color("230"))
+	}
+
+	content := b.Label
+	if b.Shortcut != "" {
+		key := keyStyle.Render(b.Shortcut)
+		content = key + " " + b.Label
+	}
+
+	rendered := style.Render(content)
 	b.width = lipgloss.Width(rendered)
 	b.height = lipgloss.Height(rendered)
 
