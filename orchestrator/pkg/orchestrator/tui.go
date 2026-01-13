@@ -1222,12 +1222,12 @@ func (m model) View() string {
 			quotaStr = fmt.Sprintf("Quotas: %d/%d avail (click to expand)", available, len(m.quotas))
 		}
 
-		title = titleStyle.Render(fmt.Sprintf(
+		title = titleStyle.Width(m.width).Render(fmt.Sprintf(
 			"🤖 Machinator    Agent: %s%s    %s    Cycle: %d    %s",
 			m.agentName, accountInfo, quotaStr, m.cycle, status,
 		))
 	} else {
-		title = titleStyle.Render(fmt.Sprintf(
+		title = titleStyle.Width(m.width).Render(fmt.Sprintf(
 			"🤖 Machinator    Agent: %s%s    Quota: Loading...    Cycle: %d    %s",
 			m.agentName, accountInfo, m.cycle, status,
 		))
@@ -1241,10 +1241,21 @@ func (m model) View() string {
 	titleButton.SetBounds(0, 0, m.width, titleHeight)
 	m.clickDispatcher.Register(titleButton)
 
+	// Grid - render first to get its height
+	grid := m.agentGrid.View()
+	gridHeight := lipgloss.Height(grid)
+
+	// Calculate remaining height for panels
+	// Total: title (titleHeight) + grid (gridHeight) + panels + statusBar (1)
+	statusBarHeight := 1
+	panelHeight := m.height - titleHeight - gridHeight - statusBarHeight - 2 // -2 for some padding
+	if panelHeight < 10 {
+		panelHeight = 10 // Minimum height
+	}
+
 	// Layout: Tasks (1/4) | Activity (3/4)
 	tasksWidth := m.width / 4
 	activityWidth := m.width - tasksWidth - 4 // -4 for borders
-	panelHeight := m.height - 8
 
 	// Determine panel border styles based on focus
 	tasksBorder := panelStyle
@@ -1255,15 +1266,6 @@ func (m model) View() string {
 	} else if m.focusPanel == 2 {
 		activityBorder = activityBorder.BorderForeground(lipgloss.Color("205"))
 	}
-
-	// Calculate Y offset for dropdown
-	// Layout: Title (1 line) + Grid + Panels
-	// Title rendered string height?
-	// titleHeight already calculated above
-
-	// Grid
-	grid := m.agentGrid.View()
-	gridHeight := lipgloss.Height(grid)
 
 	// Total Y offset to start of panels
 	panelYStart := titleHeight + gridHeight
@@ -1312,7 +1314,7 @@ func (m model) View() string {
 		item.SetBounds(2, tasksYOffset+i, tasksWidth-2, 1)
 		m.clickDispatcher.Register(item)
 	}
-	tasksPanel := tasksBorder.Width(tasksWidth).Height(panelHeight).Render(tasksContent)
+	tasksPanel := tasksBorder.Width(tasksWidth).Height(panelHeight).MaxHeight(panelHeight).Render(tasksContent)
 
 	// Agent activity panel (wide - 3/4 of screen)
 	activityHeader := "🤖 Agent Activity"
@@ -1417,7 +1419,7 @@ func (m model) View() string {
 		listContent += fmt.Sprintf("  ↓ %d more below\n", len(m.filteredIndices)-endIdx)
 	}
 
-	agentPanel := activityBorder.Width(activityWidth).Height(panelHeight).Render(activityContent + listContent)
+	agentPanel := activityBorder.Width(activityWidth).Height(panelHeight).MaxHeight(panelHeight).Render(activityContent + listContent)
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, tasksPanel, agentPanel)
 

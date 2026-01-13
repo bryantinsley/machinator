@@ -22,16 +22,16 @@ var (
 	// Agent Card Styles
 	CardStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("238")).
+			BorderForeground(lipgloss.Color("63")). // Brighter border
 			Padding(1).
 			Width(30).
-			Height(10)
+			Height(6) // Reduced height - cards were too tall
 
 	CardFocusedStyle = CardStyle.Copy().
 				BorderForeground(lipgloss.Color("205"))
 
 	StatusActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("46"))  // Green
-	StatusIdleStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // Grey
+	StatusIdleStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("249")) // Brighter grey
 	StatusErrorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
 
 	// Dropdown Styles
