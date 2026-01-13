@@ -9,7 +9,7 @@ Set WindowBar Colorful
 
 # Setup environment
 Hide
-Type "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PWD"
+Type "export PATH=$PWD:$PATH"
 Enter
 Type "cp mock-bd.sh bd && chmod +x bd"
 Enter
@@ -17,55 +17,43 @@ Type "cp dummy-gemini-linux gemini && chmod +x gemini"
 Enter
 Type "chmod +x machinator-linux"
 Enter
-
-# Prepare fixture repo
-Type "mkdir -p fixture-repo/.beads"
-Enter
-Type "cp -r testdata/fixture-repo/.beads/. fixture-repo/.beads/"
-Enter
-Type "cp testdata/fixture-repo/AGENTS.md fixture-repo/"
-Enter
-
-# Prepare machinator logs and templates
-Type "mkdir -p fixture-repo/machinator/logs"
-Enter
-Type "mkdir -p fixture-repo/templates"
-Enter
-Type "cp templates/directive_template.txt fixture-repo/templates/"
-Enter
-Type "mkdir -p fixture-repo/bootstrap"
-Enter
-Type "cp bootstrap/check_quota.sh fixture-repo/machinator/"
-Enter
-
-Type "export GEMINI_MODE=HAPPY"
-Enter
-Type "export BD_AGENT_NAME=Gemini-01"
-Enter
 Type "export MACHINATOR_DIR=$PWD"
 Enter
-Type "cd fixture-repo"
+Type "mkdir -p .machinator/projects"
+Enter
+Type "cp testdata/vhs-fixture/.machinator/settings.json .machinator/"
+Enter
+Type "mkdir -p .machinator/projects/1"
+Enter
+Type "cp testdata/vhs-fixture/.machinator/projects/1/project.json .machinator/projects/1/"
+Enter
+Type "export GEMINI_MODE=AUTO_CLOSE"
+Enter
+Type "cd testdata/fixture-repo"
 Enter
 Type "clear"
 Enter
 Show
 
 # Start machinator
-Type "../machinator-linux"
+Type "../../machinator-linux"
 Enter
 
 # Wait for it to load tasks
 Sleep 8s
 
-# Start orchestration
+# Press 's' to start orchestration
 Type "s"
+Sleep 2s
+
+# Watch events appear in activity
 Sleep 15s
 
-# Pause orchestration
+# Press 'p' to pause
 Type "p"
 Sleep 5s
 
-# Quit
+# Press 'q', 'y' to quit
 Type "q"
 Sleep 1s
 Type "y"

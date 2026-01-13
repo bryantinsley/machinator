@@ -20,6 +20,9 @@ case "$1" in
   init)
     exit 0
   ;;
+  import)
+    exit 0
+  ;;
   create)
     exit 0
   ;;

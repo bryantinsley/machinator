@@ -38,6 +38,7 @@ jobs:
           vhs orchestrator/e2e/navigation.tape
           vhs orchestrator/e2e/crud.tape
           vhs orchestrator/e2e/orchestrator_run.tape
+          vhs orchestrator/e2e/orchestrator_main.tape
 
       - name: Upload GIFs
         uses: actions/upload-artifact@v4

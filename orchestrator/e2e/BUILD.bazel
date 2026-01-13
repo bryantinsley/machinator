@@ -40,6 +40,7 @@ sh_test(
     data = [
         "//orchestrator/cmd/machinator:machinator-linux",
         "//orchestrator/e2e:crud.tape",
+        "//orchestrator/e2e:orchestrator_main.tape",
         "//testdata/vhs-fixture:files",
         "//tools/dummy-gemini:dummy-gemini-linux",
     ],
