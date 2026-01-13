@@ -2301,3 +2301,5 @@ CRITICAL: Before running ANY Go comman...
 [06:25:16] ✅ Gemini completed successfully for task bead-1
 [06:25:16] RAW: {"response": "mock response"}
 [06:25:16] ✅ Gemini completed successfully for task bead-1
+[19:43:18] checkQuota() started for 0 accounts
+[19:43:43] checkQuota() started for 0 accounts

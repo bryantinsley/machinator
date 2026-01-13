@@ -1,29 +1,33 @@
 #!/bin/bash
-STATE_FILE="$HOME/.bd_state.json"
-
-if [ ! -f "$STATE_FILE" ]; then
-  echo '[{"id":"task-1","title":"Task 1","status":"open"},{"id":"task-2","title":"Task 2","status":"blocked"}]' > "$STATE_FILE"
-fi
-
 case "$1" in
-  list|ready)
-    cat "$STATE_FILE"
+  list)
+    echo '[{"id":"bead-1","title":"Task 1","status":"open"},{"id":"bead-2","title":"Task 2","status":"blocked"}]'
+    ;;
+  ready)
+    echo '[{"id":"bead-1","title":"Task 1","status":"open"}]'
+    ;;
+  show)
+    echo "Task 1: Implement basic UI"
+    echo "Description: We need a basic UI for the orchestrator."
     ;;
   update)
-    ID="$2"
-    STATUS=$(echo "$@" | grep -oE -- '--status=[^ ]+' | cut -d= -f2)
-    perl -i -pe "s/(\"id\":\"$ID\".*?\"status\":)\"[a-z_]*\"/\${1}\"$STATUS\"/" "$STATE_FILE"
+    # Just succeed silently
     exit 0
     ;;
   close)
-    ID="$2"
-    perl -i -pe "s/(\"id\":\"$ID\".*?\"status\":)\"[a-z_]*\"/\${1}\"closed\"/" "$STATE_FILE"
     exit 0
     ;;
-  import|init|create|show)
+  init)
     exit 0
-    ;;
+  ;;
+  import)
+    exit 0
+  ;;
+  create)
+    exit 0
+  ;;
   *)
-    exit 0
+    echo "Unknown command $1"
+    exit 1
     ;;
 esac

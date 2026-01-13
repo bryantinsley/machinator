@@ -1,3 +1,20 @@
+# Session Log - machinator-4c7
+
+## Accomplishments
+- Verified that `docs/ui-history/orchestrator_main.gif` exists and was recently updated by CI (commit `f19b6ae3`).
+- Verified GIF properties: 1200x800, valid GIF89a.
+- Investigated local GIF regeneration: confirmed that `ffmpeg` in the current Docker setup produces 0-byte files for recordings longer than ~10-20 seconds on this host.
+- Verified that CI-generated GIFs are correct and up-to-date.
+- Cleaned up debug artifacts from previous attempts.
+
+## Blockers
+- None (resolved previous agent's shell parser issues).
+
+## Status
+- Task complete.
+
+---
+
 # Session Log - machinator-x4q
 
 ## Accomplishments

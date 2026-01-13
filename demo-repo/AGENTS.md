@@ -87,6 +87,22 @@ These directories are already in `.gitignore`.
 - npm packages in `node_modules/` (project-local)
 - Python packages in a virtualenv within the project
 
+## Running Machinator (FORBIDDEN)
+
+**Agents are NOT permitted to run machinator or any orchestrator commands.** This includes:
+
+- `./machinator`
+- `bazel run :machinator`
+- Any variations with `--headless`, `--execute`, etc.
+
+**Why?** You ARE running inside machinator. Running it again causes recursive fork bombs that spawn infinite processes.
+
+**If you need to test orchestrator behavior:**
+
+1. **Write unit tests** - Test individual functions
+2. **Use mocks** - Mock external dependencies
+3. **Trust the orchestrator** - It handles execution, you handle code
+
 ## Documentation Sync
 
 When changing code in these areas, **also update the corresponding docs**:
@@ -102,13 +118,37 @@ When changing code in these areas, **also update the corresponding docs**:
 
 **Docs are part of the change.** Don't merge code that makes docs stale.
 
-## CI-Gated Operations (CURRENTLY DISABLED)
+## CI-Gated Operations (BETA)
 
-**WARNING**: GitHub Actions are currently blocked due to billing issues. Use local fallbacks.
+For slow operations (like VHS terminal recording) or operations incompatible with the macOS sandbox, use the CI-gated workflow:
 
-**VHS Terminal Recording (Local Fallback)**
+1.  **Make your changes** and commit:
 
-Since CI is down, use the local Docker wrapper (slow but functional):
+    ```bash
+    git add -A && git commit -m "feat: update TUI layout" && git push
+    ```
+
+2.  **Create a gate** that waits for the CI workflow:
+
+    ```bash
+    bd create --type=gate --title="Wait for VHS CI" --external-ref="gh:run:vhs"
+    ```
+
+3.  **Link your follow-up task** to the gate:
+
+    ```bash
+    bd dep add <follow-up-task-id> <gate-id>
+    ```
+
+4.  **Exit immediately** - the orchestrator will check gates periodically.
+
+5.  **When CI completes**, the gate resolves and the follow-up task unblocks.
+
+This keeps your laptop cool and avoids macOS sandbox restrictions!
+
+### Local Fallback (Use if CI is down)
+
+If GitHub Actions are unavailable, use the local Docker wrapper (slow but functional):
 
 1. **Build Linux Binary**:
 
@@ -129,25 +169,6 @@ Since CI is down, use the local Docker wrapper (slow but functional):
 
 3. **Verify & Commit**:
    Check `docs/ui-history/*.gif` and commit them.
-
-_(Original CI instructions preserved below for when billing is fixed)_
-
-For these operations, use the CI-gated workflow:
-
-1. **Make your changes** and commit:
-   git add -A && git commit -m "feat: update TUI layout" && git push
-
-2. **Create a gate** that waits for the CI workflow:
-   bd create --type=gate --title="Wait for VHS CI" --external-ref="gh:run:vhs"
-
-3. **Link your follow-up task** to the gate:
-   bd dep add <follow-up-task> <gate-id>
-
-4. **Exit immediately** - the orchestrator will check gates periodically
-
-5. **When CI completes**, the gate resolves and the follow-up task unblocks
-
-This keeps your laptop cool and your quota efficient!
 
 ## Landing the Plane (Session Completion)
 
