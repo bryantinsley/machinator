@@ -103,6 +103,36 @@ These directories are already in `.gitignore`.
 2. **Use mocks** - Mock external dependencies
 3. **Trust the orchestrator** - It handles execution, you handle code
 
+## Git Authentication
+
+Agents must be able to push changes to the remote repository. This project uses **HTTPS** for git operations (not SSH).
+
+### Why HTTPS?
+
+- **Sandbox Isolation**: SSH requires access to a `.ssh/` directory in the user's `$HOME`. The macOS sandbox restricts access to these directories, and spoofing a full SSH environment is complex.
+- **Credential Persistence**: Git's HTTPS authentication uses the **macOS Keychain** (`osxkeychain` helper). The Keychain is accessible to all processes regardless of their `$HOME` environment variable, making it ideal for sandboxed agents.
+
+### How it Works
+
+1.  **Helper Configuration**: The repository is configured to use the `osxkeychain` credential helper.
+2.  **Auth Flow**: When an agent runs `git push`, git calls the helper. The helper retrieves the Personal Access Token (PAT) from the system keychain.
+3.  **No Explicit Config**: Agents do **not** need to provide passwords, tokens, or SSH keys. As long as the host machine is authenticated, the agents "just work."
+
+### Alternative: Moving to SSH
+
+If the project ever migrates to SSH, agents would need:
+
+- `GIT_SSH_COMMAND` override to point to a specific key.
+- A symlink to the real `.ssh` directory within the agent's spoofed `$HOME`.
+- **Note**: This is currently avoided to keep the agent environment simple and robust.
+
+### Risks and Mitigations
+
+- **Risk**: Any process (including a malicious or buggy agent) could potentially use the stored credentials.
+- **Mitigation**: Agents are restricted by the macOS sandbox to only access the project directory and temporary directories. They cannot access arbitrary system resources.
+- **Risk**: Credentials expire.
+- **Mitigation**: The human operator (Bryan) must ensure the Keychain remains populated with a valid token.
+
 ## Documentation Sync
 
 When changing code in these areas, **also update the corresponding docs**:
