@@ -3,7 +3,6 @@ package orchestrator
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -2458,13 +2457,18 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 			}
 		}
 
-		// Update task status to in_progress (with timeout to prevent hanging)
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, "bd", "update", taskID, "--status=in_progress", fmt.Sprintf("--assignee=%s", agentName))
-		cmd.Dir = agentDir // Use agent dir for bd commands too? Usually bd is in root or handled by path.
-		// Actually bd uses current dir to find .beads. So it MUST be agentDir.
-		if err := cmd.Run(); err != nil {
+		// Ensure beads database is initialized/refreshed from JSONL before update
+		// This is needed because git checkout may have pulled new JSONL content
+		bdInitCmd := exec.Command("bd", "--no-db", "init", "--from-jsonl")
+		bdInitCmd.Dir = agentDir
+		bdInitCmd.Run() // Ignore errors - file might not exist
+
+		// Update task status to in_progress
+		// Use --no-db to avoid daemon issues and ensure we write directly to JSONL
+		// cmd.Dir MUST be agentDir (agent worktree) not repo
+		bdUpdateCmd := exec.Command("bd", "--no-db", "update", taskID, "--status=in_progress", fmt.Sprintf("--assignee=%s", agentName))
+		bdUpdateCmd.Dir = agentDir
+		if err := bdUpdateCmd.Run(); err != nil {
 			f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if f != nil {
 				f.WriteString(fmt.Sprintf("[%s] ⚠️ bd update error: %v\n", time.Now().Format("15:04:05"), err))
