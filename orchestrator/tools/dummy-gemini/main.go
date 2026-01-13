@@ -1,5 +1,12 @@
 // dummy-gemini is a mock implementation of the Gemini CLI for testing purposes.
 // It simulates different behaviors (happy path, errors, hanging) based on environment variables.
+//
+// Supported modes (via DUMMY_GEMINI_MODE env var):
+// - happy:      Returns a success sequence after a short delay (default).
+// - error:      Returns a quota exceeded error.
+// - stuck:      Hangs indefinitely (unless TEST_STUCK_TIMEOUT is set).
+// - scripted:   Plays back events from the file specified in DUMMY_GEMINI_SCRIPT.
+// - auto_close: Simulates an agent closing a task (used for testing automation).
 package main
 
 import (
