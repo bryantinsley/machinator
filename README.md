@@ -36,11 +36,12 @@ The result: **an orchestrator built by AI agents, orchestrated by a simpler vers
 # First-time setup (dev environment + git hooks)
 ./scripts/dev_setup.sh
 
-# Initialize custom Gemini CLI (clones, builds, configures)
-bazel run //:init
+# Build and run with Bazel (Recommended)
+bazel run //:machinator
 
-# Run the TUI
-bazel run //:tui
+# Alternatively, build and run with Go
+go build -o machinator ./orchestrator/cmd/machinator
+./machinator
 ```
 
 ## Architecture
@@ -145,14 +146,32 @@ git clone <repo>
 cd machinator
 ./scripts/dev_setup.sh
 
-# Build
-bazel build //:tui
+# Build (Bazel)
+bazel build :machinator
 
-# Run
-bazel run //:tui
+# Build (Go)
+go build -o machinator ./orchestrator/cmd/machinator
 
-# Run in debug mode (no TUI, prints diagnostics)
-bazel run //:tui -- --debug
+# Run (Bazel)
+bazel run :machinator
+
+# Run (Go)
+./machinator
+
+# Run in debug mode
+bazel run :machinator -- --debug
+# or
+./machinator --debug
+```
+
+### Testing
+
+```bash
+# Run all tests with Bazel
+bazel test //...
+
+# Run all tests with Go
+go test ./...
 ```
 
 ### Project Structure

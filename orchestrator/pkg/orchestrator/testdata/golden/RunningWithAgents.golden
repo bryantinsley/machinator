@@ -13,9 +13,9 @@
 │   ⚡ 1                       ││                     ╰────────────────────╯                                           │
 │   ⏸ 2                        ││                                                                                      │
 │                              ││   💭 Initializing orchestrator...                                                    │
-│                              ││   📁 Project root: /Users/bryantinsley/Code/machinator/orchestrator/pkg/orchestrator │
+│                              ││   📁 Project root: /test/project/root                                                │
 │                              ││   💭 Initializing orchestrator...                                                    │
-│                              ││   📁 Project root: /Users/bryantinsley/Code/machinator/orchestrator/pkg/orchestrator │
+│                              ││   📁 Project root: /test/project/root                                                │
 │                              ││                                                                                      │
 │                              ││                                                                                      │
 │                              ││                                                                                      │

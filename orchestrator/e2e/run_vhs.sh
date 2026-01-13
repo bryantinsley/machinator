@@ -50,14 +50,32 @@ if ! command -v docker &> /dev/null; then
 fi
 
 # Create temporary workspace
-TMP_WS=$(mktemp -d)
-# Docker on macOS sometimes needs /private prefix for /var
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    case "$TMP_WS" in
-        /var/*) TMP_WS="/private$TMP_WS" ;;
-    esac
+    # On macOS with Colima/Docker, we MUST use a path under /Users/
+    # as other paths like /tmp are often not mounted by default.
+    # We try to find a writable path under /Users.
+    USER_NAME=$(id -un)
+    for p in "/Users/$USER_NAME" "$HOME" "/tmp"; do
+        if [[ -d "$p" && -w "$p" ]]; then
+            mkdir -p "$p/.tmp/machinator" 2>/dev/null
+            TMP_WS=$(mktemp -d "$p/.tmp/machinator/vhs-XXXXXX" 2>/dev/null)
+            if [[ -n "$TMP_WS" ]]; then break; fi
+        fi
+    done
+    if [[ -z "$TMP_WS" ]]; then
+        TMP_WS=$(mktemp -d)
+    fi
+else
+    TMP_WS=$(mktemp -d)
 fi
 echo "Created temporary workspace: $TMP_WS"
+
+# Cleanup on exit
+cleanup() {
+    echo "Cleaning up $TMP_WS..."
+    rm -rf "$TMP_WS"
+}
+trap cleanup EXIT
 
 # Copy tape and fixture
 cp "$CRUD_TAPE" "$TMP_WS/crud.tape"

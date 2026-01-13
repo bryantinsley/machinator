@@ -152,6 +152,7 @@ func TestTUI_Golden(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			os.Setenv("CLICOLOR_FORCE", "1")
+			os.Setenv("MACHINATOR_PROJECT_ROOT", "/test/project/root")
 			m := initialModel(nil, false)
 			m.width = 120
 			m.height = 40
@@ -184,6 +185,8 @@ func TestTUI_Golden(t *testing.T) {
 
 			if string(out) != string(expected) {
 				t.Errorf("output does not match golden file %s", goldenPath)
+				fmt.Printf("ACTUAL:\n%s\n", string(out))
+				fmt.Printf("EXPECTED:\n%s\n", string(expected))
 			}
 		})
 	}

@@ -80,7 +80,18 @@ func setupHarness(t *testing.T) *Harness {
 			}
 		}
 
-		bdSrc, _ = rf.Rlocation("_main/bd")
+		// Prefer mock-bd binary if available
+		bdPaths := []string{
+			"_main/tools/mock-bd/mock-bd_/mock-bd",
+			"_main/tools/mock-bd/mock-bd",
+			"_main/bd",
+		}
+		for _, p := range bdPaths {
+			if loc, _ := rf.Rlocation(p); loc != "" {
+				bdSrc = loc
+				break
+			}
+		}
 	}
 
 	if h.GeminiBin == "" || h.MachinatorBin == "" {

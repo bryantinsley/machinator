@@ -18,7 +18,10 @@ go_library(
 
 go_test(
     name = "agentgrid_test",
-    srcs = ["grid_test.go"],
+    srcs = [
+        "card_test.go",
+        "grid_test.go",
+    ],
     embed = [":agentgrid"],
     tags = ["fast"],
 )

@@ -28,50 +28,30 @@ go_test(
     srcs = [
         "acp_events_test.go",
         "branch_protection_test.go",
+        "claiming_test.go",
+        "done_routing_test.go",
+        "find_ready_task_test.go",
         "git_prep_test.go",
         "multi_agent_test.go",
         "pull_test.go",
         "quota_render_test.go",
         "quota_visual_test.go",
+        "recovery_test.go",
+        "repro_test.go",
+        "staleness_test.go",
         "tools_check_test.go",
         "tui_golden_test.go",
         "tui_test.go",
+        "worktree_test.go",
     ],
     data = glob(["testdata/**"]),
     embed = [":orchestrator"],
     tags = ["fast"],
     deps = [
+        "//orchestrator/pkg/accountpool",
         "//orchestrator/pkg/ui/agentgrid",
         "@com_github_charmbracelet_bubbletea//:bubbletea",
         "@com_github_charmbracelet_x_ansi//:ansi",
         "@com_github_charmbracelet_x_exp_teatest//:teatest",
     ],
-)
-
-go_test(
-    name = "claiming_test",
-    srcs = ["claiming_test.go"],
-    embed = [":orchestrator"],
-    tags = ["fast"],
-)
-
-go_test(
-    name = "recovery_test",
-    srcs = ["recovery_test.go"],
-    embed = [":orchestrator"],
-    tags = ["fast"],
-)
-
-go_test(
-    name = "done_routing_test",
-    srcs = ["done_routing_test.go"],
-    embed = [":orchestrator"],
-    tags = ["fast"],
-)
-
-go_test(
-    name = "worktree_test",
-    srcs = ["worktree_test.go"],
-    embed = [":orchestrator"],
-    tags = ["fast"],
 )

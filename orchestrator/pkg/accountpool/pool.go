@@ -174,12 +174,16 @@ func LoadAccounts(machinatorDir string) ([]Account, error) {
 			accountDir = filepath.Join(accountsDir, entry.Name())
 			configPath := filepath.Join(accountDir, "account.json")
 			data, err := os.ReadFile(configPath)
-			if err == nil {
-				// account.json exists - read metadata from it
-				json.Unmarshal(data, &acc) // Ignore errors, we'll use defaults
+			if err != nil {
+				continue // Must have account.json
 			}
-			// Always use directory name as account name (override any name in JSON)
-			acc.Name = entry.Name()
+			if err := json.Unmarshal(data, &acc); err != nil {
+				continue // Must be valid JSON
+			}
+			// Use directory name as fallback if name is not in JSON
+			if acc.Name == "" {
+				acc.Name = entry.Name()
+			}
 		} else if strings.HasSuffix(entry.Name(), ".json") {
 			configPath := filepath.Join(accountsDir, entry.Name())
 			data, err := os.ReadFile(configPath)

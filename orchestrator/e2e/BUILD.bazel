@@ -11,11 +11,12 @@ go_test(
         "//:mock-bd.sh",
         "//bootstrap:check_quota.sh",
         "//orchestrator/cmd/machinator",
+        "//orchestrator/tools/dummy-gemini",
         "//templates",
         "//testdata/fixture-repo:files",
-        "//orchestrator/tools/dummy-gemini",
+        "//tools/mock-bd",
     ],
-    deps = ["@rules_go//go/runfiles"],
+    deps = ["@com_github_bazelbuild_rules_go//go/runfiles"],
 )
 
 filegroup(
@@ -42,7 +43,11 @@ sh_test(
         "//orchestrator/cmd/machinator:machinator-linux",
         "//orchestrator/e2e:crud.tape",
         "//orchestrator/e2e:orchestrator_main.tape",
-        "//testdata/vhs-fixture:files",
         "//orchestrator/tools/dummy-gemini:dummy-gemini-linux",
+        "//testdata/vhs-fixture:files",
+    ],
+    tags = [
+        "local",
+        "no-sandbox",
     ],
 )
