@@ -2351,27 +2351,19 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 		geminiCmd.Env = os.Environ()
 		geminiCmd.Env = append(geminiCmd.Env, "GEMINI_FORCE_FILE_STORAGE=true")
 
-		// Create a fresh temp HOME for this agent launch (sandboxing)
-		// This prevents the agent from accessing/modifying user's real ~/.config, ~/.cache, etc.
-		tempHome, err := os.MkdirTemp("", "machinator-agent-home-")
-		if err == nil {
-			geminiCmd.Env = append(geminiCmd.Env, "HOME="+tempHome)
+		// Set HOME and GEMINI_CLI_HOME to the account directory
+		if selectedAccount != nil {
+			geminiCmd.Env = append(geminiCmd.Env, "HOME="+selectedAccount.HomeDir)
+			geminiCmd.Env = append(geminiCmd.Env, "GEMINI_CLI_HOME="+selectedAccount.HomeDir)
 			f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if f != nil {
-				f.WriteString(fmt.Sprintf("[%s] 🏠 Using sandboxed HOME: %s\n", time.Now().Format("15:04:05"), tempHome))
+				f.WriteString(fmt.Sprintf("[%s] 🏠 HOME=%s\n", time.Now().Format("15:04:05"), selectedAccount.HomeDir))
 				f.Close()
 			}
-			// Note: We don't clean up tempHome immediately - the goroutine will handle it after Gemini exits
 		}
 
 		// Enable custom sandbox profile - file is at .gemini/sandbox-macos-custom.sb relative to agentDir
 		geminiCmd.Env = append(geminiCmd.Env, "SEATBELT_PROFILE=custom")
-
-		if selectedAccount != nil {
-			// GEMINI_CLI_HOME tells Gemini CLI where to find its config (credentials)
-			// This is separate from HOME so credentials work while agent is sandboxed
-			geminiCmd.Env = append(geminiCmd.Env, "GEMINI_CLI_HOME="+selectedAccount.HomeDir)
-		}
 
 		// Merge stderr into stdout for unified output capture
 		geminiCmd.Stderr = geminiCmd.Stdout
@@ -2451,11 +2443,6 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 			case geminiDoneChan <- geminiDoneMsg{AgentID: agentID, TaskID: taskID}:
 			default:
 				// Channel full - shouldn't happen
-			}
-
-			// Clean up the sandboxed temp HOME directory
-			if tempHome != "" {
-				os.RemoveAll(tempHome)
 			}
 		}()
 

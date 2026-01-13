@@ -8,8 +8,11 @@
 
 ;; 3. Whitelist specific WRITE paths
 (allow file-write*
-    ;; Project
+    ;; Project source
     (subpath "/Users/bryantinsley/Code/machinator")
+    
+    ;; Machinator state & accounts
+    (subpath "/Users/bryantinsley/.machinator")
     
     ;; Configuration & State
     (subpath "/Users/bryantinsley/.gemini")
