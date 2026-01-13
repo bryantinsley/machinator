@@ -29,7 +29,7 @@ func TestRateLimiting(t *testing.T) {
 	start = time.Now()
 	doPrePush(lastPushFile)
 	elapsed = time.Since(start)
-	
+
 	if elapsed < 1*time.Second {
 		t.Errorf("Second push should have waited, but only took %v", elapsed)
 	}
