@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Setup Bazel
-        uses: bazel-contrib/setup-bazel@v0.8.5
+        uses: bazel-contrib/setup-bazel@v0.18.0
         with:
           # Use bazelisk to install the correct bazel version
           bazelisk-cache: true
