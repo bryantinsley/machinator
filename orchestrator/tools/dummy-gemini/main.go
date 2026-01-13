@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 )
@@ -47,6 +48,7 @@ func run(w io.Writer, getEnv func(string) string, args []string) int {
 	_ = fs.Float64("temperature", 0.0, "Sampling temperature")
 	_ = fs.Bool("json", false, "Output in JSON format (ignored, we use stream-json if requested or default for ACP)")
 	_ = fs.Bool("yolo", false, "YOLO mode")
+	_ = fs.Bool("sandbox", false, "Sandbox mode")
 	_ = fs.String("output-format", "", "Output format")
 	version := fs.Bool("version", false, "Show version")
 	dumpQuota := fs.Bool("dump-quota", false, "Dump quota information")
@@ -64,7 +66,7 @@ func run(w io.Writer, getEnv func(string) string, args []string) int {
 	}
 
 	if *dumpQuota {
-		fmt.Fprintln(w, `{"quota": 100, "remaining": 1000000}`)
+		fmt.Fprintln(w, `{"buckets": [{"modelId": "gemini-3-flash-preview", "remainingFraction": 1.0, "resetTime": "2099-01-01T00:00:00Z"}]}`)
 		return 0
 	}
 
@@ -145,6 +147,9 @@ func printScripted(w io.Writer, getEnv func(string) string) int {
 }
 
 func printAutoClose(w io.Writer, directive string) int {
+	fmt.Fprintf(os.Stderr, "DEBUG: printAutoClose called with directive length %d\n", len(directive))
+	fmt.Fprintf(os.Stderr, "DEBUG: directive prefix: %s\n", directive[:min(len(directive), 50)])
+
 	// Find TaskID in directive. It's usually after "Beads Task: " or "Task "
 	taskID := "unknown"
 	if idx := strings.Index(directive, "Beads Task: "); idx != -1 {
@@ -154,6 +159,8 @@ func printAutoClose(w io.Writer, directive string) int {
 		rest := directive[idx+len("Task "):]
 		taskID = extractFirstWord(rest)
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: extracted taskID: %s\n", taskID)
+
 	// Clean up taskID
 	taskID = strings.TrimFunc(taskID, func(r rune) bool {
 		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-')
@@ -169,8 +176,16 @@ func printAutoClose(w io.Writer, directive string) int {
 		Type:     "tool_use",
 		ToolName: "run_shell_command",
 		ToolID:   "t1",
-		ToolArgs: map[string]interface{}{"command": fmt.Sprintf("./bd close %s", taskID)},
+		ToolArgs: map[string]interface{}{"command": fmt.Sprintf("bd close %s", taskID)},
 	})
+
+	// Actually execute the command
+	cmd := exec.Command("bd", "close", taskID)
+	// Inherit environment to ensure PATH is correct
+	cmd.Env = os.Environ()
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error executing bd close: %v\n", err)
+	}
 
 	emit(w, ACPEvent{
 		Type:    "tool_result",
@@ -180,6 +195,13 @@ func printAutoClose(w io.Writer, directive string) int {
 	})
 	emit(w, ACPEvent{Type: "result", Status: "success"})
 	return 0
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func extractFirstWord(s string) string {
