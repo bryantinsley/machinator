@@ -459,10 +459,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detailCursor = int(msg)
 		return m, func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
 
-	case selectAuthTypeMsg:
-		m.dialogCursor = int(msg)
-		return m, func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
-
 	case selectEditCursorMsg:
 		m.editCursor = int(msg)
 		return m, func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
@@ -541,12 +537,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleManageAccountsKeys(key)
 	case screenAddAccountName:
 		return m.handleAddAccountNameKeys(key, msg)
-	case screenAddAccountAuthType:
-		return m.handleAddAccountAuthTypeKeys(key)
-	case screenAddAccountAPIKey:
-		return m.handleAddAccountAPIKeyKeys(key, msg)
-	case screenAddAccountGoogleInfo:
-		return m.handleAddAccountGoogleInfoKeys(key)
+	case screenAddAccountAuth:
+		return m.handleAddAccountAuthKeys(key)
 	}
 
 	return m, nil
@@ -1061,16 +1053,8 @@ func (m model) View() string {
 		topContent = m.viewAddAccountNameLeft(topY)
 		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
-	case screenAddAccountAuthType:
-		topContent = m.viewAddAccountAuthTypeLeft(topY)
-		bottomContent = m.viewDoctinator(bottomY)
-		rightContent = m.viewStatusPane()
-	case screenAddAccountAPIKey:
-		topContent = m.viewAddAccountAPIKeyLeft(topY)
-		bottomContent = m.viewDoctinator(bottomY)
-		rightContent = m.viewStatusPane()
-	case screenAddAccountGoogleInfo:
-		topContent = m.viewAddAccountGoogleInfoLeft(topY)
+	case screenAddAccountAuth:
+		topContent = m.viewAddAccountAuthLeft(topY)
 		bottomContent = m.viewDoctinator(bottomY)
 		rightContent = m.viewStatusPane()
 	default:
@@ -1972,8 +1956,7 @@ func (m model) handleAddAccountNameKeys(key string, msg tea.KeyMsg) (tea.Model, 
 			}
 		}
 
-		m.screen = screenAddAccountAuthType
-		m.dialogCursor = 0
+		m.screen = screenAddAccountAuth
 		return m, nil
 	case tea.KeyBackspace:
 		if len(m.inputBuffer) > 0 {
@@ -1985,50 +1968,7 @@ func (m model) handleAddAccountNameKeys(key string, msg tea.KeyMsg) (tea.Model, 
 	return m, nil
 }
 
-func (m model) handleAddAccountAuthTypeKeys(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc", "q":
-		m.screen = screenManageAccounts
-		return m, nil
-	case "up", "down", "j", "k", "tab":
-		m.dialogCursor = 1 - m.dialogCursor
-	case "enter":
-		if m.dialogCursor == 0 {
-			m.newAccountAuthType = "api_key"
-			m.screen = screenAddAccountAPIKey
-			m.inputBuffer = ""
-			m.inputPrompt = "API Key"
-			m.inputHint = "Paste your Gemini API key here"
-		} else {
-			m.newAccountAuthType = "google"
-			m.screen = screenAddAccountGoogleInfo
-		}
-	}
-	return m, nil
-}
-
-func (m model) handleAddAccountAPIKeyKeys(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEsc:
-		m.screen = screenManageAccounts
-		return m, nil
-	case tea.KeyEnter:
-		if m.inputBuffer == "" {
-			return m, nil
-		}
-		m.newAccountAPIKey = m.inputBuffer
-		return m, m.finishAddAccount()
-	case tea.KeyBackspace:
-		if len(m.inputBuffer) > 0 {
-			m.inputBuffer = m.inputBuffer[:len(m.inputBuffer)-1]
-		}
-	case tea.KeyRunes:
-		m.inputBuffer += string(msg.Runes)
-	}
-	return m, nil
-}
-
-func (m model) handleAddAccountGoogleInfoKeys(key string) (tea.Model, tea.Cmd) {
+func (m model) handleAddAccountAuthKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "a":
 		// Launch Gemini interactively for authentication
@@ -2058,21 +1998,23 @@ func (m model) finishAddAccount() tea.Cmd {
 		accountDir := filepath.Join(m.machinatorDir, "accounts", m.newAccountName)
 		geminiDir := filepath.Join(accountDir, ".gemini")
 
-		if m.newAccountAuthType == "api_key" {
-			settings := map[string]string{
-				"apiKey": m.newAccountAPIKey,
-			}
-			data, _ := json.MarshalIndent(settings, "", "  ")
-			settingsPath := filepath.Join(geminiDir, "settings.json")
-			if err := os.WriteFile(settingsPath, data, 0644); err != nil {
-				return agentProgressMsg(fmt.Sprintf("✗ Failed to write settings.json: %v", err))
+		authType := "google" // Default to google auth
+
+		// Check if Gemini stored an API key in settings.json
+		settingsPath := filepath.Join(geminiDir, "settings.json")
+		if data, err := os.ReadFile(settingsPath); err == nil {
+			var settings map[string]interface{}
+			if err := json.Unmarshal(data, &settings); err == nil {
+				if _, hasKey := settings["apiKey"]; hasKey {
+					authType = "api_key"
+				}
 			}
 		}
 
 		// Save account.json
 		accConfig := map[string]string{
 			"name":      m.newAccountName,
-			"auth_type": m.newAccountAuthType,
+			"auth_type": authType,
 		}
 		configData, _ := json.MarshalIndent(accConfig, "", "  ")
 		configPath := filepath.Join(accountDir, "account.json")
@@ -2200,97 +2142,7 @@ func (m model) viewAddAccountNameLeft(yOffset int) string {
 	return b.String()
 }
 
-func (m model) viewAddAccountAuthTypeLeft(yOffset int) string {
-	var b strings.Builder
-
-	b.WriteString(titleStyle.Render("👤 Add Account: " + m.newAccountName))
-	b.WriteString("\n\n")
-
-	b.WriteString(sectionStyle.Render("Select Authentication Type"))
-	b.WriteString("\n\n")
-
-	contentX := 4
-	contentY := yOffset + 3
-
-	li1 := components.NewListItem("API Key (Manual)", func() tea.Cmd {
-		return func() tea.Msg {
-			return selectAuthTypeMsg(0)
-		}
-	})
-	li1.SetSelected(m.dialogCursor == 0)
-	b.WriteString(li1.Render() + "\n")
-	li1.SetBounds(contentX, contentY, 30, 1)
-	m.clickDispatcher.Register(li1)
-
-	li2 := components.NewListItem("Google OAuth (Interactive)", func() tea.Cmd {
-		return func() tea.Msg {
-			return selectAuthTypeMsg(1)
-		}
-	})
-	li2.SetSelected(m.dialogCursor == 1)
-	b.WriteString(li2.Render() + "\n")
-	li2.SetBounds(contentX, contentY+1, 30, 1)
-	m.clickDispatcher.Register(li2)
-
-	return b.String()
-}
-
-func (m model) viewAddAccountAPIKeyLeft(yOffset int) string {
-	var b strings.Builder
-
-	b.WriteString(titleStyle.Render("👤 Add Account: " + m.newAccountName))
-	b.WriteString("\n\n")
-
-	b.WriteString(sectionStyle.Render("Paste Gemini API Key"))
-	b.WriteString("\n\n")
-
-	// Text input box with border
-	inputBoxStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("39")).
-		Padding(0, 1).
-		Width(35)
-
-	// Mask API key for display if it's long enough
-	displayKey := m.inputBuffer
-	if len(displayKey) > 10 {
-		displayKey = displayKey[:4] + "...." + displayKey[len(displayKey)-4:]
-	}
-	inputContent := displayKey + "█"
-
-	b.WriteString(inputBoxStyle.Render(inputContent))
-	b.WriteString("\n\n")
-
-	b.WriteString(dimStyle.Render(m.inputHint))
-	b.WriteString("\n\n")
-
-	// Buttons
-	contentX := 4
-	contentY := yOffset + 9
-
-	saveBtn := components.NewButton("Save", func() tea.Cmd {
-		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
-	})
-	cancelBtn := components.NewButton("Cancel", func() tea.Cmd {
-		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEsc} }
-	})
-
-	saveRendered := saveBtn.Render()
-	cancelRendered := cancelBtn.Render()
-
-	b.WriteString(saveRendered + "  " + cancelRendered)
-
-	// Register buttons
-	saveBtn.SetBounds(contentX, contentY, lipgloss.Width(saveRendered), 1)
-	m.clickDispatcher.Register(saveBtn)
-
-	cancelBtn.SetBounds(contentX+lipgloss.Width(saveRendered)+2, contentY, lipgloss.Width(cancelRendered), 1)
-	m.clickDispatcher.Register(cancelBtn)
-
-	return b.String()
-}
-
-func (m model) viewAddAccountGoogleInfoLeft(yOffset int) string {
+func (m model) viewAddAccountAuthLeft(yOffset int) string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("👤 Add Account: " + m.newAccountName))

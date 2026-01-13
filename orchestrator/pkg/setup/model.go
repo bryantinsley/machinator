@@ -86,9 +86,7 @@ const (
 	screenConfirmExit
 	screenManageAccounts
 	screenAddAccountName
-	screenAddAccountAuthType
-	screenAddAccountAPIKey
-	screenAddAccountGoogleInfo
+	screenAddAccountAuth
 )
 
 type geminiStatus int
@@ -154,9 +152,7 @@ type model struct {
 	progressMsg    string
 
 	// Add account flow
-	newAccountName     string
-	newAccountAuthType string // Using string to avoid circular dependency if needed, but it should be fine.
-	newAccountAPIKey   string
+	newAccountName string
 
 	// Paths
 	machinatorDir string
@@ -255,7 +251,6 @@ type fetchBranchesMsg struct {
 type selectProjectMsg int
 type selectAccountMsg int
 type selectDetailMsg int
-type selectAuthTypeMsg int
 type selectGeminiMsg struct{}
 type selectEditCursorMsg int
 type selectAgentCursorMsg int

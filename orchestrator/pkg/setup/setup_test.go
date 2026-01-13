@@ -241,23 +241,15 @@ func TestAddAccountFlow(t *testing.T) {
 	m.inputBuffer = "test-account"
 	m2, _ = m.handleAddAccountNameKeys("enter", tea.KeyMsg{Type: tea.KeyEnter})
 	m = m2.(model)
-	if m.screen != screenAddAccountAuthType {
-		t.Errorf("Expected screenAddAccountAuthType, got %v", m.screen)
+	if m.screen != screenAddAccountAuth {
+		t.Errorf("Expected screenAddAccountAuth, got %v", m.screen)
 	}
 	if m.newAccountName != "test-account" {
 		t.Errorf("Expected name 'test-account', got %s", m.newAccountName)
 	}
 
-	// 3. Select API Key (default cursor 0) and press Enter
-	m2, _ = m.handleAddAccountAuthTypeKeys("enter")
-	m = m2.(model)
-	if m.screen != screenAddAccountAPIKey {
-		t.Errorf("Expected screenAddAccountAPIKey, got %v", m.screen)
-	}
-
-	// 4. Type API key and press Enter
-	m.inputBuffer = "AIza-test-key"
-	m2, cmd := m.handleAddAccountAPIKeyKeys("enter", tea.KeyMsg{Type: tea.KeyEnter})
+	// 3. Press Enter to finish (simulating user finishing Gemini auth)
+	m2, cmd := m.handleAddAccountAuthKeys("enter")
 	m = m2.(model)
 
 	// Execute the finishAddAccount command
@@ -270,9 +262,6 @@ func TestAddAccountFlow(t *testing.T) {
 	accountDir := filepath.Join(tempDir, "accounts", "test-account")
 	if _, err := os.Stat(filepath.Join(accountDir, "account.json")); err != nil {
 		t.Errorf("account.json not created")
-	}
-	if _, err := os.Stat(filepath.Join(accountDir, ".gemini", "settings.json")); err != nil {
-		t.Errorf("settings.json not created")
 	}
 }
 
@@ -571,13 +560,13 @@ func TestAddAccountNameGolden(t *testing.T) {
 	teatest.RequireEqualOutput(t, out)
 }
 
-func TestAddAccountAuthTypeGolden(t *testing.T) {
+func TestAddAccountAuthGolden(t *testing.T) {
 	m := initialModel()
 	m.width = 80
 	m.height = 24
-	m.screen = screenAddAccountAuthType
+	m.screen = screenAddAccountAuth
 	m.newAccountName = "test-acc"
-	m.dialogCursor = 0
+	m.machinatorDir = "/Users/bryantinsley/.machinator"
 
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
 	tm.Send(tea.Quit())
@@ -625,57 +614,6 @@ func TestAddProjectInputGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	teatest.RequireEqualOutput(t, out)
-}
-
-func TestAddAccountAPIKeyGolden(t *testing.T) {
-	m := initialModel()
-	m.width = 80
-	m.height = 24
-	m.screen = screenAddAccountAPIKey
-	m.newAccountName = "test-acc"
-	m.inputPrompt = "API Key"
-	m.inputBuffer = "AIza-test-key-12345"
-
-	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
-	tm.Send(tea.Quit())
-	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
-	out, err := io.ReadAll(tm.FinalOutput(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	teatest.RequireEqualOutput(t, out)
-}
-
-func TestAddAccountGoogleInfoGolden(t *testing.T) {
-
-	m := initialModel()
-
-	m.width = 80
-
-	m.height = 24
-
-	m.screen = screenAddAccountGoogleInfo
-
-	m.newAccountName = "test-acc"
-
-	m.machinatorDir = "/Users/bryantinsley/.machinator"
-
-	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
-
-	tm.Send(tea.Quit())
-
-	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
-
-	out, err := io.ReadAll(tm.FinalOutput(t))
-
-	if err != nil {
-
-		t.Fatal(err)
-
-	}
-
-	teatest.RequireEqualOutput(t, out)
-
 }
 
 func TestHelpModalGolden(t *testing.T) {
