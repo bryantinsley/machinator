@@ -2449,6 +2449,22 @@ func (m model) cloneRepo() tea.Cmd {
 			return cloneDoneMsg{success: false, err: fmt.Errorf("worktree setup failed: %s\n%s", err, string(out))}
 		}
 
+		// Initialize beads database in the main repo (if .beads exists)
+		beadsDir := filepath.Join(repoDir, ".beads")
+		if _, err := os.Stat(beadsDir); err == nil {
+			bdInit := exec.Command("bd", "init")
+			bdInit.Dir = repoDir
+			bdInit.Run() // Ignore errors - may already be initialized or bd not installed
+		}
+
+		// Initialize beads database in the agent worktree (if .beads exists)
+		agentBeadsDir := filepath.Join(m.newAgentDir, ".beads")
+		if _, err := os.Stat(agentBeadsDir); err == nil {
+			bdInit := exec.Command("bd", "init")
+			bdInit.Dir = m.newAgentDir
+			bdInit.Run() // Ignore errors
+		}
+
 		return cloneDoneMsg{success: true, message: "Cloned and worktree created"}
 	}
 }
@@ -2527,6 +2543,13 @@ func (m model) recloneAllAgents(p ProjectConfig) tea.Cmd {
 					default:
 					}
 				} else {
+					// Initialize beads database in the agent worktree
+					beadsDir := filepath.Join(agentDir, ".beads")
+					if _, err := os.Stat(beadsDir); err == nil {
+						bdInit := exec.Command("bd", "init")
+						bdInit.Dir = agentDir
+						bdInit.Run() // Ignore errors
+					}
 					select {
 					case ch <- fmt.Sprintf("✓ Agent #%d ready", agentNum):
 					default:
@@ -2653,6 +2676,13 @@ func (m model) applyAgentChanges(p ProjectConfig, desiredCount int) tea.Cmd {
 						default:
 						}
 					} else {
+						// Initialize beads database in the agent worktree
+						beadsDir := filepath.Join(agentDir, ".beads")
+						if _, err := os.Stat(beadsDir); err == nil {
+							bdInit := exec.Command("bd", "init")
+							bdInit.Dir = agentDir
+							bdInit.Run()
+						}
 						select {
 						case ch <- fmt.Sprintf("✓ Finished agent #%d setup", agentNum):
 						default:
@@ -2793,6 +2823,14 @@ func (m model) addAgentCmd(p ProjectConfig) tea.Cmd {
 				action:  "add",
 				err:     fmt.Errorf("worktree add failed: %s", string(out)),
 			}
+		}
+
+		// Initialize beads database in the new agent worktree
+		beadsDir := filepath.Join(newAgentDir, ".beads")
+		if _, err := os.Stat(beadsDir); err == nil {
+			bdInit := exec.Command("bd", "init")
+			bdInit.Dir = newAgentDir
+			bdInit.Run()
 		}
 
 		return agentActionMsg{
