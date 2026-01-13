@@ -513,7 +513,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 				if taskID != "" {
 					m.addLog(fmt.Sprintf("⚡ Starting task: %s", taskID))
-					return m, executeTask(taskID, m.config.AgentName, m.repoPath, m.accountPool, m.config.PoolingEnabled)
+					return m, executeTask(taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled)
 				}
 			}
 		case "+", "=":
@@ -736,7 +736,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					nextTaskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 					if nextTaskID != "" {
 						m.addLog(fmt.Sprintf("✅ Next task: %s", nextTaskID))
-						cmds = append(cmds, executeTask(nextTaskID, m.config.AgentName, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+						cmds = append(cmds, executeTask(nextTaskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 					} else {
 						m.addLog("⏸ No more ready tasks")
 					}
@@ -767,7 +767,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Wait for quota to be loaded to ensure we don't use exhausted accounts
 			if m.targetTaskID != "" && m.quotaLoaded {
 				m.addLog(fmt.Sprintf("🎯 Executing targeted task: %s", m.targetTaskID))
-				cmds = append(cmds, executeTask(m.targetTaskID, m.config.AgentName, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+				cmds = append(cmds, executeTask(m.targetTaskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 				m.targetTaskID = "" // One-shot
 				m.exitOnce = true   // Ensure exit after completion
 			} else if m.state == StateRunning && m.tickCount%cooldownSecs == 0 {
@@ -776,7 +776,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 				if taskID != "" {
 					m.addLog(fmt.Sprintf("✅ Found ready task: %s", taskID))
-					cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+					cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 				}
 			}
 		}
@@ -849,7 +849,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 			if taskID != "" {
 				m.addLog(fmt.Sprintf("✅ Ready to execute: %s", taskID))
-				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 			}
 		}
 
@@ -871,7 +871,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 			if taskID != "" {
 				m.addLog(fmt.Sprintf("✅ Found ready task: %s", taskID))
-				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 			}
 		}
 
@@ -928,7 +928,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 			if taskID != "" {
 				m.addLog(fmt.Sprintf("✅ Next task: %s", taskID))
-				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 			} else {
 				m.addLog("⏸ No more ready tasks")
 			}
@@ -1185,10 +1185,16 @@ func (m model) View() string {
 	}
 
 	if m.quotaLoaded {
-		// ... existing quota logic ...
 		// Build quota string for all accounts
 		var quotaParts []string
 		for name, percent := range m.quotas {
+			// Handle error state (-1)
+			if percent < 0 {
+				errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true) // Red bold
+				quotaParts = append(quotaParts, fmt.Sprintf("%s: %s", name, errorStyle.Render("ERROR")))
+				continue
+			}
+
 			// Color code based on percentage
 			var style lipgloss.Style
 			if percent < 10 {
@@ -1787,7 +1793,7 @@ func findReadyTask(tasks []Task, agentName string, failedTasks map[string]time.T
 	return ""
 }
 
-func executeTask(taskID, agentName, projectRoot string, pool *accountpool.Pool, poolingEnabled bool) tea.Cmd {
+func executeTask(taskID, agentName, projectRoot, repoPath string, pool *accountpool.Pool, poolingEnabled bool) tea.Cmd {
 	return func() tea.Msg {
 		logPath := filepath.Join(originalCwd, "machinator", "logs", "tui_debug.log")
 

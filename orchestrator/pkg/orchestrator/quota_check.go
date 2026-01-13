@@ -55,19 +55,19 @@ func checkQuota(pool *accountpool.Pool) tea.Cmd {
 			output, err := cmd.CombinedOutput()
 			if err != nil {
 				if f != nil {
-					f.WriteString(fmt.Sprintf("[%s] Error checking quota for %s: %v\n", time.Now().Format("15:04:05"), acc.Name, err))
+					f.WriteString(fmt.Sprintf("[%s] Error checking quota for %s: %v (output: %s)\n", time.Now().Format("15:04:05"), acc.Name, err, string(output)))
 				}
-				// Assume 100 if check fails to avoid blocking (or maybe 0?)
-				quotas[acc.Name] = 100
+				// Use -1 to indicate error - UI will show this as "Error" not 100%
+				quotas[acc.Name] = -1
 				continue
 			}
 
 			var response QuotaResponse
 			if err := json.Unmarshal(output, &response); err != nil {
 				if f != nil {
-					f.WriteString(fmt.Sprintf("[%s] JSON error for %s: %v\n", time.Now().Format("15:04:05"), acc.Name, err))
+					f.WriteString(fmt.Sprintf("[%s] JSON error for %s: %v (output: %s)\n", time.Now().Format("15:04:05"), acc.Name, err, string(output)))
 				}
-				quotas[acc.Name] = 100
+				quotas[acc.Name] = -1
 				continue
 			}
 
