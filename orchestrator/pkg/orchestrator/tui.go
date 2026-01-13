@@ -36,6 +36,8 @@ var ErrSwitchToSetup = errors.New("switch to setup")
 // runfilesDir is the Bazel runfiles directory (if running under bazel run)
 var runfilesDir string
 
+var execCommand = exec.Command
+
 func init() {
 	// For bazel run, use BUILD_WORKING_DIRECTORY env var
 	if bwd := os.Getenv("BUILD_WORKING_DIRECTORY"); bwd != "" {
@@ -2202,7 +2204,7 @@ func fetchTasks(projectRoot, branch string) tea.Cmd {
 
 		// Pull latest to sync beads database
 		// Use --ff-only to avoid merge conflicts as requested by task machinator-tmo
-		pullCmd := exec.Command("git", "pull", "--ff-only", "origin", branch)
+		pullCmd := execCommand("git", "pull", "--ff-only", "origin", branch)
 		pullCmd.Dir = projectRoot
 		if pullErr := pullCmd.Run(); pullErr != nil {
 			if f != nil {
@@ -2212,11 +2214,11 @@ func fetchTasks(projectRoot, branch string) tea.Cmd {
 
 		// Import JSONL to SQLite database (mimics post-merge hook)
 		// This ensures the database is in sync after git pull
-		importCmd := exec.Command("bd", "--sandbox", "import", "-i", ".beads/issues.jsonl")
+		importCmd := execCommand("bd", "--sandbox", "import", "-i", ".beads/issues.jsonl")
 		importCmd.Dir = projectRoot
 		importCmd.Run() // Ignore errors - file might not exist yet
 
-		cmd := exec.Command("bd", "--sandbox", "list", "--json")
+		cmd := execCommand("bd", "--sandbox", "list", "--json")
 		cmd.Dir = projectRoot
 		output, err := cmd.Output()
 
@@ -2225,12 +2227,12 @@ func fetchTasks(projectRoot, branch string) tea.Cmd {
 			if f != nil {
 				f.WriteString(fmt.Sprintf("[%s] bd list failed, trying bd init: %v\n", time.Now().Format("15:04:05"), err))
 			}
-			initCmd := exec.Command("bd", "--sandbox", "init")
+			initCmd := execCommand("bd", "--sandbox", "init")
 			initCmd.Dir = projectRoot
 			initCmd.Run() // Ignore errors, maybe it's already initialized
 
 			// Retry bd list
-			cmd = exec.Command("bd", "--sandbox", "list", "--json")
+			cmd = execCommand("bd", "--sandbox", "list", "--json")
 			cmd.Dir = projectRoot
 			output, err = cmd.Output()
 			if err != nil {

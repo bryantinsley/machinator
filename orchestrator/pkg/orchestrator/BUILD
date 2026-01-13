@@ -26,7 +26,9 @@ go_library(
 go_test(
     name = "orchestrator_test",
     srcs = [
+        "pull_test.go",
         "quota_render_test.go",
+        "quota_visual_test.go",
         "tools_check_test.go",
         "tui_golden_test.go",
         "tui_test.go",
@@ -36,6 +38,7 @@ go_test(
     deps = [
         "//orchestrator/pkg/ui/agentgrid",
         "@com_github_charmbracelet_bubbletea//:bubbletea",
+        "@com_github_charmbracelet_x_ansi//:ansi",
         "@com_github_charmbracelet_x_exp_teatest//:teatest",
     ],
 )
