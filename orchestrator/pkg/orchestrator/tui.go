@@ -2459,14 +2459,14 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 
 		// Ensure beads database is initialized/refreshed from JSONL before update
 		// This is needed because git checkout may have pulled new JSONL content
-		bdInitCmd := exec.Command("bd", "--no-db", "init", "--from-jsonl")
+		bdInitCmd := exec.Command("bd", "--sandbox", "init", "--from-jsonl")
 		bdInitCmd.Dir = agentDir
 		bdInitCmd.Run() // Ignore errors - file might not exist
 
 		// Update task status to in_progress
-		// Use --no-db to avoid daemon issues and ensure we write directly to JSONL
+		// Use --sandbox to disable daemon and auto-sync
 		// cmd.Dir MUST be agentDir (agent worktree) not repo
-		bdUpdateCmd := exec.Command("bd", "--no-db", "update", taskID, "--status=in_progress", fmt.Sprintf("--assignee=%s", agentName))
+		bdUpdateCmd := exec.Command("bd", "--sandbox", "update", taskID, "--status=in_progress", fmt.Sprintf("--assignee=%s", agentName))
 		bdUpdateCmd.Dir = agentDir
 		if err := bdUpdateCmd.Run(); err != nil {
 			f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
