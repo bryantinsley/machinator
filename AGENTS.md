@@ -39,11 +39,23 @@ For VHS tapes (`.tape` files), do NOT run them locally (slow, sandbox issues). I
 4.  **Follow the Vision**: Before major refactors, consult `planning/architecture-vision.md` to ensure alignment with the long-term plan (Unified Binary, Dummy Testing).
 5.  **Preserve History**: Use `git mv` when renaming or moving files to maintain git history. Do not use `rm` or `mv` alone for versioned files.
 
-## Go Environment Setup
+## Testing & Building
 
-**CRITICAL**: Before running ANY Go commands (`go build`, `go test`, `go mod tidy`, etc.), you MUST configure Go to use local workspace directories for its caches. Failure to do this will result in "operation not permitted" errors on macOS due to sandbox restrictions.
+This project uses **Bazel** as the primary build and test system.
 
-**Run this at the start of every session:**
+```bash
+bazel test //...                    # Run all tests
+bazel build //orchestrator/...      # Build orchestrator
+bazel query //...                  # List all targets
+```
+
+### Go Environment Setup (Direct Go Usage)
+
+**CRITICAL**: If you run raw Go commands (`go build`, `go test`, `go mod tidy`, etc.) instead of Bazel, you MUST configure Go to use local workspace directories for its caches. Failure to do this will result in "operation not permitted" errors on macOS due to sandbox restrictions.
+
+**Bazel handles its own caches and does NOT require these exports.**
+
+**Run this ONLY if using direct `go` commands:**
 
 ```bash
 export GOPATH="$(pwd)/.go-cache"
@@ -54,13 +66,6 @@ mkdir -p "$GOPATH" "$(pwd)/.go-cache/bin" "$GOCACHE" "$GOMODCACHE"
 ```
 
 **Why?** The default Go cache locations (`~/Library/Caches/go-build`, etc.) are blocked by macOS security restrictions in sandboxed environments. Using project-local directories avoids these permission errors.
-
-**Directories created:**
-
-- `.go-cache/` - Go module downloads and workspace data
-- `.go-build-cache/` - Compiled build artifacts
-
-These directories are already in `.gitignore`.
 
 ## System-Wide Installations (FORBIDDEN)
 
@@ -99,9 +104,31 @@ These directories are already in `.gitignore`.
 
 **If you need to test orchestrator behavior:**
 
-1. **Write unit tests** - Test individual functions
-2. **Use mocks** - Mock external dependencies
-3. **Trust the orchestrator** - It handles execution, you handle code
+1. **Use Bazel** - Run `bazel test //...` to ensure everything is working correctly.
+2. **Write unit tests** - Test individual functions within the `orchestrator/pkg/...` packages.
+3. **Use mocks** - Mock external dependencies (e.g., using `tools/dummy-gemini`).
+4. **Trust the orchestrator** - It handles execution, you handle code.
+
+## Multi-Agent Orchestration
+
+This project supports running multiple agents in parallel.
+
+- **Isolation**: Each agent runs in its own **Git Worktree** under `./machinator/agents/<n>/`.
+- **Coordination**: Agents do not talk to each other; they coordinate via **Beads** status and shared state.
+- **Quota**: The orchestrator manages a pool of Gemini accounts to aggregate quota and avoid rate limits.
+
+**If you are an agent:** You may be running in a worktree. Always use relative paths when possible.
+
+## macOS Sandbox & Security
+
+Agents run under a strict macOS Seatbelt profile.
+
+- **Filesystem**: Access is restricted to the project directory and temporary directories.
+- **Network**: Restricted to necessary API endpoints (Gemini, GitHub).
+- **Home Dir**: The `$HOME` directory is often spoofed to a project-local directory to isolate configurations.
+- **Keychain**: Git operations use the macOS Keychain for persistent HTTPS authentication.
+
+If you encounter "Operation not permitted" errors, it is likely a sandbox violation. Document the blocked path and escalate.
 
 ## Git Authentication
 
@@ -184,11 +211,8 @@ If GitHub Actions are unavailable, use the local Docker wrapper (slow but functi
 1. **Build Linux Binary**:
 
    ```bash
-   # Ensure Go env is set first!
-   export GOPATH="$(pwd)/.go-cache"
-   export GOCACHE="$(pwd)/.go-build-cache"
-   export GOMODCACHE="$(pwd)/.go-cache/pkg/mod"
-   GOOS=linux GOARCH=amd64 go build -o machinator-linux ./orchestrator/cmd/machinator
+   bazel build //orchestrator/cmd/machinator:machinator-linux
+   cp bazel-bin/orchestrator/cmd/machinator/machinator-linux .
    ```
 
 2. **Run VHS with Docker**:
@@ -208,7 +232,7 @@ If GitHub Actions are unavailable, use the local Docker wrapper (slow but functi
 **MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
+2. **Run quality gates** (if code changed) - `bazel test //...`
 3. **Update issue status** - Close finished work, update in-progress items
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
