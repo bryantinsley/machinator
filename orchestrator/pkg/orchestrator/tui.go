@@ -328,6 +328,7 @@ type model struct {
 	state           OrchestratorState // Current orchestration state
 	expandQuota     bool              // Whether to show full quota list
 	targetTaskID    string            // Task ID to execute (cli flag)
+	refreshingQuota bool              // Whether we are currently fetching quotas
 }
 
 func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
@@ -1512,8 +1513,8 @@ func (m model) View() string {
 	gridHeight := lipgloss.Height(grid)
 
 	// Calculate remaining height for panels
-	// Total: title (titleHeight) + grid (gridHeight) + panels + statusBar (1)
-	statusBarHeight := 1
+	// Total: title (titleHeight) + grid (gridHeight) + panels + statusBar (3)
+	statusBarHeight := 3
 	panelHeight := m.height - titleHeight - gridHeight - statusBarHeight - 2 // -2 for some padding
 	if panelHeight < 10 {
 		panelHeight = 10 // Minimum height
@@ -1935,51 +1936,69 @@ func (m model) View() string {
 	// Dynamic status bar based on state
 	var barButtons []*components.Button
 
-	switch m.state {
-	case StateRunning:
-		barButtons = append(barButtons, components.NewButton("p: pause", func() tea.Cmd {
-			return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")} }
-		}))
-		barButtons = append(barButtons, components.NewButton("x: stop", func() tea.Cmd {
-			return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")} }
-		}))
-	case StatePaused:
-		barButtons = append(barButtons, components.NewButton("s: resume", func() tea.Cmd {
-			return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")} }
-		}))
-		barButtons = append(barButtons, components.NewButton("x: stop", func() tea.Cmd {
-			return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")} }
-		}))
-	case StateStopped:
-		barButtons = append(barButtons, components.NewButton("s: start", func() tea.Cmd {
-			return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")} }
-		}))
+	// Start/Resume button
+	startLabel := "▶ s: start"
+	if m.state == StatePaused {
+		startLabel = "▶ s: resume"
 	}
+	startBtn := components.NewButton(startLabel, func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")} }
+	})
+	startBtn.Dimmed = m.state == StateRunning
+	barButtons = append(barButtons, startBtn)
 
-	barButtons = append(barButtons, components.NewButton("e: execute", func() tea.Cmd {
+	// Pause button
+	pauseBtn := components.NewButton("⏸ p: pause", func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")} }
+	})
+	pauseBtn.Dimmed = m.state != StateRunning
+	barButtons = append(barButtons, pauseBtn)
+
+	// Stop button
+	stopBtn := components.NewButton("⏹ x: stop", func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")} }
+	})
+	stopBtn.Dimmed = m.state == StateStopped
+	barButtons = append(barButtons, stopBtn)
+
+	// Execute button
+	execBtn := components.NewButton("⚡ e: execute", func() tea.Cmd {
 		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")} }
-	}))
-	barButtons = append(barButtons, components.NewButton("+/-: agents", func() tea.Cmd {
-		return func() tea.Msg { return nil } // No-op, just shows it's interactive
-	}))
-	barButtons = append(barButtons, components.NewButton("q: quit", func() tea.Cmd {
-		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")} }
-	}))
-	barButtons = append(barButtons, components.NewButton("?: help", func() tea.Cmd {
-		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")} }
-	}))
+	})
+	execBtn.Dimmed = m.state != StateRunning
+	barButtons = append(barButtons, execBtn)
 
-	statusBarContent := ""
+	// Agents button
+	agentsBtn := components.NewButton("🤖 +/-: agents", func() tea.Cmd {
+		return func() tea.Msg { return nil } // No-op, just shows it's interactive
+	})
+	barButtons = append(barButtons, agentsBtn)
+
+	// Quit button
+	quitBtn := components.NewButton("⏻ q: quit", func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")} }
+	})
+	barButtons = append(barButtons, quitBtn)
+
+	// Help button
+	helpBtn := components.NewButton("? ?: help", func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")} }
+	})
+	barButtons = append(barButtons, helpBtn)
+
+	var renderedButtons []string
 	currentX := 0
 	for _, btn := range barButtons {
 		rendered := btn.Render()
 		w := lipgloss.Width(rendered)
-		btn.SetBounds(currentX, m.height-1, w, 1)
+		// Multi-line buttons are 3 lines high with borders
+		btn.SetBounds(currentX, m.height-3, w, 3)
 		m.clickDispatcher.Register(btn)
-		statusBarContent += rendered + "  "
+		renderedButtons = append(renderedButtons, rendered)
 		currentX += w + 2
 	}
 
+	statusBarContent := lipgloss.JoinHorizontal(lipgloss.Top, renderedButtons...)
 	statusBar := statusBarStyle.Width(m.width).Render(statusBarContent)
 
 	// Wrap everything in a background color

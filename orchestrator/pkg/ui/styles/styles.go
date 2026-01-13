@@ -5,12 +5,20 @@ import "github.com/charmbracelet/lipgloss"
 var (
 	ButtonStyle = lipgloss.NewStyle().
 			Bold(true).
-			Padding(0, 2).
+			Padding(0, 1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("62")).
 			Background(lipgloss.Color("62")).
 			Foreground(lipgloss.Color("230"))
 
 	ButtonFocusedStyle = ButtonStyle.Copy().
+				BorderForeground(lipgloss.Color("205")).
 				Background(lipgloss.Color("205"))
+
+	ButtonDimmedStyle = ButtonStyle.Copy().
+				BorderForeground(lipgloss.Color("240")).
+				Background(lipgloss.Color("235")).
+				Foreground(lipgloss.Color("245"))
 
 	ListItemStyle = lipgloss.NewStyle().
 			PaddingLeft(2)

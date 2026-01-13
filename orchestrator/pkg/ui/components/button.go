@@ -14,6 +14,7 @@ type Button struct {
 	x, y          int
 	width, height int
 	focused       bool
+	Dimmed        bool
 }
 
 // NewButton creates a new button with the given label and click handler
