@@ -2401,7 +2401,7 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 			// Initialize beads from JSONL
 			beadsDir := filepath.Join(agentDir, ".beads")
 			if _, err := os.Stat(beadsDir); err == nil {
-				bdInit := exec.Command("bd", "init", "--from-jsonl")
+				bdInit := exec.Command("bd", "--sandbox", "init", "--from-jsonl")
 				bdInit.Dir = agentDir
 				bdInit.Run()
 			}
@@ -2544,7 +2544,7 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 		modelFlag := "gemini-3-flash-preview" // Default to Flash (cheaper, faster)
 
 		// Fetch task description to check for CHALLENGE tag
-		bdShowCmd := exec.Command("bd", "show", taskID, "--json")
+		bdShowCmd := exec.Command("bd", "--sandbox", "show", taskID, "--json")
 		bdShowCmd.Dir = repoPath
 		if taskOutput, err := bdShowCmd.Output(); err == nil {
 			var taskData map[string]interface{}
@@ -2712,7 +2712,7 @@ func buildDirective(agentName, taskID, projectRoot string) (string, error) {
 	logPath := orchestratorLogPath()
 
 	taskContext := ""
-	cmd := exec.Command("bd", "show", taskID)
+	cmd := exec.Command("bd", "--sandbox", "show", taskID)
 	cmd.Dir = projectRoot
 	if output, err := cmd.Output(); err == nil {
 		taskContext = string(output)
