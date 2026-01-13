@@ -27,6 +27,7 @@ go_test(
     name = "orchestrator_test",
     srcs = [
         "acp_events_test.go",
+        "branch_protection_test.go",
         "git_prep_test.go",
         "multi_agent_test.go",
         "pull_test.go",

@@ -63,7 +63,7 @@ func TestExecuteTask_WorktreeCreation(t *testing.T) {
 	pool := accountpool.NewPool()
 	pool.Add(accountpool.Account{Name: "default", HomeDir: tmpDir})
 
-	cmd := executeTask(agentID, taskID, agentName, projectRoot, repoDir, pool, false)
+	cmd := executeTask(agentID, taskID, agentName, projectRoot, repoDir, pool, Config{PoolingEnabled: false})
 	msg := cmd()
 
 	// Verify it started successfully
@@ -90,7 +90,7 @@ func TestExecuteTask_WorktreeCreation(t *testing.T) {
 	agentDir := filepath.Join(projectRoot, "agents", "1")
 	os.MkdirAll(agentDir, 0755)
 
-	cmd = executeTask(agentID, taskID, agentName, projectRoot, repoDir, pool, false)
+	cmd = executeTask(agentID, taskID, agentName, projectRoot, repoDir, pool, Config{PoolingEnabled: false})
 	_ = cmd()
 
 	foundWorktreeAdd = false
@@ -128,7 +128,7 @@ func TestExecuteTask_WorktreeCreation(t *testing.T) {
 		return exec.Command("true")
 	}
 
-	cmd = executeTask(agentID, taskID, agentName, projectRoot, repoDir, pool, false)
+	cmd = executeTask(agentID, taskID, agentName, projectRoot, repoDir, pool, Config{PoolingEnabled: false})
 	msg = cmd()
 
 	if _, ok := msg.(taskFailedMsg); !ok {

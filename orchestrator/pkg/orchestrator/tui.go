@@ -174,10 +174,11 @@ type Task struct {
 
 // DirectiveData holds data for template rendering
 type DirectiveData struct {
-	AgentName      string
-	TaskID         string
-	TaskContext    string
-	ProjectContext string
+	AgentName        string
+	TaskID           string
+	TaskContext      string
+	ProjectContext   string
+	BranchProtection string
 }
 
 // Config holds orchestrator configuration
@@ -190,6 +191,7 @@ type Config struct {
 	MaxTaskRuntime     time.Duration
 	CooldownPeriod     time.Duration
 	PoolingEnabled     bool
+	BranchProtection   string // "none" or "pr-required"
 }
 
 // AgentState tracks the state of a single agent
@@ -373,6 +375,7 @@ func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
 		MaxTaskRuntime:     30 * time.Minute,
 		CooldownPeriod:     5 * time.Second,
 		PoolingEnabled:     true, // Enabled by default
+		BranchProtection:   getEnvOrDefault("MACHINATOR_BRANCH_PROTECTION", "none"),
 	}
 
 	// Environment overrides for testing
@@ -689,7 +692,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 				if taskID != "" {
 					m.addLog(fmt.Sprintf("⚡ Starting task: %s", taskID))
-					return m, executeTask(1, taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled)
+					return m, executeTask(1, taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config)
 				}
 			}
 		case "+", "=":
@@ -922,7 +925,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							continue // Another agent claimed it first
 						}
 						m.addLog(fmt.Sprintf("🚀 Agent %d: Starting task %s", agentID, taskID))
-						cmds = append(cmds, executeTask(agentID, taskID, agent.Name, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+						cmds = append(cmds, executeTask(agentID, taskID, agent.Name, m.projectRoot, m.repoPath, m.accountPool, m.config))
 						agent.Running = true
 						agent.CurrentTaskID = taskID
 						agent.TaskStartTime = time.Now()
@@ -935,7 +938,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Legacy single-agent targeted execution (backward compat)
 		if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed && m.targetTaskID != "" && m.quotaLoaded {
 			m.addLog(fmt.Sprintf("🎯 Executing targeted task: %s", m.targetTaskID))
-			cmds = append(cmds, executeTask(1, m.targetTaskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+			cmds = append(cmds, executeTask(1, m.targetTaskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config))
 			m.targetTaskID = "" // One-shot
 			m.exitOnce = true   // Ensure exit after completion
 		}
@@ -1021,7 +1024,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 			if taskID != "" {
 				m.addLog(fmt.Sprintf("✅ Ready to execute: %s", taskID))
-				cmds = append(cmds, executeTask(1, taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+				cmds = append(cmds, executeTask(1, taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config))
 			}
 		}
 
@@ -1043,7 +1046,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 			if taskID != "" {
 				m.addLog(fmt.Sprintf("✅ Found ready task: %s", taskID))
-				cmds = append(cmds, executeTask(1, taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+				cmds = append(cmds, executeTask(1, taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config))
 			}
 		}
 
@@ -1156,7 +1159,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.addLog(fmt.Sprintf("⚠️ Agent %d: Task %s left uncommitted changes (retry %d/%d):\n%s", msg.AgentID, msg.TaskID, retryCount, maxTaskRetries, string(output)))
 						// Restart the same task to let the agent finish
 						if claimTask(msg.TaskID, msg.AgentID) {
-							cmds = append(cmds, executeTask(msg.AgentID, msg.TaskID, agent.Name, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+							cmds = append(cmds, executeTask(msg.AgentID, msg.TaskID, agent.Name, m.projectRoot, m.repoPath, m.accountPool, m.config))
 						}
 					} else {
 						m.addActivity(fmt.Sprintf("❌ Agent %d: Task %s gave up after %d retries", msg.AgentID, msg.TaskID, maxTaskRetries))
@@ -1176,7 +1179,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					taskID := findReadyTask(m.tasks, agent.Name, agent.FailedTasks, m.repoPath)
 					if taskID != "" && claimTask(taskID, msg.AgentID) {
 						m.addLog(fmt.Sprintf("🔄 Agent %d: Next task %s", msg.AgentID, taskID))
-						cmds = append(cmds, executeTask(msg.AgentID, taskID, agent.Name, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+						cmds = append(cmds, executeTask(msg.AgentID, taskID, agent.Name, m.projectRoot, m.repoPath, m.accountPool, m.config))
 					}
 				}
 			}
@@ -2392,7 +2395,7 @@ func findReadyTask(tasks []Task, agentName string, failedTasks map[string]time.T
 	return ""
 }
 
-func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, pool *accountpool.Pool, poolingEnabled bool) tea.Cmd {
+func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, pool *accountpool.Pool, config Config) tea.Cmd {
 	return func() tea.Msg {
 		logPath := agentOrchestratorLogPath(agentID)
 		geminiLog := agentGeminiLogPath(agentID)
@@ -2400,7 +2403,7 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 		// Select account from pool if enabled
 		var selectedAccount *accountpool.Account
 		accounts := pool.GetAccounts()
-		if poolingEnabled && len(accounts) > 1 {
+		if config.PoolingEnabled && len(accounts) > 1 {
 			acc, err := pool.NextAvailable()
 			if err != nil {
 				f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -2599,7 +2602,7 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 		}
 
 		// Build directive
-		directive, err := buildDirective(agentName, taskID, projectRoot)
+		directive, err := buildDirective(agentName, taskID, projectRoot, config.BranchProtection)
 		if err != nil {
 			f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if f != nil {
@@ -2808,7 +2811,7 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 	}
 }
 
-func buildDirective(agentName, taskID, projectRoot string) (string, error) {
+func buildDirective(agentName, taskID, projectRoot, branchProtection string) (string, error) {
 	logPath := orchestratorLogPath()
 
 	taskContext := ""
@@ -2852,10 +2855,11 @@ func buildDirective(agentName, taskID, projectRoot string) (string, error) {
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, DirectiveData{
-		AgentName:      agentName,
-		TaskID:         taskID,
-		TaskContext:    taskContext,
-		ProjectContext: projectContext,
+		AgentName:        agentName,
+		TaskID:           taskID,
+		TaskContext:      taskContext,
+		ProjectContext:   projectContext,
+		BranchProtection: branchProtection,
 	}); err != nil {
 		f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if f != nil {

@@ -70,9 +70,16 @@ This prevents Go from writing to ~/Library/Caches which is blocked by security r
        git rebase origin/main
        ```
      - Resolve any conflicts if they occur
+{{if eq .BranchProtection "pr-required"}}
+     - Push to your task branch: `git push origin machinator/{{.TaskID}}`
+     - Create a Pull Request: `gh pr create --fill --base main --head machinator/{{.TaskID}}`
+     - Do NOT push directly to main
+     - Verify PR creation succeeded before closing the task
+{{else}}
      - Push directly to main: `git push origin HEAD:main`
      - Do NOT push to the task branch - always push to main
      - Verify push succeeded before closing the task
+{{end}}
 
 6. **PROTOCOL: CI-GATED OPERATIONS**
    - For slow operations (VHS terminal recording, heavy tests), use CI instead of running locally.

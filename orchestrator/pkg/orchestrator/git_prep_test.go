@@ -66,7 +66,7 @@ func TestExecuteTask_GitPreparation(t *testing.T) {
 	pool.Add(accountpool.Account{Name: "default", HomeDir: tmpDir})
 
 	// Run executeTask
-	cmd := executeTask(agentID, taskID, agentName, projectRoot, repoDir, pool, false)
+	cmd := executeTask(agentID, taskID, agentName, projectRoot, repoDir, pool, Config{PoolingEnabled: false})
 	_ = cmd()
 
 	// Verify git operations
