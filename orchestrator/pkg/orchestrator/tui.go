@@ -844,36 +844,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	doneProcessingEvents:
 
-		// Check for Gemini completion
+		// Check for Gemini completion - route to Update handler
 		select {
 		case doneMsg := <-geminiDoneChan:
-			if m.geminiRunning && m.currentTaskID == doneMsg.TaskID {
-				m.geminiRunning = false
-				m.cycle++ // Increment cycle when Gemini execution ends
-				m.addActivity("✅ Task completed")
-				m.addLog(fmt.Sprintf("✓ Cycle %d: Task %s finished", m.cycle, doneMsg.TaskID))
-				m.currentTaskID = ""
-				m.geminiCmd = nil
-				m.activeAccount = nil
-
-				if m.exitOnce {
-					m.addLog("🏁 exit-once mode: Task finished, exiting...")
-					return m, tea.Quit
-				}
-
-				// Check for next task
-				if m.toolsCheck.State == ToolsCheckStatePassed {
-					nextTaskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
-					if nextTaskID != "" {
-						m.addLog(fmt.Sprintf("✅ Next task: %s", nextTaskID))
-						cmds = append(cmds, executeTask(1, nextTaskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
-					} else {
-						m.addLog("⏸ No more ready tasks")
-					}
-				}
-			}
+			// Route through Update handler so both legacy and multi-agent code can process it
+			return m, func() tea.Msg { return doneMsg }
 		default:
-			// Gemini still running
+			// No completion messages
 		}
 
 		// Periodic operations (based on tickCount, not cycle)
@@ -1171,6 +1148,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentTaskID = ""
 		m.geminiCmd = nil
 		m.activeAccount = nil
+		m.cycle++ // Increment cycle when Gemini execution ends
+
+		// Handle exit-once mode
+		if m.exitOnce {
+			m.addLog("🏁 exit-once mode: Task finished, exiting...")
+			return m, tea.Quit
+		}
 
 	case filterChangedMsg:
 		m.applyFilter()
