@@ -18,6 +18,11 @@ var (
 				BorderForeground(lipgloss.Color("240")).
 				Foreground(lipgloss.Color("245"))
 
+	ButtonActiveStyle = ButtonStyle.Copy().
+				BorderForeground(lipgloss.Color("46")).
+				Foreground(lipgloss.Color("46")).
+				Bold(true)
+
 	KeyStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("230")).
@@ -51,6 +56,15 @@ var (
 	StatusActiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("46"))  // Green
 	StatusIdleStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("249")) // Brighter grey
 	StatusErrorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
+
+	// Icon Styles
+	IconResumeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("46"))  // Green
+	IconPauseStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("226")) // Yellow
+	IconStopStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
+	IconExecuteStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // Orange/Yellow
+	IconAgentStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))  // Blue
+	IconQuitStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
+	IconHelpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("212")) // Pink
 
 	// Dropdown Styles
 	DropdownStyle = lipgloss.NewStyle().

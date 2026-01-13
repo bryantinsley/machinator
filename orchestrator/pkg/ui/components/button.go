@@ -75,17 +75,15 @@ func (b *Button) Render() string {
 	if b.Dimmed {
 		style = styles.ButtonDimmedStyle
 		keyStyle = styles.KeyDimmedStyle
+	} else if b.Active {
+		style = styles.ButtonActiveStyle
+		keyStyle = styles.KeyStyle
 	} else if b.focused {
 		style = styles.ButtonFocusedStyle
-		keyStyle = styles.KeyStyle // Keep key bright even if focused? Or maybe another style
+		keyStyle = styles.KeyStyle
 	} else {
 		style = styles.ButtonStyle
 		keyStyle = styles.KeyStyle
-	}
-
-	if b.Active {
-		// Highlight active state (e.g. "Running" mode)
-		style = style.Copy().Background(lipgloss.Color("62")).Foreground(lipgloss.Color("230"))
 	}
 
 	content := b.Label

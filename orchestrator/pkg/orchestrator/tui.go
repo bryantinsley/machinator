@@ -21,6 +21,7 @@ import (
 	"github.com/bryantinsley/machinator/orchestrator/pkg/setup"
 	"github.com/bryantinsley/machinator/orchestrator/pkg/ui/agentgrid"
 	"github.com/bryantinsley/machinator/orchestrator/pkg/ui/components"
+	"github.com/bryantinsley/machinator/orchestrator/pkg/ui/styles"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -132,7 +133,9 @@ var (
 	statusBarStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("230")).
 			Background(lipgloss.Color("235")).
-			Padding(0, 1)
+			Padding(1, 1).
+			Border(lipgloss.NormalBorder(), true, false, false, false).
+			BorderForeground(lipgloss.Color("238"))
 
 	thinkingStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("212"))
@@ -2015,7 +2018,7 @@ func (m model) View() string {
 	startBtn := components.NewButtonWithShortcut("s", startLabel, func() tea.Cmd {
 		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")} }
 	})
-	startBtn.Label = "▶ " + startBtn.Label
+	startBtn.Label = styles.IconResumeStyle.Render("▶") + " " + startBtn.Label
 	startBtn.Dimmed = m.state == StateRunning
 	startBtn.Active = m.state == StatePaused || m.state == StateStopped
 	barButtons = append(barButtons, startBtn)
@@ -2024,7 +2027,7 @@ func (m model) View() string {
 	pauseBtn := components.NewButtonWithShortcut("p", "pause", func() tea.Cmd {
 		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")} }
 	})
-	pauseBtn.Label = "⏸ " + pauseBtn.Label
+	pauseBtn.Label = styles.IconPauseStyle.Render("⏸") + " " + pauseBtn.Label
 	pauseBtn.Dimmed = m.state != StateRunning
 	pauseBtn.Active = m.state == StateRunning // Highlight pause when running
 	barButtons = append(barButtons, pauseBtn)
@@ -2033,7 +2036,7 @@ func (m model) View() string {
 	stopBtn := components.NewButtonWithShortcut("x", "stop", func() tea.Cmd {
 		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")} }
 	})
-	stopBtn.Label = "⏹ " + stopBtn.Label
+	stopBtn.Label = styles.IconStopStyle.Render("⏹") + " " + stopBtn.Label
 	stopBtn.Dimmed = m.state == StateStopped
 	barButtons = append(barButtons, stopBtn)
 
@@ -2041,7 +2044,7 @@ func (m model) View() string {
 	execBtn := components.NewButtonWithShortcut("e", "execute", func() tea.Cmd {
 		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")} }
 	})
-	execBtn.Label = "⚡ " + execBtn.Label
+	execBtn.Label = styles.IconExecuteStyle.Render("⚡") + " " + execBtn.Label
 	execBtn.Dimmed = m.state != StateRunning
 	barButtons = append(barButtons, execBtn)
 
@@ -2049,21 +2052,21 @@ func (m model) View() string {
 	agentsBtn := components.NewButtonWithShortcut("+/-", "agents", func() tea.Cmd {
 		return func() tea.Msg { return nil } // No-op, just shows it's interactive
 	})
-	agentsBtn.Label = "🤖 " + agentsBtn.Label
+	agentsBtn.Label = styles.IconAgentStyle.Render("🤖") + " " + agentsBtn.Label
 	barButtons = append(barButtons, agentsBtn)
 
 	// Quit button
 	quitBtn := components.NewButtonWithShortcut("q", "quit", func() tea.Cmd {
 		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")} }
 	})
-	quitBtn.Label = "⏻ " + quitBtn.Label
+	quitBtn.Label = styles.IconQuitStyle.Render("⏻") + " " + quitBtn.Label
 	barButtons = append(barButtons, quitBtn)
 
 	// Help button
 	helpBtn := components.NewButtonWithShortcut("?", "help", func() tea.Cmd {
 		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")} }
 	})
-	helpBtn.Label = "? " + helpBtn.Label
+	helpBtn.Label = styles.IconHelpStyle.Render("?") + " " + helpBtn.Label
 	barButtons = append(barButtons, helpBtn)
 
 	var renderedButtons []string
