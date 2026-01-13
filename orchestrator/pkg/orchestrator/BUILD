@@ -58,6 +58,13 @@ go_test(
 )
 
 go_test(
+    name = "done_routing_test",
+    srcs = ["done_routing_test.go"],
+    embed = [":orchestrator"],
+    tags = ["fast"],
+)
+
+go_test(
     name = "worktree_test",
     srcs = ["worktree_test.go"],
     embed = [":orchestrator"],
