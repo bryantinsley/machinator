@@ -200,6 +200,7 @@ type model struct {
 	geminiRunning   bool
 	geminiCmd       *exec.Cmd
 	projectRoot     string
+	repoPath        string               // Path to the git repo (projectRoot/repo for managed projects)
 	failedTasks     map[string]time.Time // Track tasks that failed, with retry cooldown
 	lastTaskAttempt time.Time            // Prevent rapid task execution attempts
 	focusPanel      int                  // 0=tasks, 1=activity
@@ -251,10 +252,12 @@ func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
 	}
 
 	projectRoot := getProjectRoot()
+	repoPath := projectRoot // Default: repo is same as project root (cwd mode)
 	// If project config is provided, use it to determine project root and override settings
 	if projectConfig != nil {
 		machinatorDir := setup.GetMachinatorDir()
 		projectRoot = filepath.Join(machinatorDir, "projects", fmt.Sprintf("%d", projectConfig.ID))
+		repoPath = filepath.Join(projectRoot, "repo") // Managed projects have repo in subdirectory
 
 		// Override defaults if set in project config
 		if projectConfig.MaxCycles > 0 {
@@ -311,6 +314,7 @@ func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
 		agentActivity: []string{
 			"💭 Initializing orchestrator...",
 			fmt.Sprintf("📁 Project root: %s", projectRoot),
+			fmt.Sprintf("📂 Repo path: %s", repoPath),
 		},
 		eventHistory:    []ACPEvent{},
 		eventCursor:     0,
@@ -328,6 +332,7 @@ func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
 		config:          config,
 		geminiRunning:   false,
 		projectRoot:     projectRoot,
+		repoPath:        repoPath,
 		failedTasks:     make(map[string]time.Time),
 		toolsCheck:      InitialToolsCheckModel(),
 		accountPool:     pool,
@@ -367,7 +372,7 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		tick(),
 		checkQuota(m.accountPool),
-		fetchTasks(m.projectRoot),
+		fetchTasks(m.repoPath),
 		m.toolsCheck.Init(),
 	)
 }
@@ -474,7 +479,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				// Refresh tasks/quota
 				m.addActivity("🔄 Refreshing...")
-				return m, tea.Batch(checkQuota(m.accountPool), fetchTasks(m.projectRoot))
+				return m, tea.Batch(checkQuota(m.accountPool), fetchTasks(m.repoPath))
 			}
 		case "p":
 			if m.state == StateRunning {
@@ -505,10 +510,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "e":
 			if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed && m.state == StateRunning {
-				taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
+				taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 				if taskID != "" {
 					m.addLog(fmt.Sprintf("⚡ Starting task: %s", taskID))
-					return m, executeTask(taskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled)
+					return m, executeTask(taskID, m.config.AgentName, m.repoPath, m.accountPool, m.config.PoolingEnabled)
 				}
 			}
 		case "+", "=":
@@ -728,10 +733,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				// Check for next task
 				if m.toolsCheck.State == ToolsCheckStatePassed {
-					nextTaskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
+					nextTaskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 					if nextTaskID != "" {
 						m.addLog(fmt.Sprintf("✅ Next task: %s", nextTaskID))
-						cmds = append(cmds, executeTask(nextTaskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled))
+						cmds = append(cmds, executeTask(nextTaskID, m.config.AgentName, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 					} else {
 						m.addLog("⏸ No more ready tasks")
 					}
@@ -748,7 +753,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.tickCount%50 == 0 { // Every 50 seconds
 			m.addLog("🔄 Task fetch")
-			cmds = append(cmds, fetchTasks(m.projectRoot))
+			cmds = append(cmds, fetchTasks(m.repoPath))
 		}
 
 		// Auto-execute check (using CooldownPeriod)
@@ -762,16 +767,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Wait for quota to be loaded to ensure we don't use exhausted accounts
 			if m.targetTaskID != "" && m.quotaLoaded {
 				m.addLog(fmt.Sprintf("🎯 Executing targeted task: %s", m.targetTaskID))
-				cmds = append(cmds, executeTask(m.targetTaskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled))
+				cmds = append(cmds, executeTask(m.targetTaskID, m.config.AgentName, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 				m.targetTaskID = "" // One-shot
 				m.exitOnce = true   // Ensure exit after completion
 			} else if m.state == StateRunning && m.tickCount%cooldownSecs == 0 {
 				m.addLog(fmt.Sprintf("🔄 Auto-execute check (%d tasks)", len(m.tasks)))
 				// Only log activity if we actually find something, to reduce spam with short cooldowns
-				taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
+				taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 				if taskID != "" {
 					m.addLog(fmt.Sprintf("✅ Found ready task: %s", taskID))
-					cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled))
+					cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 				}
 			}
 		}
@@ -841,10 +846,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addActivity(fmt.Sprintf("📊 Quotas loaded for %d accounts", len(m.quotas)))
 		// Check for ready tasks if we have tasks and quota
 		if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed && len(m.tasks) > 0 {
-			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
+			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 			if taskID != "" {
 				m.addLog(fmt.Sprintf("✅ Ready to execute: %s", taskID))
-				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled))
+				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 			}
 		}
 
@@ -863,10 +868,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.addLog("⚠️  No tasks found - check projectRoot")
 		} else if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed {
 			// Check for ready tasks immediately
-			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
+			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 			if taskID != "" {
 				m.addLog(fmt.Sprintf("✅ Found ready task: %s", taskID))
-				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled))
+				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 			}
 		}
 
@@ -920,10 +925,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Wait a moment before checking for next task (don't spam)
 		m.addLog("🔍 Checking for next task...")
 		if m.toolsCheck.State == ToolsCheckStatePassed {
-			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.projectRoot)
+			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 			if taskID != "" {
 				m.addLog(fmt.Sprintf("✅ Next task: %s", taskID))
-				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.accountPool, m.config.PoolingEnabled))
+				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 			} else {
 				m.addLog("⏸ No more ready tasks")
 			}
