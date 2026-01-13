@@ -284,13 +284,20 @@ func handlePrePush() {
 }
 
 func doPrePush(lastPushFile string) {
+	rateLimit := int64(30)
+	if val := os.Getenv("MACHINATOR_RATE_LIMIT"); val != "" {
+		if l, err := strconv.ParseInt(val, 10, 64); err == nil {
+			rateLimit = l
+		}
+	}
+
 	data, err := os.ReadFile(lastPushFile)
 	if err == nil {
 		lastPushTime, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
 		if err == nil {
 			elapsed := time.Now().Unix() - lastPushTime
-			if elapsed < 30 {
-				waitTime := 30 - elapsed
+			if elapsed < rateLimit {
+				waitTime := rateLimit - elapsed
 				fmt.Printf("Rate limiting push. Waiting %d seconds...\n", waitTime)
 				time.Sleep(time.Duration(waitTime) * time.Second)
 			}

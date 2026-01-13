@@ -116,6 +116,7 @@ Agents must be able to push changes to the remote repository. This project uses 
 
 1.  **Helper Configuration**: The repository is configured to use the `osxkeychain` credential helper.
 2.  **Auth Flow**: When an agent runs `git push`, git calls the helper. The helper retrieves the Personal Access Token (PAT) from the system keychain.
+    *Note: A global rate limit of 1 push every 30 seconds is enforced via a git pre-push hook. If another push has occurred recently, your push will wait automatically.*
 3.  **No Explicit Config**: Agents do **not** need to provide passwords, tokens, or SSH keys. As long as the host machine is authenticated, the agents "just work."
 
 ### Alternative: Moving to SSH
