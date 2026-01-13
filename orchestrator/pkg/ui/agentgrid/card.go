@@ -94,21 +94,32 @@ func (c *AgentCard) Render() string {
 
 	header := fmt.Sprintf("%s %s", statusStyle.Render(icon), c.Name)
 
-	// Show elapsed time if available
-	if c.Elapsed != "" {
-		header = fmt.Sprintf("%s [%s]", header, c.Elapsed)
-	}
-
-	// Truncate task
+	// Handle task and elapsed time display
 	task := c.Task
-	if len(task) > 50 {
-		task = task[:47] + "..."
-	}
 	if task == "" {
 		task = "(no task)"
+	} else {
+		task = "Task: " + task
 	}
 
-	content := fmt.Sprintf("%s\n\n%s", header, task)
+	elapsed := ""
+	if c.Elapsed != "" {
+		elapsed = fmt.Sprintf(" (%s)", c.Elapsed)
+	}
+
+	// Total limit for the task line
+	const maxLen = 36
+	if len(task)+len(elapsed) > maxLen {
+		// Truncate task to fit elapsed time
+		availableForTask := maxLen - len(elapsed)
+		if availableForTask < 10 {
+			availableForTask = 10 // Minimum task visibility
+		}
+		if len(task) > availableForTask {
+			task = task[:availableForTask-3] + "..."
+		}
+	}
+	content := fmt.Sprintf("%s\n\n%s%s", header, task, elapsed)
 
 	rendered := style.Render(content)
 	c.width = lipgloss.Width(rendered)

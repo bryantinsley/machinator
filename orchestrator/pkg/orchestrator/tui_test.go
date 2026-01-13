@@ -106,3 +106,40 @@ func TestTUI_ClickHandling(t *testing.T) {
 		t.Error("Expected command when clicking resume button, got nil")
 	}
 }
+
+func TestTUI_AgentCardTimer(t *testing.T) {
+	m := initialModel(nil, false)
+	m.ready = true
+	m.state = StateRunning
+	m.toolsCheck.State = ToolsCheckStatePassed
+
+	// Setup an active agent
+	agentID := 1
+	m.agents[agentID] = &AgentState{
+		ID:            agentID,
+		Name:          "TestAgent",
+		Running:       true,
+		CurrentTaskID: "task-123",
+		TaskStartTime: time.Now().Add(-70 * time.Second), // Started 70s ago
+	}
+
+	// Trigger a tick to update the card
+	msg := tickMsg(time.Now())
+	updatedModel, _ := m.Update(msg)
+	m = updatedModel.(model)
+
+	// Verify the card's elapsed time
+	card := m.agentGrid.Cards[0]
+	if card.Elapsed != "1m 10s" {
+		t.Errorf("Expected elapsed time to be '1m 10s', got %q", card.Elapsed)
+	}
+
+	// Trigger another tick
+	m.agents[agentID].TaskStartTime = time.Now().Add(-71 * time.Second)
+	updatedModel, _ = m.Update(msg)
+	m = updatedModel.(model)
+
+	if m.agentGrid.Cards[0].Elapsed != "1m 11s" {
+		t.Errorf("Expected elapsed time to be '1m 11s', got %q", m.agentGrid.Cards[0].Elapsed)
+	}
+}

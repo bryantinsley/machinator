@@ -47,7 +47,7 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("63")). // Brighter border
 			Padding(1).
-			Width(30).
+			Width(40).
 			Height(6) // Reduced height - cards were too tall
 
 	CardFocusedStyle = CardStyle.Copy().
