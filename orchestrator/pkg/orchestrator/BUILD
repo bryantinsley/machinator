@@ -49,3 +49,10 @@ go_test(
     embed = [":orchestrator"],
     tags = ["fast"],
 )
+
+go_test(
+    name = "recovery_test",
+    srcs = ["recovery_test.go"],
+    embed = [":orchestrator"],
+    tags = ["fast"],
+)

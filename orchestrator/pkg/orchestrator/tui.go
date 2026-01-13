@@ -528,6 +528,33 @@ func (m model) Init() tea.Cmd {
 	)
 }
 
+func isMinorChange(fileCount, lineCount int) bool {
+	return fileCount <= 1 && lineCount < 20
+}
+
+func parseDiffStat(output string) int {
+	lineCount := 0
+	lines := strings.Split(output, "\n")
+	if len(lines) == 0 {
+		return 0
+	}
+	// Last line has format "X file(s) changed, Y insertions(+), Z deletions(-)"
+	for _, line := range lines {
+		if strings.Contains(line, "insertion") || strings.Contains(line, "deletion") {
+			// Parse numbers from stat line
+			parts := strings.Fields(line)
+			for _, p := range parts {
+				// Remove trailing commas or other punctuation
+				p = strings.TrimRight(p, ",+-()")
+				if n, err := strconv.Atoi(p); err == nil {
+					lineCount += n
+				}
+			}
+		}
+	}
+	return lineCount
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
@@ -1107,23 +1134,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				diffCmd := exec.Command("git", "diff", "--stat")
 				diffCmd.Dir = agentDir
 				diffOutput, _ := diffCmd.Output()
-				lineCount := 0
-				if lines := strings.Split(string(diffOutput), "\n"); len(lines) > 0 {
-					// Last line has format "X file(s) changed, Y insertions(+), Z deletions(-)"
-					for _, line := range lines {
-						if strings.Contains(line, "insertion") || strings.Contains(line, "deletion") {
-							// Parse numbers from stat line
-							parts := strings.Fields(line)
-							for _, p := range parts {
-								if n, err := strconv.Atoi(p); err == nil {
-									lineCount += n
-								}
-							}
-						}
-					}
-				}
+				lineCount := parseDiffStat(string(diffOutput))
 
-				if fileCount <= 1 && lineCount < 20 {
+				if isMinorChange(fileCount, lineCount) {
 					// Minor changes - just discard
 					m.addActivity(fmt.Sprintf("🗑️ Agent %d: Minor changes discarded (%d lines)", msg.AgentID, lineCount))
 					m.addLog(fmt.Sprintf("🗑️ Agent %d: Task %s minor changes discarded:\n%s", msg.AgentID, msg.TaskID, string(output)))
