@@ -1,0 +1,26 @@
+name: Fast Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  fast-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Bazel
+        uses: bazel-contrib/setup-bazel@v0.8.5
+        with:
+          # Use bazelisk to install the correct bazel version
+          bazelisk-cache: true
+          # Cache the repository downloads
+          repository-cache: true
+      
+      - name: Build All
+        run: bazel build //...
+
+      - name: Run Fast Tests
+        run: bazel test //... --test_tag_filters=fast
