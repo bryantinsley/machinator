@@ -2209,6 +2209,11 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 					f.Close()
 				}
 
+				// Discard any local changes that would block checkout
+				resetCmd := exec.Command("git", "reset", "--hard")
+				resetCmd.Dir = agentDir
+				resetCmd.Run()
+
 				// First fetch the latest
 				fetchCmd := exec.Command("git", "fetch", "origin", pConfig.Branch)
 				fetchCmd.Dir = agentDir
@@ -2220,10 +2225,11 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 				deleteCmd.Run() // Ignore errors
 
 				// Create and checkout task branch from origin/<target branch>
-				checkout := exec.Command("git", "checkout", "-b", taskBranch, "origin/"+pConfig.Branch)
+				// Use -B to force create/reset even if branch exists
+				checkout := exec.Command("git", "checkout", "-B", taskBranch, "origin/"+pConfig.Branch)
 				checkout.Dir = agentDir
 				if err := checkout.Run(); err != nil {
-					return taskFailedMsg{taskID: taskID, reason: fmt.Sprintf("failed to create branch %s: %v", taskBranch, err)}
+					return taskFailedMsg{agentID: agentID, taskID: taskID, reason: fmt.Sprintf("failed to create branch %s: %v", taskBranch, err)}
 				}
 			}
 		}
