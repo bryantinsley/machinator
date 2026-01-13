@@ -2192,11 +2192,11 @@ func fetchTasks(projectRoot, branch string) tea.Cmd {
 
 		// Import JSONL to SQLite database (mimics post-merge hook)
 		// This ensures the database is in sync after git pull
-		importCmd := exec.Command("bd", "import", "-i", ".beads/issues.jsonl")
+		importCmd := exec.Command("bd", "--sandbox", "import", "-i", ".beads/issues.jsonl")
 		importCmd.Dir = projectRoot
 		importCmd.Run() // Ignore errors - file might not exist yet
 
-		cmd := exec.Command("bd", "list", "--json")
+		cmd := exec.Command("bd", "--sandbox", "list", "--json")
 		cmd.Dir = projectRoot
 		output, err := cmd.Output()
 
@@ -2205,12 +2205,12 @@ func fetchTasks(projectRoot, branch string) tea.Cmd {
 			if f != nil {
 				f.WriteString(fmt.Sprintf("[%s] bd list failed, trying bd init: %v\n", time.Now().Format("15:04:05"), err))
 			}
-			initCmd := exec.Command("bd", "init")
+			initCmd := exec.Command("bd", "--sandbox", "init")
 			initCmd.Dir = projectRoot
 			initCmd.Run() // Ignore errors, maybe it's already initialized
 
 			// Retry bd list
-			cmd = exec.Command("bd", "list", "--json")
+			cmd = exec.Command("bd", "--sandbox", "list", "--json")
 			cmd.Dir = projectRoot
 			output, err = cmd.Output()
 			if err != nil {
@@ -2262,7 +2262,7 @@ func findReadyTask(tasks []Task, agentName string, failedTasks map[string]time.T
 		}
 	}
 
-	cmd := exec.Command("bd", "ready", "--json")
+	cmd := exec.Command("bd", "--sandbox", "ready", "--json")
 	cmd.Dir = projectRoot
 	output, err := cmd.Output()
 	if err == nil {
