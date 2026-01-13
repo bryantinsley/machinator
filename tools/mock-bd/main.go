@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -27,6 +29,14 @@ func getStateFile() string {
 		return f
 	}
 	return ".mock-bd.json"
+}
+
+func getMachinatorDir() string {
+	if dir := os.Getenv("MACHINATOR_DIR"); dir != "" {
+		return dir
+	}
+	homeDir, _ := os.UserHomeDir()
+	return filepath.Join(homeDir, ".machinator")
 }
 
 func main() {
@@ -60,6 +70,8 @@ func main() {
 		handleReady(cmdArgs)
 	case "show":
 		handleShow(cmdArgs)
+	case "sync":
+		handleSync(cmdArgs)
 	case "init", "create":
 		// No-op
 	case "hooks":
@@ -112,6 +124,11 @@ func handleImport(args []string) {
 		}
 	}
 	saveState(tasks)
+}
+
+func handleSync(args []string) {
+	// For mock-bd, sync just imports the latest issues.jsonl if it exists
+	handleImport([]string{"-i", ".beads/issues.jsonl"})
 }
 
 func handleList(args []string) {
@@ -238,7 +255,35 @@ func handleHooks(args []string) {
 }
 
 func handlePrePush() {
-	lastPushFile := "/tmp/machinator_last_push"
+	// Use a lock file to ensure only one agent checks/updates the push time at once
+	machinatorDir := getMachinatorDir()
+	os.MkdirAll(machinatorDir, 0755)
+
+	lastPushFile := filepath.Join(machinatorDir, "last_push")
+	lockFile := lastPushFile + ".lock"
+
+	f, err := os.Create(lockFile)
+	if err != nil {
+		// Fallback to /tmp if ~/.machinator is not writable
+		lastPushFile = "/tmp/machinator_last_push"
+		lockFile = lastPushFile + ".lock"
+		f, err = os.Create(lockFile)
+		if err != nil {
+			// If still failing, just run without lock
+			doPrePush(lastPushFile)
+			return
+		}
+	}
+	defer f.Close()
+
+	// Acquire exclusive lock (blocks until available)
+	syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+
+	doPrePush(lastPushFile)
+}
+
+func doPrePush(lastPushFile string) {
 	data, err := os.ReadFile(lastPushFile)
 	if err == nil {
 		lastPushTime, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
