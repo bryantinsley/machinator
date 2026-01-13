@@ -1,8 +1,11 @@
 package orchestrator
 
 import (
+	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,19 +15,24 @@ import (
 )
 
 func TestTUI_Golden(t *testing.T) {
+	update := false
+	if f := flag.Lookup("update"); f != nil {
+		update = f.Value.(flag.Getter).Get().(bool)
+	}
+
 	tests := []struct {
 		name  string
 		setup func(m *model)
 	}{
 		{
-			name: "TestInitialStateGolden",
+			name: "InitialState",
 			setup: func(m *model) {
 				m.ready = true
 				m.state = StatePaused
 			},
 		},
 		{
-			name: "TestRunningWithAgentsGolden",
+			name: "RunningWithAgents",
 			setup: func(m *model) {
 				m.ready = true
 				m.state = StateRunning
@@ -44,7 +52,7 @@ func TestTUI_Golden(t *testing.T) {
 			},
 		},
 		{
-			name: "TestQuotaLevelsGolden",
+			name: "QuotaLevels",
 			setup: func(m *model) {
 				m.ready = true
 				m.quotaLoaded = true
@@ -57,45 +65,58 @@ func TestTUI_Golden(t *testing.T) {
 			},
 		},
 		{
-			name: "TestAgentGridMultiGolden",
+			name: "AgentGrid1",
 			setup: func(m *model) {
 				m.ready = true
-				// Add 3 agents
+				// 1 agent is default
+			},
+		},
+		{
+			name: "AgentGrid2",
+			setup: func(m *model) {
+				m.ready = true
+				m.agentGrid.AddCard(agentgrid.NewAgentCard("CoderAgent-2", agentgrid.StatusIdle, "", nil))
+			},
+		},
+		{
+			name: "AgentGrid3",
+			setup: func(m *model) {
+				m.ready = true
 				for i := 2; i <= 3; i++ {
 					m.agentGrid.AddCard(agentgrid.NewAgentCard(fmt.Sprintf("CoderAgent-%d", i), agentgrid.StatusIdle, "", nil))
 				}
 			},
 		},
 		{
-			name: "TestEmptyTasksGolden",
+			name: "EmptyTasks",
 			setup: func(m *model) {
 				m.ready = true
 				m.tasks = []Task{}
 			},
 		},
 		{
-			name: "TestStatePausedGolden",
+			name: "StatePaused",
 			setup: func(m *model) {
 				m.ready = true
 				m.state = StatePaused
 			},
 		},
 		{
-			name: "TestStateRunningGolden",
+			name: "StateRunning",
 			setup: func(m *model) {
 				m.ready = true
 				m.state = StateRunning
 			},
 		},
 		{
-			name: "TestStateStoppedGolden",
+			name: "StateStopped",
 			setup: func(m *model) {
 				m.ready = true
 				m.state = StateStopped
 			},
 		},
 		{
-			name: "TestQuota0Golden",
+			name: "Quota0",
 			setup: func(m *model) {
 				m.ready = true
 				m.quotaLoaded = true
@@ -105,7 +126,7 @@ func TestTUI_Golden(t *testing.T) {
 			},
 		},
 		{
-			name: "TestQuota50Golden",
+			name: "Quota50",
 			setup: func(m *model) {
 				m.ready = true
 				m.quotaLoaded = true
@@ -115,7 +136,7 @@ func TestTUI_Golden(t *testing.T) {
 			},
 		},
 		{
-			name: "TestQuota100Golden",
+			name: "Quota100",
 			setup: func(m *model) {
 				m.ready = true
 				m.quotaLoaded = true
@@ -129,7 +150,6 @@ func TestTUI_Golden(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := initialModel(nil, false)
-			// Mock dimensions for stable output
 			m.width = 120
 			m.height = 40
 
@@ -144,7 +164,23 @@ func TestTUI_Golden(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			teatest.RequireEqualOutput(t, out)
+
+			goldenPath := filepath.Join("testdata", "golden", tt.name+".golden")
+			if update {
+				err := os.WriteFile(goldenPath, out, 0644)
+				if err != nil {
+					t.Fatalf("failed to update golden file: %v", err)
+				}
+			}
+
+			expected, err := os.ReadFile(goldenPath)
+			if err != nil {
+				t.Fatalf("failed to read golden file %s: %v", goldenPath, err)
+			}
+
+			if string(out) != string(expected) {
+				t.Errorf("output does not match golden file %s", goldenPath)
+			}
 		})
 	}
 }
