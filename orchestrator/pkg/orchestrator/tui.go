@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -230,6 +231,33 @@ type toggleQuotaMsg struct{}
 // Global channels for async communication
 var acpEventChan = make(chan acpEventMsg, 100)
 var geminiDoneChan = make(chan geminiDoneMsg, 10)
+
+// Thread-safe claimed tasks tracking
+var claimedTasksMu sync.Mutex
+var claimedTasks = make(map[string]int) // taskID -> agentID
+
+func claimTask(taskID string, agentID int) bool {
+	claimedTasksMu.Lock()
+	defer claimedTasksMu.Unlock()
+	if _, claimed := claimedTasks[taskID]; claimed {
+		return false // Already claimed
+	}
+	claimedTasks[taskID] = agentID
+	return true
+}
+
+func releaseTask(taskID string) {
+	claimedTasksMu.Lock()
+	defer claimedTasksMu.Unlock()
+	delete(claimedTasks, taskID)
+}
+
+func isTaskClaimed(taskID string) bool {
+	claimedTasksMu.Lock()
+	defer claimedTasksMu.Unlock()
+	_, claimed := claimedTasks[taskID]
+	return claimed
+}
 
 type model struct {
 	width           int
@@ -861,6 +889,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Find a ready task for this agent
 					taskID := findReadyTask(m.tasks, agent.Name, agent.FailedTasks, m.repoPath)
 					if taskID != "" {
+						// Try to claim the task (atomic)
+						if !claimTask(taskID, agentID) {
+							continue // Another agent claimed it first
+						}
 						m.addLog(fmt.Sprintf("🚀 Agent %d: Starting task %s", agentID, taskID))
 						cmds = append(cmds, executeTask(agentID, taskID, agent.Name, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 						agent.Running = true
@@ -1015,6 +1047,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addLog(fmt.Sprintf("🚀 Agent %d: Task %s started with account %s", msg.agentID, msg.taskID, accountName))
 
 	case taskFailedMsg:
+		// Release the task claim
+		releaseTask(msg.taskID)
 		// Update per-agent state
 		if agent, exists := m.agents[msg.agentID]; exists {
 			agent.FailedTasks[msg.taskID] = time.Now()
@@ -1033,6 +1067,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.activeAccount = nil
 
 	case geminiDoneMsg:
+		// Release the completed task claim
+		releaseTask(msg.TaskID)
 		// Update per-agent state and start next task
 		if agent, exists := m.agents[msg.AgentID]; exists {
 			agent.Running = false
@@ -1045,7 +1081,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Check for next task for this agent
 			if m.toolsCheck.State == ToolsCheckStatePassed && m.state == StateRunning {
 				taskID := findReadyTask(m.tasks, agent.Name, agent.FailedTasks, m.repoPath)
-				if taskID != "" {
+				if taskID != "" && claimTask(taskID, msg.AgentID) {
 					m.addLog(fmt.Sprintf("🔄 Agent %d: Next task %s", msg.AgentID, taskID))
 					cmds = append(cmds, executeTask(msg.AgentID, taskID, agent.Name, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 				}
@@ -2046,6 +2082,10 @@ func findReadyTask(tasks []Task, agentName string, failedTasks map[string]time.T
 	// First check for in-progress tasks assigned to this agent
 	for _, task := range tasks {
 		if task.Status == "in_progress" && task.Assignee == agentName {
+			// But skip if already claimed by another agent
+			if isTaskClaimed(task.ID) {
+				continue
+			}
 			// But skip if it recently failed
 			if failedTime, failed := failedTasks[task.ID]; failed {
 				if time.Since(failedTime) < 5*time.Minute {
@@ -2062,8 +2102,12 @@ func findReadyTask(tasks []Task, agentName string, failedTasks map[string]time.T
 	if err == nil {
 		var readyTasks []Task
 		if json.Unmarshal(output, &readyTasks) == nil && len(readyTasks) > 0 {
-			// Find first task that hasn't failed recently
+			// Find first task that hasn't failed recently and isn't claimed
 			for _, task := range readyTasks {
+				// Skip if already claimed by another agent
+				if isTaskClaimed(task.ID) {
+					continue
+				}
 				if failedTime, failed := failedTasks[task.ID]; failed {
 					if time.Since(failedTime) < 5*time.Minute {
 						continue // Skip this task, it failed recently
@@ -2180,9 +2224,49 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 		// If projectRoot is projects/1, and code is in agents/1, gemini might be editing the wrapper?
 		// Or maybe I misunderstood projectRoot.
 
-		// Let's fix this by targeting agents/<agentID> explicitly for now, and enforcing branch there.
-
+		// Agent worktree path
 		agentDir := filepath.Join(projectRoot, "agents", fmt.Sprintf("%d", agentID))
+
+		// Create agent worktree on-demand if it doesn't exist
+		if _, err := os.Stat(agentDir); os.IsNotExist(err) {
+			repoDir := filepath.Join(projectRoot, "repo")
+
+			// Get target branch from project config
+			var pConfig setup.ProjectConfig
+			if data, err := os.ReadFile(filepath.Join(projectRoot, "project.json")); err == nil {
+				json.Unmarshal(data, &pConfig)
+			}
+			branch := pConfig.Branch
+			if branch == "" {
+				branch = "main"
+			}
+
+			// Create worktree
+			f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if f != nil {
+				f.WriteString(fmt.Sprintf("[%s] 🔧 Creating worktree for agent %d...\n", time.Now().Format("15:04:05"), agentID))
+				f.Close()
+			}
+
+			args := []string{"-C", repoDir, "worktree", "add", "--detach", agentDir, branch}
+			cmd := exec.Command("git", args...)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return taskFailedMsg{agentID: agentID, taskID: taskID, reason: fmt.Sprintf("failed to create worktree: %s", string(out))}
+			}
+
+			// Configure git hooks
+			hooksCmd := exec.Command("git", "config", "core.hooksPath", "scripts/hooks")
+			hooksCmd.Dir = agentDir
+			hooksCmd.Run()
+
+			// Initialize beads from JSONL
+			beadsDir := filepath.Join(agentDir, ".beads")
+			if _, err := os.Stat(beadsDir); err == nil {
+				bdInit := exec.Command("bd", "init", "--from-jsonl")
+				bdInit.Dir = agentDir
+				bdInit.Run()
+			}
+		}
 
 		// Read project config to get branch
 		var pConfig setup.ProjectConfig
