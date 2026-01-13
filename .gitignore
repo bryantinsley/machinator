@@ -44,3 +44,4 @@ _archive/
 .gemini/tmp/directive_machinator-9yr.txt
 tmp_machinator_home/
 /dummy-gemini
+.mock-bd.json
