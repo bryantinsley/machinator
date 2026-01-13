@@ -17,4 +17,5 @@ go_test(
         "pool_test.go",
     ],
     embed = [":accountpool"],
+    tags = ["fast"],
 )

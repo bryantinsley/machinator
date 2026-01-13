@@ -20,4 +20,5 @@ go_test(
     name = "agentgrid_test",
     srcs = ["grid_test.go"],
     embed = [":agentgrid"],
+    tags = ["fast"],
 )

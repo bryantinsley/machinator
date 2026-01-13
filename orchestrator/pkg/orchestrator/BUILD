@@ -35,6 +35,7 @@ go_test(
     ],
     data = glob(["testdata/**"]),
     embed = [":orchestrator"],
+    tags = ["fast"],
     deps = [
         "//orchestrator/pkg/ui/agentgrid",
         "@com_github_charmbracelet_bubbletea//:bubbletea",
@@ -68,4 +69,5 @@ go_test(
     name = "worktree_test",
     srcs = ["worktree_test.go"],
     embed = [":orchestrator"],
+    tags = ["fast"],
 )

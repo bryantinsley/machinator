@@ -29,6 +29,7 @@ go_test(
     ],
     data = glob(["testdata/**"]),
     embed = [":setup"],
+    tags = ["fast"],
     deps = [
         "//orchestrator/pkg/ui/components",
         "@com_github_charmbracelet_bubbletea//:bubbletea",

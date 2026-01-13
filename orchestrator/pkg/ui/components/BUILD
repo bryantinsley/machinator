@@ -24,5 +24,6 @@ go_test(
         "dropdown_test.go",
     ],
     embed = [":components"],
+    tags = ["fast"],
     deps = ["@com_github_charmbracelet_bubbletea//:bubbletea"],
 )

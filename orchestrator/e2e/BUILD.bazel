@@ -32,6 +32,7 @@ sh_test(
     data = glob(["*.tape"]) + [
         "//scripts:vhs-docker.sh",
     ],
+    tags = ["fast"],
 )
 
 sh_test(
