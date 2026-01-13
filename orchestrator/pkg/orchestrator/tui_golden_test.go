@@ -152,6 +152,7 @@ func TestTUI_Golden(t *testing.T) {
 			m := initialModel(nil, false)
 			m.width = 120
 			m.height = 40
+			m.toolsCheck.State = ToolsCheckStatePassed // Skip tools check screen
 
 			if tt.setup != nil {
 				tt.setup(&m)
