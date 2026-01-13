@@ -87,6 +87,22 @@ These directories are already in `.gitignore`.
 - npm packages in `node_modules/` (project-local)
 - Python packages in a virtualenv within the project
 
+## Running Machinator (FORBIDDEN)
+
+**Agents are NOT permitted to run machinator or any orchestrator commands.** This includes:
+
+- `./machinator`
+- `bazel run :machinator`
+- Any variations with `--headless`, `--execute`, etc.
+
+**Why?** You ARE running inside machinator. Running it again causes recursive fork bombs that spawn infinite processes.
+
+**If you need to test orchestrator behavior:**
+
+1. **Write unit tests** - Test individual functions
+2. **Use mocks** - Mock external dependencies
+3. **Trust the orchestrator** - It handles execution, you handle code
+
 ## Documentation Sync
 
 When changing code in these areas, **also update the corresponding docs**:
@@ -107,16 +123,19 @@ When changing code in these areas, **also update the corresponding docs**:
 For slow operations (like VHS terminal recording) or operations incompatible with the macOS sandbox, use the CI-gated workflow:
 
 1.  **Make your changes** and commit:
+
     ```bash
     git add -A && git commit -m "feat: update TUI layout" && git push
     ```
 
 2.  **Create a gate** that waits for the CI workflow:
+
     ```bash
     bd create --type=gate --title="Wait for VHS CI" --external-ref="gh:run:vhs"
     ```
 
 3.  **Link your follow-up task** to the gate:
+
     ```bash
     bd dep add <follow-up-task-id> <gate-id>
     ```
@@ -132,6 +151,7 @@ This keeps your laptop cool and avoids macOS sandbox restrictions!
 If GitHub Actions are unavailable, use the local Docker wrapper (slow but functional):
 
 1. **Build Linux Binary**:
+
    ```bash
    # Ensure Go env is set first!
    export GOPATH="$(pwd)/.go-cache"
@@ -141,6 +161,7 @@ If GitHub Actions are unavailable, use the local Docker wrapper (slow but functi
    ```
 
 2. **Run VHS with Docker**:
+
    ```bash
    ./scripts/vhs-docker.sh orchestrator/e2e/navigation.tape
    ./scripts/vhs-docker.sh orchestrator/e2e/crud.tape
