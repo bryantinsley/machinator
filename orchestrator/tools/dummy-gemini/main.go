@@ -1,3 +1,5 @@
+// dummy-gemini is a mock implementation of the Gemini CLI for testing purposes.
+// It simulates different behaviors (happy path, errors, hanging) based on environment variables.
 package main
 
 import (
