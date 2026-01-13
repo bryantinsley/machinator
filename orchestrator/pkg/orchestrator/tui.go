@@ -2284,7 +2284,7 @@ func findReadyTask(tasks []Task, agentName string, failedTasks map[string]time.T
 		}
 	}
 
-	cmd := exec.Command("bd", "--sandbox", "ready", "--json")
+	cmd := execCommand("bd", "--sandbox", "ready", "--json")
 	cmd.Dir = projectRoot
 	output, err := cmd.Output()
 	if err == nil {

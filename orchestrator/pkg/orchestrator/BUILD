@@ -42,3 +42,10 @@ go_test(
         "@com_github_charmbracelet_x_exp_teatest//:teatest",
     ],
 )
+
+go_test(
+    name = "claiming_test",
+    srcs = ["claiming_test.go"],
+    embed = [":orchestrator"],
+    tags = ["fast"],
+)
