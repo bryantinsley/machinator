@@ -11,8 +11,15 @@
     ;; Project source
     (subpath "/Users/bryantinsley/Code/machinator")
     
-    ;; Machinator state & accounts
-    (subpath "/Users/bryantinsley/.machinator")
+    ;; Machinator State
+    (subpath "/Users/bryantinsley/.machinator/accounts")      ;; Auth & fake HOME dirs
+    (subpath "/Users/bryantinsley/.machinator/projects")      ;; Project worktrees & agents
+    (subpath "/Users/bryantinsley/.machinator/_archive")      ;; Deleted accounts/projects
+    (subpath "/Users/bryantinsley/.machinator/logs")          ;; Application logs
+
+    ;; Configuration & Binaries
+    (literal "/Users/bryantinsley/.machinator/settings.json") ;; Global settings
+    (literal "/Users/bryantinsley/.machinator/gemini")        ;; Agent binary
     
     ;; Configuration & State
     (subpath "/Users/bryantinsley/.gemini")
