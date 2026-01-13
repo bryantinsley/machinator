@@ -1412,13 +1412,13 @@ func (m model) getQuotaStyle(percent int) lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color("46")) // Green
 }
 
-// renderQuotaHearts renders 5 hearts that fade from red to grey as quota drains
-// Each heart = 20%. Below 10% hearts flash pink.
+// renderQuotaHearts renders 10 hearts that fade from red to grey as quota drains
+// Each heart = 10%. Below 20% hearts pulse/flash.
 func (m model) renderQuotaHearts(percent int, flash bool) string {
 	if percent < 0 {
 		// Error state - grey hearts
 		greyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#535360"))
-		return greyStyle.Render("♥♥♥♥♥")
+		return greyStyle.Render("♥♥♥♥♥♥♥♥♥♥")
 	}
 
 	// Clamp to 0-100
@@ -1426,79 +1426,75 @@ func (m model) renderQuotaHearts(percent int, flash bool) string {
 		percent = 100
 	}
 
-	// Calculate full hearts and partial heart
-	// Each heart = 20%, so 5 hearts = 100%
-	fullHearts := percent / 20     // 0-5 full hearts
-	partialPercent := percent % 20 // 0-19 for the transitioning heart
+	// Each heart = 10%, so 10 hearts = 100%
+	fullHearts := percent / 10     // 0-10 full hearts
+	partialPercent := percent % 10 // 0-9 for the transitioning heart
 
 	var result string
 	heart := "♥"
 
-	// Gradient colors: Red (0-20%) -> Orange (20-40%) -> Yellow (40-60%) -> Light Green (60-80%) -> Green (80-100%)
+	// Expanded gradient colors: Red -> Orange -> Yellow -> Green
 	colors := []string{
-		"#990000", // Dark Red
-		"#FF4500", // OrangeRed
-		"#FFD700", // Gold
-		"#ADFF2F", // GreenYellow
-		"#008000", // Green
+		"#990000", // 0-10% (Dark Red)
+		"#CC0000", // 10-20%
+		"#FF4500", // 20-30% (OrangeRed)
+		"#FF8C00", // 30-40% (DarkOrange)
+		"#FFD700", // 40-50% (Gold)
+		"#FFFF00", // 50-60% (Yellow)
+		"#CCFF00", // 60-70%
+		"#ADFF2F", // 70-80% (GreenYellow)
+		"#32CD32", // 80-90% (LimeGreen)
+		"#008000", // 90-100% (Green)
 	}
 
-	for i := 0; i < 5; i++ {
+	// Sweep animation when refreshing
+	sweepIndex := -1
+	if m.refreshingQuota {
+		sweepIndex = int(m.tickCount % 12) // Sweep 10 hearts + some pause
+	}
+
+	for i := 0; i < 10; i++ {
 		var heartStyle lipgloss.Style
+
+		// Refreshing sweep effect
+		if i == sweepIndex {
+			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFFF")).Bold(true)
+			result += heartStyle.Render(heart)
+			continue
+		}
+
 		if i < fullHearts {
 			// Full heart with its specific gradient color
 			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colors[i]))
+
+			// Pulse effect on low quota
+			if percent < 20 && flash {
+				heartStyle = heartStyle.Foreground(lipgloss.Color("#FF69B4")).Bold(true) // Flash to Pink
+			}
 		} else if i == fullHearts && partialPercent > 0 {
 			// Transitioning heart - blend from its natural color to grey
-			// ratio 1.0 = almost full (natural color), 0.0 = almost empty (grey)
-			ratio := float64(partialPercent) / 20.0
+			ratio := float64(partialPercent) / 10.0
 
-			// Get target RGB (natural color for this position)
 			targetHex := colors[i]
 			var tr, tg, tb int
 			fmt.Sscanf(targetHex, "#%02X%02X%02X", &tr, &tg, &tb)
 
-			// Get grey RGB (#535360)
-			gr, gg, gb := 83, 83, 96
-
-			// Linear interpolation
+			gr, gg, gb := 83, 83, 96 // Grey RGB (#535360)
 			r := int(float64(gr) + float64(tr-gr)*ratio)
 			g := int(float64(gg) + float64(tg-gg)*ratio)
 			b := int(float64(gb) + float64(tb-gb)*ratio)
 
 			hexColor := fmt.Sprintf("#%02X%02X%02X", r, g, b)
 			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(hexColor))
+
+			if percent < 20 && flash {
+				heartStyle = heartStyle.Foreground(lipgloss.Color("#FF69B4")).Bold(true)
+			}
 		} else {
 			// Empty grey heart
 			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#535360"))
 		}
 		result += heartStyle.Render(heart)
-	}
-
-	// Refreshing animation - alternate between colored and cyan
-	if m.refreshingQuota && flash {
-		cyanStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFFF"))
-		result = ""
-		for i := 0; i < 5; i++ {
-			result += cyanStyle.Render(heart)
-		}
-		return result
-	}
-
-	// Flash effect when below 20% (low quota) - alternate with pink
-	if percent < 20 && percent > 0 && flash {
-		pinkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF69B4")) // Hot pink
-		// Re-render all filled hearts as pink for flash effect
-		result = ""
-		for i := 0; i < 5; i++ {
-			var heartStyle lipgloss.Style
-			if i < fullHearts || (i == fullHearts && partialPercent > 0) {
-				heartStyle = pinkStyle
-			} else {
-				heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#535360"))
-			}
-			result += heartStyle.Render(heart)
-		}
 	}
 
 	return result
