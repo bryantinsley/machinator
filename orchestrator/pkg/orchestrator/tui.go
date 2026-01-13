@@ -486,6 +486,7 @@ func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
 		filteredIndices: []int{},
 		state:           initialState,
 		expandQuota:     false,
+		refreshingQuota: true,
 	}
 }
 
@@ -629,15 +630,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.addActivity("⚠️ Cannot switch while task is running")
 			}
 		case "r":
-			if m.showEventDetail {
-				// Toggle raw JSON view in detail panel
-				m.showRawDetail = !m.showRawDetail
-				m.detailScroll = 0
-			} else {
-				// Refresh tasks/quota
-				m.addActivity("🔄 Refreshing...")
-				return m, tea.Batch(checkQuota(m.accountPool), fetchTasks(m.repoPath, m.projectBranch))
-			}
+			// Refresh tasks/quota
+			m.refreshingQuota = true
+			return m, tea.Batch(checkQuota(m.accountPool), fetchTasks(m.repoPath, m.projectBranch))
+
 		case "p":
 			if m.state == StateRunning {
 				m.state = StatePaused
@@ -883,6 +879,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Periodic operations (based on tickCount, not cycle)
 		if m.tickCount%25 == 0 { // Every 25 seconds
 			m.addLog("🔄 Quota check")
+			m.refreshingQuota = true
 			cmds = append(cmds, checkQuota(m.accountPool))
 		}
 		if m.tickCount%50 == 0 { // Every 50 seconds
@@ -995,14 +992,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case quotaDetailMsg:
 		m.quotas = msg
 		m.quotaLoaded = true
-		// Direct file write for debugging
-		logPath := orchestratorLogPath()
-		f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if f != nil {
-			f.WriteString(fmt.Sprintf("[%s] ✅ Quotas loaded: %v\n", time.Now().Format("15:04:05"), m.quotas))
-			f.Close()
-		}
-		m.addLog(fmt.Sprintf("✅ Quotas loaded: %d accounts", len(m.quotas)))
+		m.refreshingQuota = false
 		m.addActivity(fmt.Sprintf("📊 Quotas loaded for %d accounts", len(m.quotas)))
 		// Check for ready tasks if we have tasks and quota
 		if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed && len(m.tasks) > 0 {
@@ -1436,22 +1426,43 @@ func (m model) renderQuotaHearts(percent int, flash bool) string {
 	var result string
 	heart := "♥"
 
-	// True color: red (#990000) to grey (#535360)
-	// RGB: red = (153, 0, 0), grey = (83, 83, 96)
+	// Determine base color based on overall percentage
+	baseColor := "#990000" // 0-49%: Red
+	if percent >= 80 {
+		baseColor = "#008000" // 80-100%: Green
+	} else if percent >= 50 {
+		baseColor = "#FF8C00" // 50-79%: Orange
+	}
+
+	// Sweep animation when refreshing
+	sweepIndex := -1
+	if m.refreshingQuota {
+		sweepIndex = int(m.tickCount % 8) // Sweep 5 hearts + some pause
+	}
 
 	for i := 0; i < 5; i++ {
 		var heartStyle lipgloss.Style
+		if i == sweepIndex {
+			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFFF")).Bold(true)
+			result += heartStyle.Render(heart)
+			continue
+		}
+
 		if i < fullHearts {
-			// Full red heart
-			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#990000"))
+			// Full heart with base color
+			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(baseColor))
 		} else if i == fullHearts && partialPercent > 0 {
-			// Transitioning heart - blend from red to grey
-			// partialPercent 19 = almost full (red), 1 = almost empty (grey)
-			// Linear interpolation: color = red + (grey - red) * (20 - partial) / 20
+			// Transitioning heart - blend from base color to grey
+			// partialPercent 19 = almost full (baseColor), 1 = almost empty (grey)
 			ratio := float64(20-partialPercent) / 20.0
-			r := int(153.0 - (153.0-83.0)*ratio)
-			g := int(0.0 + 83.0*ratio)
-			b := int(0.0 + 96.0*ratio)
+			var br, bg, bb int
+			fmt.Sscanf(baseColor, "#%02X%02X%02X", &br, &bg, &bb)
+
+			gr, gg, gb := 83, 83, 96 // Grey RGB (#535360)
+			r := int(float64(br) + float64(gr-br)*ratio)
+			g := int(float64(bg) + float64(gg-bg)*ratio)
+			b := int(float64(bb) + float64(gb-bb)*ratio)
+
 			hexColor := fmt.Sprintf("#%02X%02X%02X", r, g, b)
 			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(hexColor))
 		} else {
@@ -1494,18 +1505,44 @@ func (m model) renderQuotaBar(percent, barLen int) string {
 
 	filled := percent * barLen / 100
 
-	// Determine color based on percentage
-	baseColor := "#008000" // Green
-	if percent < 20 {
-		baseColor = "#FF0000" // Red
-	} else if percent < 50 {
-		baseColor = "#FF8C00" // Orange
-	} else if percent < 80 {
-		baseColor = "#FFFF00" // Yellow
+	// Determine color based on percentage with a smooth gradient
+	// Green (#00FF00) -> Yellow (#FFFF00) -> Red (#FF0000)
+	var r, g, b int
+	if percent >= 50 {
+		// Green to Yellow: (100-percent)/50 ratio
+		ratio := float64(100-percent) / 50.0
+		r = int(255.0 * ratio)
+		g = 255
+		b = 0
+	} else {
+		// Yellow to Red: (50-percent)/50 ratio
+		ratio := float64(50-percent) / 50.0
+		r = 255
+		g = int(255.0 * (1.0 - ratio))
+		b = 0
 	}
+	hexColor := fmt.Sprintf("#%02X%02X%02X", r, g, b)
 
-	style := lipgloss.NewStyle().Foreground(lipgloss.Color(baseColor))
+	style := lipgloss.NewStyle().Foreground(lipgloss.Color(hexColor))
 	emptyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#535360"))
+
+	// Animation effect when refreshing
+	if m.refreshingQuota {
+		scanPos := m.tickCount % barLen
+		var result strings.Builder
+		for i := 0; i < barLen; i++ {
+			if i == scanPos {
+				// Bright block for scanning effect
+				whiteStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true)
+				result.WriteString(whiteStyle.Render("█"))
+			} else if i < filled {
+				result.WriteString(style.Render("█"))
+			} else {
+				result.WriteString(emptyStyle.Render("░"))
+			}
+		}
+		return result.String()
+	}
 
 	return style.Render(strings.Repeat("█", filled)) + emptyStyle.Render(strings.Repeat("░", barLen-filled))
 }
@@ -1762,12 +1799,12 @@ func (m model) View() string {
 		sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#535360"))
 		sep := sepStyle.Render("│")
 
-		// Column width for account data: hearts(5) + space(1) + %(4) = 10, plus padding
-		colWidth := 12
+		// Column width for account data: hearts(5) + bar(5) + space(1) + %(4) = 16, plus padding
+		colWidth := 18
 
 		// Table format: rows = models, columns = accounts
 		// Header row with account names (right-aligned model column, centered account names)
-		quotaPanelContent += fmt.Sprintf("%22s ", "") // Right-align model names (22 chars for "gemini-3-flash-preview")
+		quotaPanelContent += fmt.Sprintf("%10s ", "") // Right-align model names (10 chars)
 		for i, name := range accountNames {
 			// Truncate name if too long
 			displayName := name
@@ -1785,7 +1822,7 @@ func (m model) View() string {
 		quotaPanelContent += "\n"
 
 		// Flash row (right-aligned model name)
-		quotaPanelContent += fmt.Sprintf("%22s ", "gemini-3-flash-preview")
+		quotaPanelContent += fmt.Sprintf("%10s ", "flash")
 		for i, name := range accountNames {
 			quota := m.quotas[name]
 			if i > 0 {
@@ -1796,13 +1833,14 @@ func (m model) View() string {
 				quotaPanelContent += errorStyle.Render(fmt.Sprintf("%-*s", colWidth, "⚠ err"))
 			} else {
 				hearts := m.renderQuotaHearts(quota.Flash, flashLow && quota.Flash < 10)
-				quotaPanelContent += fmt.Sprintf("%s %3d%%", hearts, quota.Flash)
+				bar := m.renderQuotaBar(quota.Flash, 5)
+				quotaPanelContent += fmt.Sprintf("%s %s %3d%%", hearts, bar, quota.Flash)
 			}
 		}
 		quotaPanelContent += "\n"
 
 		// Pro row (right-aligned model name)
-		quotaPanelContent += fmt.Sprintf("%22s ", "gemini-3-pro-preview")
+		quotaPanelContent += fmt.Sprintf("%10s ", "pro")
 		for i, name := range accountNames {
 			quota := m.quotas[name]
 			if i > 0 {
@@ -1813,7 +1851,8 @@ func (m model) View() string {
 				quotaPanelContent += errorStyle.Render(fmt.Sprintf("%-*s", colWidth, "⚠ err"))
 			} else {
 				hearts := m.renderQuotaHearts(quota.Pro, flashLow && quota.Pro < 10)
-				quotaPanelContent += fmt.Sprintf("%s %3d%%", hearts, quota.Pro)
+				bar := m.renderQuotaBar(quota.Pro, 5)
+				quotaPanelContent += fmt.Sprintf("%s %s %3d%%", hearts, bar, quota.Pro)
 			}
 		}
 		quotaPanelContent += "\n"
