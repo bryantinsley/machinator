@@ -1429,8 +1429,52 @@ func (m model) View() string {
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, tasksPanel, agentPanel)
 
-	// Add Agent Grid (already rendered)
-	content := lipgloss.JoinVertical(lipgloss.Left, grid, panels)
+	// Build quota panel (to the right of agent grid)
+	quotaPanelContent := "📊 Quotas\n\n"
+	if m.quotaLoaded {
+		for name, percent := range m.quotas {
+			var statusStr string
+			var barStyle lipgloss.Style
+
+			if percent < 0 {
+				// Error state
+				barStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+				statusStr = fmt.Sprintf("  %s: %s\n", name, barStyle.Bold(true).Render("ERROR - Check auth"))
+			} else {
+				// Color based on percentage
+				if percent < 10 {
+					barStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
+				} else if percent < 30 {
+					barStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("220")) // Yellow
+				} else {
+					barStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("46")) // Green
+				}
+
+				// Longer bar for the panel (10 chars)
+				barLen := 10
+				filled := percent * barLen / 100
+				bar := strings.Repeat("█", filled) + strings.Repeat("░", barLen-filled)
+
+				statusStr = fmt.Sprintf("  %s\n  %s %d%%\n\n", name, barStyle.Render(bar), percent)
+			}
+			quotaPanelContent += statusStr
+		}
+	} else {
+		quotaPanelContent += "  Loading..."
+	}
+
+	// Create quota panel with same height as grid
+	quotaPanelWidth := m.width - lipgloss.Width(grid) - 4
+	if quotaPanelWidth < 20 {
+		quotaPanelWidth = 20
+	}
+	quotaPanel := panelStyle.Width(quotaPanelWidth).Height(gridHeight).MaxHeight(gridHeight).Render(quotaPanelContent)
+
+	// Join grid and quota panel horizontally
+	topSection := lipgloss.JoinHorizontal(lipgloss.Top, grid, quotaPanel)
+
+	// Add top section above panels
+	content := lipgloss.JoinVertical(lipgloss.Left, topSection, panels)
 
 	// If showing event details, overlay a detail panel
 	// If showing quit confirmation, show modal
