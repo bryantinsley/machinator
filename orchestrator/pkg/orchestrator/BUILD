@@ -26,6 +26,8 @@ go_library(
 go_test(
     name = "orchestrator_test",
     srcs = [
+        "git_prep_test.go",
+        "multi_agent_test.go",
         "pull_test.go",
         "quota_render_test.go",
         "quota_visual_test.go",

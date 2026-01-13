@@ -2531,48 +2531,38 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 		if data, err := os.ReadFile(filepath.Join(projectRoot, "project.json")); err == nil {
 			json.Unmarshal(data, &pConfig)
 		}
+		if pConfig.Branch == "" {
+			pConfig.Branch = "main"
+		}
 
-		if pConfig.Branch != "" {
-			// Check current branch
-			cmd := execCommand("git", "branch", "--show-current")
-			cmd.Dir = agentDir
-			out, _ := cmd.Output()
-			currentBranch := strings.TrimSpace(string(out))
+		// Create a unique branch for this task based on target branch
+		// Worktrees can't share branches, so each agent gets machinator/<taskID>
+		{
+			taskBranch := fmt.Sprintf("machinator/%s", taskID)
 
-			if currentBranch != pConfig.Branch {
-				// Create a unique branch for this task based on target branch
-				// Worktrees can't share branches, so each agent gets machinator/<taskID>
-				taskBranch := fmt.Sprintf("machinator/%s", taskID)
+			f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if f != nil {
+				f.WriteString(fmt.Sprintf("[%s] 🔄 Preparing branch '%s' from 'origin/%s' in %s\n",
+					time.Now().Format("15:04:05"), taskBranch, pConfig.Branch, agentDir))
+				f.Close()
+			}
 
-				f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-				if f != nil {
-					f.WriteString(fmt.Sprintf("[%s] 🔄 Creating branch '%s' from '%s' in %s\n",
-						time.Now().Format("15:04:05"), taskBranch, pConfig.Branch, agentDir))
-					f.Close()
-				}
+			// Discard any local changes that would block checkout
+			resetCmd := execCommand("git", "reset", "--hard")
+			resetCmd.Dir = agentDir
+			resetCmd.Run()
 
-				// Discard any local changes that would block checkout
-				resetCmd := execCommand("git", "reset", "--hard")
-				resetCmd.Dir = agentDir
-				resetCmd.Run()
+			// First fetch the latest
+			fetchCmd := execCommand("git", "fetch", "origin", pConfig.Branch)
+			fetchCmd.Dir = agentDir
+			fetchCmd.Run()
 
-				// First fetch the latest
-				fetchCmd := execCommand("git", "fetch", "origin", pConfig.Branch)
-				fetchCmd.Dir = agentDir
-				fetchCmd.Run()
-
-				// Delete old task branch if it exists (force fresh start)
-				deleteCmd := execCommand("git", "branch", "-D", taskBranch)
-				deleteCmd.Dir = agentDir
-				deleteCmd.Run() // Ignore errors
-
-				// Create and checkout task branch from origin/<target branch>
-				// Use -B to force create/reset even if branch exists
-				checkout := execCommand("git", "checkout", "-B", taskBranch, "origin/"+pConfig.Branch)
-				checkout.Dir = agentDir
-				if err := checkout.Run(); err != nil {
-					return taskFailedMsg{agentID: agentID, taskID: taskID, reason: fmt.Sprintf("failed to create branch %s: %v", taskBranch, err)}
-				}
+			// Create and checkout task branch from origin/<target branch>
+			// Use -B to force create/reset even if branch exists
+			checkout := execCommand("git", "checkout", "-B", taskBranch, "origin/"+pConfig.Branch)
+			checkout.Dir = agentDir
+			if err := checkout.Run(); err != nil {
+				return taskFailedMsg{agentID: agentID, taskID: taskID, reason: fmt.Sprintf("failed to create branch %s: %v", taskBranch, err)}
 			}
 		}
 
@@ -2684,28 +2674,6 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 						}
 					}
 				}
-			}
-		}
-
-		// Ensure we have the latest code before launching gemini
-		pullCmd := execCommand("git", "pull", "--ff-only")
-		pullCmd.Dir = agentDir
-		if out, err := pullCmd.CombinedOutput(); err != nil {
-			output := string(out)
-			// Only fail if it's a fast-forward error or conflict
-			if strings.Contains(output, "Not possible to fast-forward") || strings.Contains(output, "Conflict") {
-				f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-				if f != nil {
-					f.WriteString(fmt.Sprintf("[%s] ❌ git pull conflict: %s\n", time.Now().Format("15:04:05"), output))
-					f.Close()
-				}
-				return taskFailedMsg{agentID: agentID, taskID: taskID, reason: "BLOCKED: GIT_CONFLICT"}
-			}
-			// Log other errors (like no upstream) but continue
-			f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if f != nil {
-				f.WriteString(fmt.Sprintf("[%s] ℹ️ git pull skipped/failed: %v\n", time.Now().Format("15:04:05"), strings.TrimSpace(output)))
-				f.Close()
 			}
 		}
 
