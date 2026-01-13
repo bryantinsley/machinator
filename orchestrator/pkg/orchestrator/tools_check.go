@@ -122,7 +122,7 @@ func (m ToolsCheckModel) View() string {
 
 	case ToolsCheckStateInstalling:
 		content = "⬇️  Installing Gemini CLI...\n\n" +
-			"Running: go install ./tools/dummy-gemini"
+			"Running: go install ./orchestrator/tools/dummy-gemini"
 
 	case ToolsCheckStateFailed:
 		content = fmt.Sprintf("❌ Gemini CLI check failed\n\nError: %v\n\n", m.Err)
@@ -219,7 +219,7 @@ func installGeminiCLI() tea.Msg {
 	// We'll install the dummy-gemini tool
 	// Assuming running in a context where go is available and GOPATH is set up (checked by env setup)
 
-	cmd := exec.Command("go", "install", "./tools/dummy-gemini")
+	cmd := exec.Command("go", "install", "./orchestrator/tools/dummy-gemini")
 	cmd.Dir = projectRoot
 
 	out, err := cmd.CombinedOutput()
@@ -242,7 +242,7 @@ func installGeminiCLI() tea.Msg {
 		// Or better, build it specifically as 'gemini'.
 		machinatorDir := setup.GetMachinatorDir()
 		os.MkdirAll(machinatorDir, 0755)
-		buildCmd := exec.Command("go", "build", "-o", filepath.Join(machinatorDir, "gemini"), "./tools/dummy-gemini")
+		buildCmd := exec.Command("go", "build", "-o", filepath.Join(machinatorDir, "gemini"), "./orchestrator/tools/dummy-gemini")
 		buildCmd.Dir = projectRoot
 		out2, err2 := buildCmd.CombinedOutput()
 		output += "\nBuild output:\n" + string(out2)

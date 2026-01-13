@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -22,108 +23,119 @@ type ACPEvent struct {
 }
 
 func main() {
+	os.Exit(run(os.Stdout, os.Getenv, os.Args[1:]))
+}
+
+func run(w io.Writer, getEnv func(string) string, args []string) int {
 	// Define flags
-	_ = flag.String("prompt", "", "Prompt for the LLM")
-	_ = flag.String("repo", "", "Repository path")
-	_ = flag.Int("tokens", 0, "Token limit")
-	_ = flag.String("model", "", "Model name")
-	_ = flag.Float64("temperature", 0.0, "Sampling temperature")
-	_ = flag.Bool("json", false, "Output in JSON format (ignored, we use stream-json if requested or default for ACP)")
-	_ = flag.Bool("yolo", false, "YOLO mode")
-	_ = flag.String("output-format", "", "Output format")
-	version := flag.Bool("version", false, "Show version")
-	dumpQuota := flag.Bool("dump-quota", false, "Dump quota information")
+	fs := flag.NewFlagSet("dummy-gemini", flag.ContinueOnError)
+	fs.SetOutput(io.Discard) // Silence flag errors in run, let caller handle or ignore
+
+	_ = fs.String("prompt", "", "Prompt for the LLM")
+	_ = fs.String("repo", "", "Repository path")
+	_ = fs.Int("tokens", 0, "Token limit")
+	_ = fs.String("model", "", "Model name")
+	_ = fs.Float64("temperature", 0.0, "Sampling temperature")
+	_ = fs.Bool("json", false, "Output in JSON format (ignored, we use stream-json if requested or default for ACP)")
+	_ = fs.Bool("yolo", false, "YOLO mode")
+	_ = fs.String("output-format", "", "Output format")
+	version := fs.Bool("version", false, "Show version")
+	dumpQuota := fs.Bool("dump-quota", false, "Dump quota information")
 
 	// Flags for compatibility but ignored
-	_ = flag.String("system", "", "System prompt")
+	_ = fs.String("system", "", "System prompt")
 
-	flag.Parse()
+	if err := fs.Parse(args); err != nil {
+		// Ignore flag errors for now as we might receive unknown flags
+	}
 
 	if *version {
-		fmt.Println("dummy-gemini v0.2.0")
-		return
+		fmt.Fprintln(w, "dummy-gemini v0.2.0")
+		return 0
 	}
 
 	if *dumpQuota {
-		fmt.Println(`{"quota": 100, "remaining": 1000000}`)
-		return
+		fmt.Fprintln(w, `{"quota": 100, "remaining": 1000000}`)
+		return 0
 	}
 
-	mode := strings.ToLower(os.Getenv("DUMMY_GEMINI_MODE"))
+	mode := strings.ToLower(getEnv("DUMMY_GEMINI_MODE"))
 	if mode == "" {
-		mode = strings.ToLower(os.Getenv("GEMINI_MODE"))
+		mode = strings.ToLower(getEnv("GEMINI_MODE"))
 	}
 	if mode == "" {
 		mode = "happy"
 	}
 
-	// Default to stream-json style for most modes as requested by task ("Outputs ACP-format JSON events")
-	// Unless specified otherwise by mode-specific logic.
-
 	switch mode {
 	case "error":
-		printError()
+		return printError(w)
 	case "stuck":
 		// Hang indefinitely
+		if getEnv("TEST_STUCK_TIMEOUT") != "" {
+			return 0
+		}
 		select {}
 	case "scripted":
-		printScripted()
+		return printScripted(w, getEnv)
 	case "happy":
-		printHappy()
+		return printHappy(w)
 	default:
 		// Fallback for any other modes that might have been there
 		if mode == "auto_close" {
-			printAutoClose(flag.Arg(0))
+			return printAutoClose(w, fs.Arg(0))
 		} else {
-			printHappy()
+			return printHappy(w)
 		}
 	}
 }
 
-func emit(event ACPEvent) {
+func emit(w io.Writer, event ACPEvent) {
 	b, _ := json.Marshal(event)
-	fmt.Println(string(b))
+	fmt.Fprintln(w, string(b))
 }
 
-func printHappy() {
-	emit(ACPEvent{Type: "init", Model: "dummy-model-3.5"})
+func printHappy(w io.Writer) int {
+	emit(w, ACPEvent{Type: "init", Model: "dummy-model-3.5"})
 	time.Sleep(1 * time.Second)
-	emit(ACPEvent{
+	emit(w, ACPEvent{
 		Type:    "message",
 		Role:    "assistant",
 		Content: "This is a happy mock response from dummy-gemini.",
 	})
 	time.Sleep(1 * time.Second)
-	emit(ACPEvent{Type: "result", Status: "success"})
+	emit(w, ACPEvent{Type: "result", Status: "success"})
+	return 0
 }
 
-func printError() {
-	emit(ACPEvent{
+func printError(w io.Writer) int {
+	emit(w, ACPEvent{
 		Type:    "error",
 		Status:  "failure",
 		Content: "Quota exceeded: You have reached your limit.",
 	})
-	os.Exit(1)
+	return 1
 }
 
-func printScripted() {
-	scriptPath := os.Getenv("DUMMY_GEMINI_SCRIPT")
+func printScripted(w io.Writer, getEnv func(string) string) int {
+	scriptPath := getEnv("DUMMY_GEMINI_SCRIPT")
 	if scriptPath == "" {
 		fmt.Fprintln(os.Stderr, "Error: DUMMY_GEMINI_SCRIPT env var not set")
-		os.Exit(1)
+		return 1
 	}
 
 	content, err := os.ReadFile(scriptPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading script file: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	// We assume the script file already contains the JSON events line by line
-	fmt.Print(string(content))
+	fmt.Fprint(w, string(content))
+	return 0
 }
 
-func printAutoClose(directive string) {
+func printAutoClose(w io.Writer, directive string) int {
 	// Find TaskID in directive. It's usually after "Beads Task: " or "Task "
 	taskID := "unknown"
 	if idx := strings.Index(directive, "Beads Task: "); idx != -1 {
@@ -138,26 +150,27 @@ func printAutoClose(directive string) {
 		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-')
 	})
 
-	emit(ACPEvent{Type: "init", Model: "dummy-model-3.5"})
-	emit(ACPEvent{
+	emit(w, ACPEvent{Type: "init", Model: "dummy-model-3.5"})
+	emit(w, ACPEvent{
 		Type:    "message",
 		Role:    "assistant",
 		Content: fmt.Sprintf("I will now close task %s.", taskID),
 	})
-	emit(ACPEvent{
+	emit(w, ACPEvent{
 		Type:     "tool_use",
 		ToolName: "run_shell_command",
 		ToolID:   "t1",
 		ToolArgs: map[string]interface{}{"command": fmt.Sprintf("./bd close %s", taskID)},
 	})
 
-	emit(ACPEvent{
+	emit(w, ACPEvent{
 		Type:    "tool_result",
 		ToolID:  "t1",
 		Status:  "success",
 		Content: fmt.Sprintf("Closed %s", taskID),
 	})
-	emit(ACPEvent{Type: "result", Status: "success"})
+	emit(w, ACPEvent{Type: "result", Status: "success"})
+	return 0
 }
 
 func extractFirstWord(s string) string {

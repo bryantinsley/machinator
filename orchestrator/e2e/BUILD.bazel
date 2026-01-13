@@ -13,7 +13,7 @@ go_test(
         "//orchestrator/cmd/machinator",
         "//templates",
         "//testdata/fixture-repo:files",
-        "//tools/dummy-gemini",
+        "//orchestrator/tools/dummy-gemini",
     ],
     deps = ["@rules_go//go/runfiles"],
 )
@@ -22,7 +22,7 @@ filegroup(
     name = "auto_built_binaries",
     srcs = [
         "//orchestrator/cmd/machinator:machinator-linux",
-        "//tools/dummy-gemini:dummy-gemini-linux",
+        "//orchestrator/tools/dummy-gemini:dummy-gemini-linux",
     ],
 )
 
@@ -43,6 +43,6 @@ sh_test(
         "//orchestrator/e2e:crud.tape",
         "//orchestrator/e2e:orchestrator_main.tape",
         "//testdata/vhs-fixture:files",
-        "//tools/dummy-gemini:dummy-gemini-linux",
+        "//orchestrator/tools/dummy-gemini:dummy-gemini-linux",
     ],
 )

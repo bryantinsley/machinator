@@ -66,8 +66,8 @@ func setupHarness(t *testing.T) *Harness {
 
 		// Potential paths for Gemini
 		geminiPaths := []string{
-			"_main/tools/dummy-gemini/dummy-gemini_/dummy-gemini",
-			"_main/tools/dummy-gemini/dummy-gemini",
+			"_main/orchestrator/tools/dummy-gemini/dummy-gemini_/dummy-gemini",
+			"_main/orchestrator/tools/dummy-gemini/dummy-gemini",
 		}
 		for _, p := range geminiPaths {
 			if loc, _ := rf.Rlocation(p); loc != "" {
