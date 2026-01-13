@@ -108,13 +108,13 @@ func (p *Pool) hasQuota(acc Account) bool {
 	cmd.Env = append(os.Environ(), "HOME="+acc.HomeDir)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// If command fails, assume it has quota to avoid blocking
-		return true
+		// If command fails, account is broken - don't use it
+		return false
 	}
 
 	var resp quotaResponse
 	if err := json.Unmarshal(output, &resp); err != nil {
-		return true
+		return false // Parse error - account may be broken
 	}
 
 	modelsToCheck := []string{"gemini-3-flash-preview", "gemini-3-pro-preview"}

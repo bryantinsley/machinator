@@ -226,7 +226,7 @@ func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
 
 	// Default config
 	config := Config{
-		AgentName:          getEnvOrDefault("BD_AGENT_NAME", "Gemini-01"),
+		AgentName:          getEnvOrDefault("BD_AGENT_NAME", "CoderAgent-01"),
 		MaxCycles:          10000,
 		SleepDuration:      60 * time.Second,
 		QuotaCheckInterval: 5 * time.Minute,
@@ -2064,9 +2064,38 @@ func executeTask(taskID, agentName, projectRoot, repoPath string, pool *accountp
 		// ║  This allows the TUI tick to run (updating timers) while Gemini executes.    ║
 		// ║  DO NOT "optimize" or "simplify" this code without extensive testing!        ║
 		// ╚══════════════════════════════════════════════════════════════════════════════╝
+
+		// Determine model based on CHALLENGE tag in task description
+		modelFlag := "gemini-2.5-flash" // Default to Flash (cheaper, faster)
+
+		// Fetch task description to check for CHALLENGE tag
+		bdShowCmd := exec.Command("bd", "show", taskID, "--json")
+		bdShowCmd.Dir = repoPath
+		if taskOutput, err := bdShowCmd.Output(); err == nil {
+			var taskData map[string]interface{}
+			if json.Unmarshal(taskOutput, &taskData) == nil {
+				if desc, ok := taskData["description"].(string); ok {
+					if strings.Contains(desc, "CHALLENGE:complex") {
+						modelFlag = "gemini-2.5-pro" // Use Pro for complex tasks
+						f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+						if f != nil {
+							f.WriteString(fmt.Sprintf("[%s] 🧠 Complex task detected, using %s\n", time.Now().Format("15:04:05"), modelFlag))
+							f.Close()
+						}
+					} else {
+						f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+						if f != nil {
+							f.WriteString(fmt.Sprintf("[%s] ⚡ Simple task (default), using %s\n", time.Now().Format("15:04:05"), modelFlag))
+							f.Close()
+						}
+					}
+				}
+			}
+		}
+
 		machinatorDir := setup.GetMachinatorDir()
 		geminiPath := filepath.Join(machinatorDir, "gemini")
-		geminiCmd := exec.Command(geminiPath, "--yolo", "--output-format", "stream-json", directive)
+		geminiCmd := exec.Command(geminiPath, "--yolo", "--model", modelFlag, "--output-format", "stream-json", directive)
 		geminiCmd.Dir = agentDir
 
 		// Set environment variables, including HOME for the selected account
