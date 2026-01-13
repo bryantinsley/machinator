@@ -645,3 +645,23 @@ func TestHelpModalGolden(t *testing.T) {
 	teatest.RequireEqualOutput(t, out)
 
 }
+
+func TestValidationModalGolden(t *testing.T) {
+	m := initialModel()
+	m.width = 80
+	m.height = 24
+	m.screen = screenValidatingAccount
+	m.newAccountName = "test-account"
+	m.validationStartTime = time.Now().Add(-5 * time.Second)
+	m.validationFlash = 75
+	m.validationPro = 90
+
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 24))
+	tm.Send(tea.Quit())
+	tm.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
+}

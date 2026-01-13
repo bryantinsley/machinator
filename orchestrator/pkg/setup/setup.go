@@ -322,7 +322,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouse(msg)
 
 	case tickMsg:
+		if m.screen == screenValidatingAccount && !m.validationStartTime.IsZero() {
+			if time.Since(m.validationStartTime) > 10*time.Second {
+				m.addStatus("Validation timed out")
+				m.screen = screenAddAccountAuth
+				m.validationStartTime = time.Time{}
+			}
+		}
 		return m, tick()
+
+	case accountQuotaMsg:
+		if m.screen == screenValidatingAccount {
+			m.validationFlash = msg.flash
+			m.validationPro = msg.pro
+			if msg.err != nil {
+				m.addStatus(fmt.Sprintf("Quota check failed: %v", msg.err))
+			} else {
+				m.addStatus(fmt.Sprintf("Quota validated: Flash %d%%, Pro %d%%", msg.flash, msg.pro))
+			}
+			// Stay on validation screen for a moment to show results, or transition?
+			// The goal says "Quota check result updates modal correctly".
+			// I'll need to implement view for screenValidatingAccount.
+		}
+		return m, nil
 
 	case initCheckMsg:
 		m.machinatorExists = msg.machinatorExists
@@ -385,16 +407,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addStatus("Account added successfully")
 
 	case geminiAuthDoneMsg:
-		// Gemini exited after interactive auth - reload accounts to check auth status
+		// Gemini exited after interactive auth - transition to validating state
+		m.screen = screenValidatingAccount
+		m.validationStartTime = time.Now()
+		m.validationError = msg.err
+		m.validationFlash = -1
+		m.validationPro = -1
+
 		if msg.err != nil {
 			m.addStatus(fmt.Sprintf("Gemini auth error: %v", msg.err))
-		} else {
-			m.addStatus("Authentication complete - type /quit in Gemini when done")
+			return m, nil
 		}
-		// Reload accounts to reflect any auth changes
-		accounts, _ := GetAccounts(m.machinatorDir)
-		m.accounts = accounts
-		// Stay on the Google info screen so user can finish or try again
+
+		m.addStatus("Validating account quota...")
+		return m, m.validateAccountQuota(m.newAccountName)
 
 	case agentProgressMsg:
 		m.addStatus(string(msg))
@@ -543,6 +569,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleConfirmDeleteAccountKeys(key)
 	case screenRenameAccountInput:
 		return m.handleRenameAccountInputKeys(key, msg)
+	case screenValidatingAccount:
+		return m.handleValidatingAccountKeys(key)
 	}
 
 	return m, nil
@@ -903,6 +931,15 @@ func (m model) viewAddProjectBranchLeft(yOffset int) string {
 	return b.String()
 }
 
+func (m model) handleValidatingAccountKeys(key string) (tea.Model, tea.Cmd) {
+	if m.validationFlash != -1 || m.validationPro != -1 || m.validationError != nil {
+		if key == "enter" || key == "esc" || key == "q" {
+			return m, m.finishAddAccount()
+		}
+	}
+	return m, nil
+}
+
 func (m model) handleConfirmExitKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "tab", "left", "right":
@@ -1119,6 +1156,8 @@ func (m model) View() string {
 			modal = m.renderDeleteAccountDialog()
 		case screenRenameAccountInput:
 			modal = m.renderRenameAccountModal()
+		case screenValidatingAccount:
+			modal = m.renderValidationModal()
 		}
 	}
 
@@ -1438,6 +1477,34 @@ func (m model) viewAddProjectCloningLeft(yOffset int) string {
 	b.WriteString(statusLoading + " " + m.progressMsg)
 
 	return b.String()
+}
+
+func (m model) renderValidationModal() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("🔍 Validating Account"))
+	b.WriteString("\n\n")
+	b.WriteString(itemStyle.Render(m.newAccountName))
+	b.WriteString("\n\n")
+
+	if m.validationFlash == -1 && m.validationPro == -1 {
+		elapsed := time.Since(m.validationStartTime).Seconds()
+		b.WriteString(statusLoading + fmt.Sprintf(" Checking quota... (%.0fs)", elapsed))
+	} else {
+		b.WriteString("Quota results:\n")
+		b.WriteString(fmt.Sprintf("  Gemini Flash: %d%%\n", m.validationFlash))
+		b.WriteString(fmt.Sprintf("  Gemini Pro:   %d%%\n", m.validationPro))
+		b.WriteString("\n")
+		b.WriteString(successStyle.Render("✓ Account validated"))
+		b.WriteString("\n\n")
+		b.WriteString(dimStyle.Render("Press Enter to continue"))
+	}
+
+	if m.validationError != nil {
+		b.WriteString("\n\n")
+		b.WriteString(errorStyle.Render(fmt.Sprintf("✗ Error: %v", m.validationError)))
+	}
+
+	return modalStyle.Width(40).Render(b.String())
 }
 
 func (m model) renderHelpModal() string {
@@ -2456,6 +2523,56 @@ func (m model) viewAddAccountNameLeft(yOffset int) string {
 	m.clickDispatcher.Register(cancelBtn)
 
 	return b.String()
+}
+
+func (m model) validateAccountQuota(accountName string) tea.Cmd {
+	return func() tea.Msg {
+		accountDir := filepath.Join(m.machinatorDir, "accounts", accountName)
+		geminiPath := m.geminiCLIPath
+
+		cmd := exec.Command(geminiPath, "--dump-quota")
+		cmd.Env = append(os.Environ(),
+			"GEMINI_CLI_HOME="+accountDir,
+			"GEMINI_FORCE_FILE_STORAGE=true",
+		)
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return accountQuotaMsg{err: err}
+		}
+
+		// Extract JSON from output
+		outputStr := string(output)
+		jsonStart := strings.Index(outputStr, "{")
+		jsonEnd := strings.LastIndex(outputStr, "}")
+		if jsonStart == -1 || jsonEnd == -1 || jsonEnd < jsonStart {
+			return accountQuotaMsg{err: fmt.Errorf("invalid quota output")}
+		}
+		jsonStr := outputStr[jsonStart : jsonEnd+1]
+
+		var response struct {
+			Buckets []struct {
+				ModelID           string  `json:"modelId"`
+				RemainingFraction float64 `json:"remainingFraction"`
+			} `json:"buckets"`
+		}
+		if err := json.Unmarshal([]byte(jsonStr), &response); err != nil {
+			return accountQuotaMsg{err: err}
+		}
+
+		flash, pro := -1, -1
+		for _, bucket := range response.Buckets {
+			percent := int(bucket.RemainingFraction * 100)
+			switch bucket.ModelID {
+			case "gemini-3-flash-preview":
+				flash = percent
+			case "gemini-3-pro-preview":
+				pro = percent
+			}
+		}
+
+		return accountQuotaMsg{flash: flash, pro: pro}
+	}
 }
 
 func (m model) viewAddAccountAuthLeft(yOffset int) string {

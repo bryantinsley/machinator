@@ -89,6 +89,7 @@ const (
 	screenAddAccountAuth
 	screenConfirmDeleteAccount
 	screenRenameAccountInput
+	screenValidatingAccount
 )
 
 type geminiStatus int
@@ -172,6 +173,12 @@ type model struct {
 
 	// Progress channel for async updates
 	progressChan chan string
+
+	// Account validation after interactive auth
+	validationStartTime time.Time
+	validationError     error
+	validationFlash     int
+	validationPro       int
 }
 
 func initialModel() model {
@@ -260,6 +267,12 @@ type setScreenMsg screen
 type startAddProjectMsg struct{}
 type geminiAuthDoneMsg struct {
 	err error
+}
+
+type accountQuotaMsg struct {
+	flash int
+	pro   int
+	err   error
 }
 
 type tickMsg time.Time

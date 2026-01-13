@@ -24,6 +24,7 @@ go_test(
     srcs = [
         "accounts_test.go",
         "config_test.go",
+        "quota_validation_test.go",
         "rename_repro_test.go",
         "setup_test.go",
     ],
