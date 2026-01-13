@@ -87,6 +87,8 @@ const (
 	screenManageAccounts
 	screenAddAccountName
 	screenAddAccountAuth
+	screenConfirmDeleteAccount
+	screenRenameAccountInput
 )
 
 type geminiStatus int

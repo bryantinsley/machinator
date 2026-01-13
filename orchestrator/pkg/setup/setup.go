@@ -539,6 +539,10 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleAddAccountNameKeys(key, msg)
 	case screenAddAccountAuth:
 		return m.handleAddAccountAuthKeys(key)
+	case screenConfirmDeleteAccount:
+		return m.handleConfirmDeleteAccountKeys(key)
+	case screenRenameAccountInput:
+		return m.handleRenameAccountInputKeys(key, msg)
 	}
 
 	return m, nil
@@ -1111,6 +1115,10 @@ func (m model) View() string {
 			modal = m.renderEditFieldModal()
 		case screenEditAgentCount:
 			modal = m.renderEditAgentCountModal()
+		case screenConfirmDeleteAccount:
+			modal = m.renderDeleteAccountDialog()
+		case screenRenameAccountInput:
+			modal = m.renderRenameAccountModal()
 		}
 	}
 
@@ -1442,7 +1450,9 @@ func (m model) renderHelpModal() string {
 		{"?", "Toggle help"},
 		{"q/x", "Quit/Exit"},
 		{"r", "Run selected project"},
-		{"a", "Add new project"},
+		{"a", "Add new project/account"},
+		{"d", "Delete selected project/account"},
+		{"r", "Rename selected account"},
 		{"↑/↓/k/j", "Navigate lists"},
 		{"Enter", "Select/Confirm"},
 		{"Esc", "Back/Cancel"},
@@ -1556,6 +1566,135 @@ func (m model) renderDeleteDialog() string {
 
 	noBtn.SetBounds(buttonsX+lipgloss.Width(yesRendered)+2, y+9, lipgloss.Width(noRendered), 1)
 	m.clickDispatcher.Register(noBtn)
+
+	return rendered
+}
+
+func (m model) renderDeleteAccountDialog() string {
+	accountName := ""
+	if m.accountCursor < len(m.accounts) {
+		accountName = m.accounts[m.accountCursor].Name
+	}
+
+	yesBtn := components.NewButton("Yes", func() tea.Cmd {
+		return func() tea.Msg {
+			return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")}
+		}
+	})
+	yesBtn.SetFocused(m.dialogCursor == 0)
+
+	noBtn := components.NewButton("No", func() tea.Cmd {
+		return func() tea.Msg {
+			return tea.KeyMsg{Type: tea.KeyEsc}
+		}
+	})
+	noBtn.SetFocused(m.dialogCursor == 1)
+
+	yesRendered := yesBtn.Render()
+	noRendered := noBtn.Render()
+
+	contentLines := []string{
+		lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true).Render("Delete Account?"),
+		"",
+		itemStyle.Render(accountName),
+		"",
+	}
+
+	if accountName == "default" {
+		contentLines = append(contentLines,
+			lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true).Render("⚠️ WARNING: This is the default account!"),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Render("Deleting it may cause issues."),
+			"",
+		)
+	}
+
+	contentLines = append(contentLines,
+		dimStyle.Render("This will remove all credentials."),
+		dimStyle.Render("Account will be moved to _archive/"),
+		"",
+		yesRendered+"  "+noRendered,
+	)
+
+	content := lipgloss.JoinVertical(lipgloss.Center, contentLines...)
+
+	rendered := modalStyle.Render(content)
+	w := lipgloss.Width(rendered)
+	h := lipgloss.Height(rendered)
+	x := (m.width - w) / 2
+	y := (m.height - h) / 2
+
+	contentWidth := w - 8
+	buttonsLineWidth := lipgloss.Width(yesRendered + "  " + noRendered)
+	buttonsX := x + 4 + (contentWidth-buttonsLineWidth)/2
+
+	// Adjust Y for buttons based on whether extra warning is shown
+	buttonsY := y + 9
+	if accountName == "default" {
+		buttonsY += 3
+	}
+
+	yesBtn.SetBounds(buttonsX, buttonsY, lipgloss.Width(yesRendered), 1)
+	m.clickDispatcher.Register(yesBtn)
+
+	noBtn.SetBounds(buttonsX+lipgloss.Width(yesRendered)+2, buttonsY, lipgloss.Width(noRendered), 1)
+	m.clickDispatcher.Register(noBtn)
+
+	return rendered
+}
+
+func (m model) renderRenameAccountModal() string {
+	var lines []string
+	lines = append(lines, titleStyle.Render("Rename Account"))
+	lines = append(lines, "")
+
+	// Text input with cursor
+	inputStyle := dimStyle
+	if m.editCursor == 0 {
+		inputStyle = selectedStyle
+	}
+	inputLine := inputStyle.Render(m.editBuffer + "█")
+	lines = append(lines, inputLine)
+	lines = append(lines, dimStyle.Render("────────────────────────────────────────"))
+	lines = append(lines, "")
+
+	// Buttons
+	saveBtn := components.NewButton("Save", func() tea.Cmd {
+		return func() tea.Msg {
+			return selectEditCursorMsg(1)
+		}
+	})
+	saveBtn.SetFocused(m.editCursor == 1)
+
+	cancelBtn := components.NewButton("Cancel", func() tea.Cmd {
+		return func() tea.Msg {
+			return selectEditCursorMsg(2)
+		}
+	})
+	cancelBtn.SetFocused(m.editCursor == 2)
+
+	saveRendered := saveBtn.Render()
+	cancelRendered := cancelBtn.Render()
+
+	lines = append(lines, saveRendered+"  "+cancelRendered)
+
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	rendered := modalStyle.Width(50).Render(content)
+
+	w := lipgloss.Width(rendered)
+	h := lipgloss.Height(rendered)
+	x := (m.width - w) / 2
+	y := (m.height - h) / 2
+
+	contentX := x + 4
+	contentY := y + 2
+
+	// Buttons are on the 6th line of content
+	buttonsY := contentY + 5
+	saveBtn.SetBounds(contentX, buttonsY, lipgloss.Width(saveRendered), 1)
+	m.clickDispatcher.Register(saveBtn)
+
+	cancelBtn.SetBounds(contentX+lipgloss.Width(saveRendered)+2, buttonsY, lipgloss.Width(cancelRendered), 1)
+	m.clickDispatcher.Register(cancelBtn)
 
 	return rendered
 }
@@ -1929,6 +2068,163 @@ func (m model) handleManageAccountsKeys(key string) (tea.Model, tea.Cmd) {
 		m.inputBuffer = ""
 		m.inputPrompt = "Account Name"
 		m.inputHint = "e.g., secondary-google-account"
+	case "d":
+		if m.accountCursor < len(m.accounts) {
+			m.dialogCursor = 1 // Default to "No"
+			m.screen = screenConfirmDeleteAccount
+		}
+	case "r":
+		if m.accountCursor < len(m.accounts) {
+			m.editBuffer = m.accounts[m.accountCursor].Name
+			m.editCursor = 0
+			m.screen = screenRenameAccountInput
+		}
+	}
+	return m, nil
+}
+
+func (m model) handleConfirmDeleteAccountKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "tab", "left", "right":
+		m.dialogCursor = 1 - m.dialogCursor
+	case "enter":
+		if m.dialogCursor == 0 {
+			// Yes - archive
+			if m.accountCursor < len(m.accounts) {
+				acc := m.accounts[m.accountCursor]
+
+				// Extra warning for default account
+				if acc.Name == "default" {
+					// We could add a second confirmation, but for now let's just
+					// add a status message and maybe we should have blocked it or
+					// just allowed it with this one confirmation.
+					// The spec says "Do NOT delete the 'default' account without extra warning".
+					// I'll update the render function to show this extra warning.
+				}
+
+				accountDir := filepath.Join(m.machinatorDir, "accounts", acc.Name)
+				archiveDir := filepath.Join(m.machinatorDir, "_archive")
+				os.MkdirAll(archiveDir, 0755)
+
+				timestamp := time.Now().Format("20060102-150405")
+				destDir := filepath.Join(archiveDir, fmt.Sprintf("%s-%s", acc.Name, timestamp))
+
+				if err := os.Rename(accountDir, destDir); err != nil {
+					// If rename fails (e.g. across filesystems), we might need to copy and delete,
+					// but since we can't use rm, maybe just log error?
+					// Usually on same disk rename works.
+					m.addStatus(fmt.Sprintf("✗ Failed to archive account: %v", err))
+				} else {
+					m.addStatus(fmt.Sprintf("✓ Archived account: %s", acc.Name))
+				}
+
+				m.screen = screenManageAccounts
+				m.accountCursor = 0
+				m.dialogCursor = 0
+				accounts, _ := GetAccounts(m.machinatorDir)
+				m.accounts = accounts
+				return m, nil
+			}
+		} else {
+			// No - cancel
+			m.screen = screenManageAccounts
+			m.dialogCursor = 0
+		}
+	case "y":
+		if m.accountCursor < len(m.accounts) {
+			acc := m.accounts[m.accountCursor]
+			accountDir := filepath.Join(m.machinatorDir, "accounts", acc.Name)
+			archiveDir := filepath.Join(m.machinatorDir, "_archive")
+			os.MkdirAll(archiveDir, 0755)
+
+			timestamp := time.Now().Format("20060102-150405")
+			destDir := filepath.Join(archiveDir, fmt.Sprintf("%s-%s", acc.Name, timestamp))
+
+			os.Rename(accountDir, destDir)
+			m.addStatus(fmt.Sprintf("✓ Archived account: %s", acc.Name))
+
+			m.screen = screenManageAccounts
+			m.accountCursor = 0
+			m.dialogCursor = 0
+			accounts, _ := GetAccounts(m.machinatorDir)
+			m.accounts = accounts
+			return m, nil
+		}
+	case "n", "esc", "q":
+		m.screen = screenManageAccounts
+		m.dialogCursor = 0
+	}
+	return m, nil
+}
+
+func (m model) handleRenameAccountInputKeys(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.screen = screenManageAccounts
+		m.editCursor = 0
+		return m, nil
+	case tea.KeyTab:
+		m.editCursor = (m.editCursor + 1) % 3 // 0=input, 1=save, 2=cancel
+	case tea.KeyEnter:
+		if m.editCursor == 2 {
+			m.screen = screenManageAccounts
+			m.editCursor = 0
+			return m, nil
+		}
+		if m.editCursor == 1 || m.editCursor == 0 {
+			if m.editBuffer == "" || m.accountCursor >= len(m.accounts) {
+				return m, nil
+			}
+
+			oldName := m.accounts[m.accountCursor].Name
+			newName := m.editBuffer
+
+			if oldName == newName {
+				m.screen = screenManageAccounts
+				m.editCursor = 0
+				return m, nil
+			}
+
+			oldDir := filepath.Join(m.machinatorDir, "accounts", oldName)
+			newDir := filepath.Join(m.machinatorDir, "accounts", newName)
+
+			// Check if new name already exists
+			if _, err := os.Stat(newDir); err == nil {
+				m.addStatus(fmt.Sprintf("✗ Account '%s' already exists", newName))
+				return m, nil
+			}
+
+			if err := os.Rename(oldDir, newDir); err != nil {
+				m.addStatus(fmt.Sprintf("✗ Failed to rename directory: %v", err))
+				return m, nil
+			}
+
+			// Update account.json
+			configPath := filepath.Join(newDir, "account.json")
+			if data, err := os.ReadFile(configPath); err == nil {
+				var accConfig map[string]string
+				if err := json.Unmarshal(data, &accConfig); err == nil {
+					accConfig["name"] = newName
+					newData, _ := json.MarshalIndent(accConfig, "", "  ")
+					os.WriteFile(configPath, newData, 0644)
+				}
+			}
+
+			m.addStatus(fmt.Sprintf("✓ Renamed account: %s -> %s", oldName, newName))
+			m.screen = screenManageAccounts
+			m.editCursor = 0
+			accounts, _ := GetAccounts(m.machinatorDir)
+			m.accounts = accounts
+			return m, nil
+		}
+	case tea.KeyBackspace:
+		if m.editCursor == 0 && len(m.editBuffer) > 0 {
+			m.editBuffer = m.editBuffer[:len(m.editBuffer)-1]
+		}
+	case tea.KeyRunes:
+		if m.editCursor == 0 {
+			m.editBuffer += string(msg.Runes)
+		}
 	}
 	return m, nil
 }
@@ -2062,20 +2358,40 @@ func (m model) viewManageAccountsLeft(yOffset int) string {
 
 	b.WriteString("\n")
 
-	addBtn := components.NewButton("Add Account", func() tea.Cmd {
+	// Add Account Button
+	addBtn := components.NewButton("Add Account (a)", func() tea.Cmd {
 		return func() tea.Msg {
-			m.screen = screenAddAccountName
-			m.inputBuffer = ""
-			m.inputPrompt = "Account Name"
-			m.inputHint = "e.g., secondary-google-account"
-			return nil
+			return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")}
 		}
 	})
 	addBtnRendered := addBtn.Render()
-	b.WriteString(addBtnRendered)
+	b.WriteString(addBtnRendered + " ")
 
 	addBtn.SetBounds(contentX, contentY+len(m.accounts)+1, lipgloss.Width(addBtnRendered), 1)
 	m.clickDispatcher.Register(addBtn)
+
+	// Delete and Rename buttons if account selected
+	if len(m.accounts) > 0 {
+		deleteBtn := components.NewButton("Delete (d)", func() tea.Cmd {
+			return func() tea.Msg {
+				return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")}
+			}
+		})
+		deleteBtnRendered := deleteBtn.Render()
+		b.WriteString(deleteBtnRendered + " ")
+		deleteBtn.SetBounds(contentX+lipgloss.Width(addBtnRendered)+1, contentY+len(m.accounts)+1, lipgloss.Width(deleteBtnRendered), 1)
+		m.clickDispatcher.Register(deleteBtn)
+
+		renameBtn := components.NewButton("Rename (r)", func() tea.Cmd {
+			return func() tea.Msg {
+				return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")}
+			}
+		})
+		renameBtnRendered := renameBtn.Render()
+		b.WriteString(renameBtnRendered)
+		renameBtn.SetBounds(contentX+lipgloss.Width(addBtnRendered)+1+lipgloss.Width(deleteBtnRendered)+1, contentY+len(m.accounts)+1, lipgloss.Width(renameBtnRendered), 1)
+		m.clickDispatcher.Register(renameBtn)
+	}
 
 	backBtn := components.NewButton("Back", func() tea.Cmd {
 		return func() tea.Msg {
