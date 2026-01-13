@@ -900,7 +900,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		select {
 		case doneMsg := <-geminiDoneChan:
 			// Route through Update handler so both legacy and multi-agent code can process it
-			return m, func() tea.Msg { return doneMsg }
+			// FIX: Must include tick() to keep the loop alive!
+			return m, tea.Batch(
+				func() tea.Msg { return doneMsg },
+				tick(),
+			)
 		default:
 			// No completion messages
 		}
@@ -2285,6 +2289,10 @@ func findReadyTask(tasks []Task, agentName string, failedTasks map[string]time.T
 		if task.Status == "in_progress" && task.Assignee == agentName {
 			// But skip if already claimed by another agent
 			if isTaskClaimed(task.ID) {
+				continue
+			}
+			// Skip if recently completed (agent finished but bd not synced yet)
+			if isTaskCompleted(task.ID) {
 				continue
 			}
 			// But skip if it recently failed
