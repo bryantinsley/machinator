@@ -1415,12 +1415,12 @@ func (m model) getQuotaStyle(percent int) lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color("46")) // Green
 }
 
-// renderQuotaHearts renders 10 hearts that change color based on quota percentage
+// renderQuotaHearts renders 5 hearts that fade from red to grey based on quota percentage
 func (m model) renderQuotaHearts(percent int, flash bool) string {
 	if percent < 0 {
 		// Error state - grey hearts
 		greyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#535360"))
-		return greyStyle.Render("♥♥♥♥♥♥♥♥♥♥")
+		return greyStyle.Render("♥♥♥♥♥")
 	}
 
 	// Clamp to 0-100
@@ -1428,70 +1428,53 @@ func (m model) renderQuotaHearts(percent int, flash bool) string {
 		percent = 100
 	}
 
-	// Each heart = 10%, so 10 hearts = 100%
-	fullHearts := percent / 10     // 0-10 full hearts
-	partialPercent := percent % 10 // 0-9 for the transitioning heart
+	// Calculate full hearts and partial heart
+	// Each heart = 20%, so 5 hearts = 100%
+	fullHearts := percent / 20     // 0-5 full hearts
+	partialPercent := percent % 20 // 0-19 for the transitioning heart
 
 	var result string
 	heart := "♥"
 
-	// Determine base color based on overall percentage
-	baseColor := "#008000" // 80-100%: Green
-	if percent < 20 {
-		baseColor = "#FF0000" // <20%: Red
-	} else if percent < 50 {
-		baseColor = "#FF8C00" // 20-49%: Orange
-	} else if percent < 80 {
-		baseColor = "#FFFF00" // 50-79%: Yellow
-	}
+	// True color: red (#990000) to grey (#535360)
+	// RGB: red = (153, 0, 0), grey = (83, 83, 96)
 
-	// Sweep animation when refreshing
-	sweepIndex := -1
-	if m.refreshingQuota {
-		sweepIndex = int(m.tickCount % 12) // Sweep 10 hearts + some pause
-	}
-
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 5; i++ {
 		var heartStyle lipgloss.Style
-
-		// Refreshing sweep effect
-		if i == sweepIndex {
-			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFFF")).Bold(true)
-			result += heartStyle.Render(heart)
-			continue
-		}
-
 		if i < fullHearts {
-			// Full heart with base color
-			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(baseColor))
-
-			// Pulse effect on low quota
-			if percent < 20 && flash {
-				heartStyle = heartStyle.Foreground(lipgloss.Color("#FFFFFF")).Bold(true) // Flash to White
-			}
+			// Full red heart
+			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#990000"))
 		} else if i == fullHearts && partialPercent > 0 {
-			// Transitioning heart - blend from base color to grey
-			ratio := float64(partialPercent) / 10.0
-
-			var tr, tg, tb int
-			fmt.Sscanf(baseColor, "#%02X%02X%02X", &tr, &tg, &tb)
-
-			gr, gg, gb := 83, 83, 96 // Grey RGB (#535360)
-			r := int(float64(gr) + float64(tr-gr)*ratio)
-			g := int(float64(gg) + float64(tg-gg)*ratio)
-			b := int(float64(gb) + float64(tb-gb)*ratio)
-
+			// Transitioning heart - blend from red to grey
+			// partialPercent 19 = almost full (red), 1 = almost empty (grey)
+			// Linear interpolation: color = red + (grey - red) * (20 - partial) / 20
+			ratio := float64(20-partialPercent) / 20.0
+			r := int(153.0 - (153.0-83.0)*ratio)
+			g := int(0.0 + 83.0*ratio)
+			b := int(0.0 + 96.0*ratio)
 			hexColor := fmt.Sprintf("#%02X%02X%02X", r, g, b)
 			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(hexColor))
-
-			if percent < 20 && flash {
-				heartStyle = heartStyle.Foreground(lipgloss.Color("#FFFFFF")).Bold(true)
-			}
 		} else {
 			// Empty grey heart
 			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#535360"))
 		}
 		result += heartStyle.Render(heart)
+	}
+
+	// Flash effect when below 10% - alternate with pink
+	if percent < 10 && percent > 0 && flash {
+		pinkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF69B4")) // Hot pink
+		// Re-render all filled hearts as pink for flash effect
+		result = ""
+		for i := 0; i < 5; i++ {
+			var heartStyle lipgloss.Style
+			if i < fullHearts || (i == fullHearts && partialPercent > 0) {
+				heartStyle = pinkStyle
+			} else {
+				heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#535360"))
+			}
+			result += heartStyle.Render(heart)
+		}
 	}
 
 	return result
@@ -1780,7 +1763,7 @@ func (m model) View() string {
 		sep := sepStyle.Render("│")
 
 		// Column width for account data: hearts(5) + space(1) + %(4) = 10, plus padding
-		colWidth := 11
+		colWidth := 12
 
 		// Table format: rows = models, columns = accounts
 		// Header row with account names (right-aligned model column, centered account names)
@@ -1813,8 +1796,7 @@ func (m model) View() string {
 				quotaPanelContent += errorStyle.Render(fmt.Sprintf("%-*s", colWidth, "⚠ err"))
 			} else {
 				hearts := m.renderQuotaHearts(quota.Flash, flashLow && quota.Flash < 10)
-				bar := m.renderQuotaBar(quota.Flash, 10)
-				quotaPanelContent += fmt.Sprintf("%s %s %3d%%", hearts, bar, quota.Flash)
+				quotaPanelContent += fmt.Sprintf("%s %3d%%", hearts, quota.Flash)
 			}
 		}
 		quotaPanelContent += "\n"
@@ -1831,8 +1813,7 @@ func (m model) View() string {
 				quotaPanelContent += errorStyle.Render(fmt.Sprintf("%-*s", colWidth, "⚠ err"))
 			} else {
 				hearts := m.renderQuotaHearts(quota.Pro, flashLow && quota.Pro < 10)
-				bar := m.renderQuotaBar(quota.Pro, 10)
-				quotaPanelContent += fmt.Sprintf("%s %s %3d%%", hearts, bar, quota.Pro)
+				quotaPanelContent += fmt.Sprintf("%s %3d%%", hearts, quota.Pro)
 			}
 		}
 		quotaPanelContent += "\n"
