@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type Dependency struct {
@@ -60,6 +62,8 @@ func main() {
 		handleShow(cmdArgs)
 	case "init", "create":
 		// No-op
+	case "hooks":
+		handleHooks(cmdArgs)
 	default:
 		// Ignore unknown or just exit 0 for compatibility
 	}
@@ -221,4 +225,32 @@ func handleClose(args []string) {
 		}
 	}
 	saveState(tasks)
+}
+
+func handleHooks(args []string) {
+	if len(args) < 2 || args[0] != "run" {
+		return
+	}
+	hookName := args[1]
+	if hookName == "pre-push" {
+		handlePrePush()
+	}
+}
+
+func handlePrePush() {
+	lastPushFile := "/tmp/machinator_last_push"
+	data, err := os.ReadFile(lastPushFile)
+	if err == nil {
+		lastPushTime, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+		if err == nil {
+			elapsed := time.Now().Unix() - lastPushTime
+			if elapsed < 30 {
+				waitTime := 30 - elapsed
+				fmt.Printf("Rate limiting push. Waiting %d seconds...\n", waitTime)
+				time.Sleep(time.Duration(waitTime) * time.Second)
+			}
+		}
+	}
+	// Update last push time
+	os.WriteFile(lastPushFile, []byte(fmt.Sprintf("%d", time.Now().Unix())), 0644)
 }
