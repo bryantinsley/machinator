@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"text/template"
 	"time"
@@ -50,6 +51,39 @@ func init() {
 			runfilesDir = exe + ".runfiles"
 		}
 	}
+
+	// Ensure log directory exists
+	logDir := filepath.Join(setup.GetMachinatorDir(), "logs")
+	os.MkdirAll(logDir, 0755)
+}
+
+// Log path helpers for split logging
+func orchestratorLogPath() string {
+	return filepath.Join(setup.GetMachinatorDir(), "logs", "orchestrator.log")
+}
+
+func agentOrchestratorLogPath(agentID int) string {
+	return filepath.Join(setup.GetMachinatorDir(), "logs", fmt.Sprintf("agent%d_orchestrator.log", agentID))
+}
+
+func agentGeminiLogPath(agentID int) string {
+	return filepath.Join(setup.GetMachinatorDir(), "logs", fmt.Sprintf("agent%d_gemini.log", agentID))
+}
+
+// regenerateGeminiWrapper recreates the gemini wrapper script to apply any code fixes
+func regenerateGeminiWrapper() {
+	machinatorDir := setup.GetMachinatorDir()
+	geminiCLIDir := filepath.Join(machinatorDir, "resources", "gemini-cli-mods")
+	geminiPath := filepath.Join(machinatorDir, "gemini")
+
+	if _, err := os.Stat(geminiCLIDir); err != nil {
+		return
+	}
+
+	wrapperContent := fmt.Sprintf(`#!/bin/bash
+npm run start --prefix "%s" -- "$@"
+`, geminiCLIDir)
+	os.WriteFile(geminiPath, []byte(wrapperContent), 0755)
 }
 
 // findFile looks for a file in multiple locations: runfiles, workspace, or relative paths
@@ -149,18 +183,40 @@ type Config struct {
 	PoolingEnabled     bool
 }
 
+// AgentState tracks the state of a single agent
+type AgentState struct {
+	ID            int                  // Agent number (1, 2, 3...)
+	Name          string               // e.g., "CoderAgent-01"
+	WorktreeDir   string               // Path to agent's worktree
+	Running       bool                 // Whether Gemini is running
+	CurrentTaskID string               // Current task being worked on
+	Cmd           *exec.Cmd            // Running Gemini command
+	Account       *accountpool.Account // Account being used
+	TaskStartTime time.Time            // When current task started
+	LastEventTime time.Time            // When last ACP event was received
+	FailedTasks   map[string]time.Time // Tasks that failed with cooldown
+}
+
 // Messages
 type tickMsg time.Time
 type quotaMsg map[string]int
 type tasksMsg []Task
-type acpEventMsg ACPEvent // Use our rich ACPEvent type
+type acpEventMsg struct {
+	AgentID int
+	Event   ACPEvent
+}
 type logMsg string
-type geminiDoneMsg string
+type geminiDoneMsg struct {
+	AgentID int
+	TaskID  string
+}
 type taskFailedMsg struct {
-	taskID string
-	reason string
+	agentID int
+	taskID  string
+	reason  string
 }
 type taskStartedMsg struct {
+	agentID int
 	taskID  string
 	account *accountpool.Account
 	cmd     *exec.Cmd
@@ -170,8 +226,8 @@ type selectEventMsg struct{ index int }
 type toggleQuotaMsg struct{}
 
 // Global channels for async communication
-var acpEventChan = make(chan ACPEvent, 100)
-var geminiDoneChan = make(chan string, 10)
+var acpEventChan = make(chan acpEventMsg, 100)
+var geminiDoneChan = make(chan geminiDoneMsg, 10)
 
 type model struct {
 	width           int
@@ -196,6 +252,11 @@ type model struct {
 	maxCycles       int
 	ready           bool
 	config          Config
+
+	// Multi-agent state
+	agents map[int]*AgentState // Per-agent state indexed by agent ID
+
+	// Legacy single-agent fields (for backward compatibility during refactor)
 	currentTaskID   string
 	geminiRunning   bool
 	geminiCmd       *exec.Cmd
@@ -226,11 +287,11 @@ func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
 
 	// Default config
 	config := Config{
-		AgentName:          getEnvOrDefault("BD_AGENT_NAME", "CoderAgent-01"),
+		AgentName:          getEnvOrDefault("BD_AGENT_NAME", "CoderAgent"),
 		MaxCycles:          10000,
 		SleepDuration:      60 * time.Second,
 		QuotaCheckInterval: 5 * time.Minute,
-		IdleTimeout:        5 * time.Minute,
+		IdleTimeout:        10 * time.Minute,
 		MaxTaskRuntime:     30 * time.Minute,
 		CooldownPeriod:     5 * time.Second,
 		PoolingEnabled:     true, // Enabled by default
@@ -330,6 +391,7 @@ func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
 		height:          30,
 		ready:           true,
 		config:          config,
+		agents:          make(map[int]*AgentState),
 		geminiRunning:   false,
 		projectRoot:     projectRoot,
 		repoPath:        repoPath,
@@ -349,7 +411,7 @@ func (m model) Init() tea.Cmd {
 	// Log initialization
 	// Use cwd-relative paths
 
-	logPath := filepath.Join(originalCwd, "machinator", "logs", "tui_debug.log")
+	logPath := orchestratorLogPath()
 	// Ensure logs directory exists
 	os.MkdirAll(filepath.Join(originalCwd, "machinator", "logs"), 0755)
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -362,6 +424,10 @@ func (m model) Init() tea.Cmd {
 		f.Close()
 		fmt.Fprintf(os.Stderr, "Log file created: %s\n", logPath)
 	}
+
+	// Regenerate gemini wrapper on every startup to apply any fixes
+	regenerateGeminiWrapper()
+
 	// Debug: log projectRoot to file (using existing logPath)
 	f2, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if f2 != nil {
@@ -395,16 +461,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 
-	// Update AgentGrid state (sync with model)
-	if len(m.agentGrid.Cards) > 0 {
-		card := m.agentGrid.Cards[0]
-		card.Task = m.currentTaskID
-		if m.geminiRunning {
-			card.Status = agentgrid.StatusActive
-		} else if _, failed := m.failedTasks[m.currentTaskID]; failed {
-			card.Status = agentgrid.StatusError
-		} else {
-			card.Status = agentgrid.StatusIdle
+	// Update AgentGrid state (sync with per-agent state)
+	for i, card := range m.agentGrid.Cards {
+		agentID := i + 1
+		if agent, exists := m.agents[agentID]; exists {
+			card.Task = agent.CurrentTaskID
+			if agent.Running {
+				card.Status = agentgrid.StatusActive
+				// Show elapsed time in the card
+				if !agent.TaskStartTime.IsZero() {
+					elapsed := time.Since(agent.TaskStartTime)
+					card.Elapsed = formatDuration(elapsed)
+				}
+			} else if _, failed := agent.FailedTasks[agent.CurrentTaskID]; failed {
+				card.Status = agentgrid.StatusError
+				card.Elapsed = ""
+			} else {
+				card.Status = agentgrid.StatusIdle
+				card.Elapsed = ""
+			}
 		}
 	}
 
@@ -513,7 +588,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 				if taskID != "" {
 					m.addLog(fmt.Sprintf("⚡ Starting task: %s", taskID))
-					return m, executeTask(taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled)
+					return m, executeTask(1, taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled)
 				}
 			}
 		case "+", "=":
@@ -705,8 +780,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Check for any pending ACP events from the goroutine
 		for {
 			select {
-			case event := <-acpEventChan:
-				m.addEvent(event)
+			case eventMsg := <-acpEventChan:
+				m.addEvent(eventMsg.Event)
 			default:
 				// No more events
 				goto doneProcessingEvents
@@ -716,12 +791,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Check for Gemini completion
 		select {
-		case taskID := <-geminiDoneChan:
-			if m.geminiRunning && m.currentTaskID == taskID {
+		case doneMsg := <-geminiDoneChan:
+			if m.geminiRunning && m.currentTaskID == doneMsg.TaskID {
 				m.geminiRunning = false
 				m.cycle++ // Increment cycle when Gemini execution ends
 				m.addActivity("✅ Task completed")
-				m.addLog(fmt.Sprintf("✓ Cycle %d: Task %s finished", m.cycle, taskID))
+				m.addLog(fmt.Sprintf("✓ Cycle %d: Task %s finished", m.cycle, doneMsg.TaskID))
 				m.currentTaskID = ""
 				m.geminiCmd = nil
 				m.activeAccount = nil
@@ -736,7 +811,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					nextTaskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 					if nextTaskID != "" {
 						m.addLog(fmt.Sprintf("✅ Next task: %s", nextTaskID))
-						cmds = append(cmds, executeTask(nextTaskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+						cmds = append(cmds, executeTask(1, nextTaskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 					} else {
 						m.addLog("⏸ No more ready tasks")
 					}
@@ -762,23 +837,45 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cooldownSecs = 5 // Safe default
 		}
 
-		if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed {
-			// Targeted execution (Higher priority)
-			// Wait for quota to be loaded to ensure we don't use exhausted accounts
-			if m.targetTaskID != "" && m.quotaLoaded {
-				m.addLog(fmt.Sprintf("🎯 Executing targeted task: %s", m.targetTaskID))
-				cmds = append(cmds, executeTask(m.targetTaskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
-				m.targetTaskID = "" // One-shot
-				m.exitOnce = true   // Ensure exit after completion
-			} else if m.state == StateRunning && m.tickCount%cooldownSecs == 0 {
-				m.addLog(fmt.Sprintf("🔄 Auto-execute check (%d tasks)", len(m.tasks)))
-				// Only log activity if we actually find something, to reduce spam with short cooldowns
-				taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
-				if taskID != "" {
-					m.addLog(fmt.Sprintf("✅ Found ready task: %s", taskID))
-					cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+		// Multi-agent task dispatch: check each agent and dispatch tasks to idle ones
+		if m.toolsCheck.State == ToolsCheckStatePassed && m.state == StateRunning && m.tickCount%cooldownSecs == 0 {
+			// Sync agents map with agentGrid.Cards
+			for i, card := range m.agentGrid.Cards {
+				agentID := i + 1 // Agents are 1-indexed
+				if _, exists := m.agents[agentID]; !exists {
+					m.agents[agentID] = &AgentState{
+						ID:          agentID,
+						Name:        card.Name,
+						WorktreeDir: filepath.Join(m.projectRoot, "agents", fmt.Sprintf("%d", agentID)),
+						Running:     false,
+						FailedTasks: make(map[string]time.Time),
+					}
 				}
 			}
+
+			// Try to dispatch tasks to each idle agent
+			for agentID, agent := range m.agents {
+				if !agent.Running {
+					// Find a ready task for this agent
+					taskID := findReadyTask(m.tasks, agent.Name, agent.FailedTasks, m.repoPath)
+					if taskID != "" {
+						m.addLog(fmt.Sprintf("🚀 Agent %d: Starting task %s", agentID, taskID))
+						cmds = append(cmds, executeTask(agentID, taskID, agent.Name, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+						agent.Running = true
+						agent.CurrentTaskID = taskID
+						agent.TaskStartTime = time.Now()
+						agent.LastEventTime = time.Now()
+					}
+				}
+			}
+		}
+
+		// Legacy single-agent targeted execution (backward compat)
+		if !m.geminiRunning && m.toolsCheck.State == ToolsCheckStatePassed && m.targetTaskID != "" && m.quotaLoaded {
+			m.addLog(fmt.Sprintf("🎯 Executing targeted task: %s", m.targetTaskID))
+			cmds = append(cmds, executeTask(1, m.targetTaskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+			m.targetTaskID = "" // One-shot
+			m.exitOnce = true   // Ensure exit after completion
 		}
 
 		// Check for timeouts
@@ -836,7 +933,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.quotas = msg
 		m.quotaLoaded = true
 		// Direct file write for debugging
-		logPath := filepath.Join(originalCwd, "machinator", "logs", "tui_debug.log")
+		logPath := orchestratorLogPath()
 		f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if f != nil {
 			f.WriteString(fmt.Sprintf("[%s] ✅ Quotas loaded: %v\n", time.Now().Format("15:04:05"), m.quotas))
@@ -849,14 +946,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 			if taskID != "" {
 				m.addLog(fmt.Sprintf("✅ Ready to execute: %s", taskID))
-				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+				cmds = append(cmds, executeTask(1, taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 			}
 		}
 
 	case tasksMsg:
 		m.tasks = msg
 		// Direct file write for debugging
-		logPath := filepath.Join(originalCwd, "machinator", "logs", "tui_debug.log")
+		logPath := orchestratorLogPath()
 		f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if f != nil {
 			f.WriteString(fmt.Sprintf("[%s] 📋 Loaded %d tasks\n", time.Now().Format("15:04:05"), len(msg)))
@@ -871,13 +968,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
 			if taskID != "" {
 				m.addLog(fmt.Sprintf("✅ Found ready task: %s", taskID))
-				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+				cmds = append(cmds, executeTask(1, taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
 			}
 		}
 
 	case acpEventMsg:
 		// Format and display the ACP event with icon
-		event := ACPEvent(msg)
+		event := msg.Event
 		displayText := FormatACPEventForDisplay(event, 100)
 		m.addActivity(displayText)
 
@@ -890,49 +987,73 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addLog(string(msg))
 
 	case taskStartedMsg:
+		// Legacy single-agent state (keep for backward compat)
 		m.currentTaskID = msg.taskID
 		m.activeAccount = msg.account
 		m.geminiCmd = msg.cmd
 		m.geminiRunning = true
 		m.taskStartTime = time.Now()
 		m.lastEventTime = time.Now()
+
+		// Update per-agent state
+		if agent, exists := m.agents[msg.agentID]; exists {
+			agent.Running = true
+			agent.CurrentTaskID = msg.taskID
+			agent.Cmd = msg.cmd
+			agent.Account = msg.account
+			agent.TaskStartTime = time.Now()
+			agent.LastEventTime = time.Now()
+		}
+
 		accountName := "default"
 		if msg.account != nil {
 			accountName = msg.account.Name
 		}
-		m.addActivity(fmt.Sprintf("⚡ Started task: %s (account: %s)", msg.taskID, accountName))
-		m.addLog(fmt.Sprintf("🚀 Task %s started with account %s", msg.taskID, accountName))
+		m.addActivity(fmt.Sprintf("⚡ Agent %d: Started task %s (account: %s)", msg.agentID, msg.taskID, accountName))
+		m.addLog(fmt.Sprintf("🚀 Agent %d: Task %s started with account %s", msg.agentID, msg.taskID, accountName))
 
 	case taskFailedMsg:
-		// Record the failed task so we don't retry it immediately
+		// Update per-agent state
+		if agent, exists := m.agents[msg.agentID]; exists {
+			agent.FailedTasks[msg.taskID] = time.Now()
+			agent.Running = false
+			agent.CurrentTaskID = ""
+			agent.Cmd = nil
+			agent.Account = nil
+		}
+		// Legacy single-agent state
 		m.failedTasks[msg.taskID] = time.Now()
 		m.geminiRunning = false
-		m.addActivity(fmt.Sprintf("❌ Task failed: %s", msg.taskID))
-		m.addLog(fmt.Sprintf("❌ Task %s failed: %s", msg.taskID, msg.reason))
+		m.addActivity(fmt.Sprintf("❌ Agent %d: Task %s failed", msg.agentID, msg.taskID))
+		m.addLog(fmt.Sprintf("❌ Agent %d: Task %s failed: %s", msg.agentID, msg.taskID, msg.reason))
 		m.currentTaskID = ""
 		m.geminiCmd = nil
 		m.activeAccount = nil
-		// Don't immediately retry - wait for next cycle
 
 	case geminiDoneMsg:
+		// Update per-agent state and start next task
+		if agent, exists := m.agents[msg.AgentID]; exists {
+			agent.Running = false
+			agent.CurrentTaskID = ""
+			agent.Cmd = nil
+			agent.Account = nil
+			m.addActivity(fmt.Sprintf("✅ Agent %d: Task %s completed", msg.AgentID, msg.TaskID))
+			m.addLog(fmt.Sprintf("✓ Agent %d: Task %s finished", msg.AgentID, msg.TaskID))
+
+			// Check for next task for this agent
+			if m.toolsCheck.State == ToolsCheckStatePassed && m.state == StateRunning {
+				taskID := findReadyTask(m.tasks, agent.Name, agent.FailedTasks, m.repoPath)
+				if taskID != "" {
+					m.addLog(fmt.Sprintf("🔄 Agent %d: Next task %s", msg.AgentID, taskID))
+					cmds = append(cmds, executeTask(msg.AgentID, taskID, agent.Name, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+				}
+			}
+		}
+		// Legacy single-agent state
 		m.geminiRunning = false
-		m.addActivity("✅ Task completed")
-		m.addLog(fmt.Sprintf("✓ Task %s finished", m.currentTaskID))
 		m.currentTaskID = ""
 		m.geminiCmd = nil
 		m.activeAccount = nil
-
-		// Wait a moment before checking for next task (don't spam)
-		m.addLog("🔍 Checking for next task...")
-		if m.toolsCheck.State == ToolsCheckStatePassed {
-			taskID := findReadyTask(m.tasks, m.config.AgentName, m.failedTasks, m.repoPath)
-			if taskID != "" {
-				m.addLog(fmt.Sprintf("✅ Next task: %s", taskID))
-				cmds = append(cmds, executeTask(taskID, m.config.AgentName, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
-			} else {
-				m.addLog("⏸ No more ready tasks")
-			}
-		}
 
 	case filterChangedMsg:
 		m.applyFilter()
@@ -1125,7 +1246,7 @@ func (m *model) addLog(log string) {
 	m.logs.GotoBottom()
 
 	// Also write to file
-	logPath := filepath.Join(originalCwd, "machinator", "logs", "tui_debug.log")
+	logPath := orchestratorLogPath()
 	os.MkdirAll(filepath.Join(originalCwd, "machinator", "logs"), 0755)
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -1165,7 +1286,73 @@ func (m model) getQuotaStyle(percent int) lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color("46")) // Green
 }
 
-// renderQuotaBar renders a progress bar for a quota percentage
+// renderQuotaHearts renders 5 hearts that fade from red to grey as quota drains
+// Each heart = 20%. Below 10% hearts flash pink.
+func (m model) renderQuotaHearts(percent int, flash bool) string {
+	if percent < 0 {
+		// Error state - grey hearts
+		greyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#535360"))
+		return greyStyle.Render("♥♥♥♥♥")
+	}
+
+	// Clamp to 0-100
+	if percent > 100 {
+		percent = 100
+	}
+
+	// Calculate full hearts and partial heart
+	// Each heart = 20%, so 5 hearts = 100%
+	fullHearts := percent / 20     // 0-5 full hearts
+	partialPercent := percent % 20 // 0-19 for the transitioning heart
+
+	var result string
+	heart := "♥"
+
+	// True color: red (#990000) to grey (#535360)
+	// RGB: red = (153, 0, 0), grey = (83, 83, 96)
+
+	for i := 0; i < 5; i++ {
+		var heartStyle lipgloss.Style
+		if i < fullHearts {
+			// Full red heart
+			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#990000"))
+		} else if i == fullHearts && partialPercent > 0 {
+			// Transitioning heart - blend from red to grey
+			// partialPercent 19 = almost full (red), 1 = almost empty (grey)
+			// Linear interpolation: color = red + (grey - red) * (20 - partial) / 20
+			ratio := float64(20-partialPercent) / 20.0
+			r := int(153.0 - (153.0-83.0)*ratio)
+			g := int(0.0 + 83.0*ratio)
+			b := int(0.0 + 96.0*ratio)
+			hexColor := fmt.Sprintf("#%02X%02X%02X", r, g, b)
+			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(hexColor))
+		} else {
+			// Empty grey heart
+			heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#535360"))
+		}
+		result += heartStyle.Render(heart)
+	}
+
+	// Flash effect when below 10% - alternate with pink
+	if percent < 10 && percent > 0 && flash {
+		pinkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF69B4")) // Hot pink
+		// Re-render all filled hearts as pink for flash effect
+		result = ""
+		for i := 0; i < 5; i++ {
+			var heartStyle lipgloss.Style
+			if i < fullHearts || (i == fullHearts && partialPercent > 0) {
+				heartStyle = pinkStyle
+			} else {
+				heartStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#535360"))
+			}
+			result += heartStyle.Render(heart)
+		}
+	}
+
+	return result
+}
+
+// renderQuotaBar renders a progress bar for a quota percentage (legacy, kept for compatibility)
 func (m model) renderQuotaBar(percent, barLen int) string {
 	if percent < 0 {
 		return strings.Repeat("░", barLen)
@@ -1402,29 +1589,81 @@ func (m model) View() string {
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, tasksPanel, agentPanel)
 
 	// Build quota panel (to the right of agent grid)
-	quotaPanelContent := "📊 Quotas\n\n"
-	if m.quotaLoaded {
-		for name, quota := range m.quotas {
-			quotaPanelContent += fmt.Sprintf("  %s\n", name)
+	quotaPanelContent := "📊 Quotas\n"
+	// Flash state for low quota warning (toggles each tick)
+	flashLow := m.tickCount%2 == 0
+	if m.quotaLoaded && len(m.quotas) > 0 {
+		// Sort account names for stable output
+		var accountNames []string
+		for name := range m.quotas {
+			accountNames = append(accountNames, name)
+		}
+		sort.Strings(accountNames)
 
-			if quota.Flash < 0 && quota.Pro < 0 {
-				// Error state
-				errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
-				quotaPanelContent += fmt.Sprintf("    %s\n\n", errorStyle.Render("ERROR - Check auth"))
+		// Style definitions
+		headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+		sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#535360"))
+		sep := sepStyle.Render("│")
+
+		// Column width for account data: hearts(5) + space(1) + %(4) = 10, plus padding
+		colWidth := 11
+
+		// Table format: rows = models, columns = accounts
+		// Header row with account names (right-aligned model column, centered account names)
+		quotaPanelContent += fmt.Sprintf("%22s ", "") // Right-align model names (22 chars for "gemini-3-flash-preview")
+		for i, name := range accountNames {
+			// Truncate name if too long
+			displayName := name
+			if len(displayName) > colWidth-1 {
+				displayName = displayName[:colWidth-3] + ".."
+			}
+			// Center the account name
+			padding := (colWidth - len(displayName)) / 2
+			centered := fmt.Sprintf("%*s%s%*s", padding, "", displayName, colWidth-len(displayName)-padding, "")
+			if i > 0 {
+				quotaPanelContent += sep
+			}
+			quotaPanelContent += headerStyle.Render(centered)
+		}
+		quotaPanelContent += "\n"
+
+		// Flash row (right-aligned model name)
+		quotaPanelContent += fmt.Sprintf("%22s ", "gemini-3-flash-preview")
+		for i, name := range accountNames {
+			quota := m.quotas[name]
+			if i > 0 {
+				quotaPanelContent += sep
+			}
+			if quota.Flash < 0 {
+				errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+				quotaPanelContent += errorStyle.Render(fmt.Sprintf("%-*s", colWidth, "⚠ err"))
 			} else {
-				// Flash quota
-				flashStyle := m.getQuotaStyle(quota.Flash)
-				flashBar := m.renderQuotaBar(quota.Flash, 8)
-				quotaPanelContent += fmt.Sprintf("    Flash: %s %s\n", flashStyle.Render(flashBar), flashStyle.Render(fmt.Sprintf("%d%%", max(0, quota.Flash))))
-
-				// Pro quota
-				proStyle := m.getQuotaStyle(quota.Pro)
-				proBar := m.renderQuotaBar(quota.Pro, 8)
-				quotaPanelContent += fmt.Sprintf("    Pro:   %s %s\n\n", proStyle.Render(proBar), proStyle.Render(fmt.Sprintf("%d%%", max(0, quota.Pro))))
+				hearts := m.renderQuotaHearts(quota.Flash, flashLow && quota.Flash < 10)
+				quotaPanelContent += fmt.Sprintf("%s %3d%%", hearts, quota.Flash)
 			}
 		}
+		quotaPanelContent += "\n"
+
+		// Pro row (right-aligned model name)
+		quotaPanelContent += fmt.Sprintf("%22s ", "gemini-3-pro-preview")
+		for i, name := range accountNames {
+			quota := m.quotas[name]
+			if i > 0 {
+				quotaPanelContent += sep
+			}
+			if quota.Pro < 0 {
+				errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+				quotaPanelContent += errorStyle.Render(fmt.Sprintf("%-*s", colWidth, "⚠ err"))
+			} else {
+				hearts := m.renderQuotaHearts(quota.Pro, flashLow && quota.Pro < 10)
+				quotaPanelContent += fmt.Sprintf("%s %3d%%", hearts, quota.Pro)
+			}
+		}
+		quotaPanelContent += "\n"
+	} else if !m.quotaLoaded {
+		quotaPanelContent += " Loading..."
 	} else {
-		quotaPanelContent += "  Loading..."
+		quotaPanelContent += " No accounts"
 	}
 
 	// Create quota panel with same height as grid
@@ -1642,13 +1881,19 @@ func (m model) View() string {
 
 	statusBar := statusBarStyle.Width(m.width).Render(statusBarContent)
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, content, statusBar)
+	// Wrap everything in a background color
+	fullContent := lipgloss.JoinVertical(lipgloss.Left, title, content, statusBar)
+	bgStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color("#333340")).
+		Width(m.width).
+		Height(m.height)
+	return bgStyle.Render(fullContent)
 }
 
 // Run executes the orchestrator TUI.
 func Run(debug bool, once bool, headless bool, autoRun bool, executeTaskID string, projectConfig *setup.ProjectConfig) error {
 	// Write startup log before bubbletea takes over
-	logPath := filepath.Join(originalCwd, "machinator", "logs", "tui_debug.log")
+	logPath := orchestratorLogPath()
 	os.MkdirAll(filepath.Join(originalCwd, "machinator", "logs"), 0755)
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err == nil {
@@ -1726,22 +1971,51 @@ func tick() tea.Cmd {
 func fetchTasks(projectRoot string) tea.Cmd {
 	return func() tea.Msg {
 		// Debug log
-		logPath := filepath.Join(originalCwd, "machinator", "logs", "tui_debug.log")
+		logPath := orchestratorLogPath()
 		f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if f != nil {
 			f.WriteString(fmt.Sprintf("[%s] fetchTasks() started, projectRoot=%s\n", time.Now().Format("15:04:05"), projectRoot))
 		}
+
+		// Pull latest from main to sync beads database
+		pullCmd := exec.Command("git", "pull", "--rebase", "origin", "main")
+		pullCmd.Dir = projectRoot
+		if pullErr := pullCmd.Run(); pullErr != nil {
+			if f != nil {
+				f.WriteString(fmt.Sprintf("[%s] git pull warning: %v (continuing anyway)\n", time.Now().Format("15:04:05"), pullErr))
+			}
+		}
+
+		// Import JSONL to SQLite database (mimics post-merge hook)
+		// This ensures the database is in sync after git pull
+		importCmd := exec.Command("bd", "import", "-i", ".beads/issues.jsonl")
+		importCmd.Dir = projectRoot
+		importCmd.Run() // Ignore errors - file might not exist yet
 
 		cmd := exec.Command("bd", "list", "--json")
 		cmd.Dir = projectRoot
 		output, err := cmd.Output()
 
 		if err != nil {
+			// Try bd init in case database doesn't exist yet
 			if f != nil {
-				f.WriteString(fmt.Sprintf("[%s] bd list error: %v\n", time.Now().Format("15:04:05"), err))
-				f.Close()
+				f.WriteString(fmt.Sprintf("[%s] bd list failed, trying bd init: %v\n", time.Now().Format("15:04:05"), err))
 			}
-			return logMsg(fmt.Sprintf("❌ bd error: %v", err))
+			initCmd := exec.Command("bd", "init")
+			initCmd.Dir = projectRoot
+			initCmd.Run() // Ignore errors, maybe it's already initialized
+
+			// Retry bd list
+			cmd = exec.Command("bd", "list", "--json")
+			cmd.Dir = projectRoot
+			output, err = cmd.Output()
+			if err != nil {
+				if f != nil {
+					f.WriteString(fmt.Sprintf("[%s] bd list still failing: %v\n", time.Now().Format("15:04:05"), err))
+					f.Close()
+				}
+				return logMsg(fmt.Sprintf("❌ bd error: %v", err))
+			}
 		}
 
 		if f != nil {
@@ -1801,9 +2075,10 @@ func findReadyTask(tasks []Task, agentName string, failedTasks map[string]time.T
 	return ""
 }
 
-func executeTask(taskID, agentName, projectRoot, repoPath string, pool *accountpool.Pool, poolingEnabled bool) tea.Cmd {
+func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, pool *accountpool.Pool, poolingEnabled bool) tea.Cmd {
 	return func() tea.Msg {
-		logPath := filepath.Join(originalCwd, "machinator", "logs", "tui_debug.log")
+		logPath := agentOrchestratorLogPath(agentID)
+		geminiLog := agentGeminiLogPath(agentID)
 
 		// Select account from pool if enabled
 		var selectedAccount *accountpool.Account
@@ -1903,9 +2178,9 @@ func executeTask(taskID, agentName, projectRoot, repoPath string, pool *accountp
 		// If projectRoot is projects/1, and code is in agents/1, gemini might be editing the wrapper?
 		// Or maybe I misunderstood projectRoot.
 
-		// Let's fix this by targeting agents/1 explicitly for now, and enforcing branch there.
+		// Let's fix this by targeting agents/<agentID> explicitly for now, and enforcing branch there.
 
-		agentDir := filepath.Join(projectRoot, "agents", "1")
+		agentDir := filepath.Join(projectRoot, "agents", fmt.Sprintf("%d", agentID))
 
 		// Read project config to get branch
 		var pConfig setup.ProjectConfig
@@ -1921,34 +2196,32 @@ func executeTask(taskID, agentName, projectRoot, repoPath string, pool *accountp
 			currentBranch := strings.TrimSpace(string(out))
 
 			if currentBranch != pConfig.Branch {
-				// Switch branch
+				// Create a unique branch for this task based on target branch
+				// Worktrees can't share branches, so each agent gets machinator/<taskID>
+				taskBranch := fmt.Sprintf("machinator/%s", taskID)
+
 				f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 				if f != nil {
-					f.WriteString(fmt.Sprintf("[%s] 🔄 Switching branch from '%s' to '%s' in %s\n",
-						time.Now().Format("15:04:05"), currentBranch, pConfig.Branch, agentDir))
+					f.WriteString(fmt.Sprintf("[%s] 🔄 Creating branch '%s' from '%s' in %s\n",
+						time.Now().Format("15:04:05"), taskBranch, pConfig.Branch, agentDir))
 					f.Close()
 				}
 
-				checkout := exec.Command("git", "checkout", pConfig.Branch)
+				// First fetch the latest
+				fetchCmd := exec.Command("git", "fetch", "origin", pConfig.Branch)
+				fetchCmd.Dir = agentDir
+				fetchCmd.Run()
+
+				// Delete old task branch if it exists (force fresh start)
+				deleteCmd := exec.Command("git", "branch", "-D", taskBranch)
+				deleteCmd.Dir = agentDir
+				deleteCmd.Run() // Ignore errors
+
+				// Create and checkout task branch from origin/<target branch>
+				checkout := exec.Command("git", "checkout", "-b", taskBranch, "origin/"+pConfig.Branch)
 				checkout.Dir = agentDir
 				if err := checkout.Run(); err != nil {
-					// Handle case where branch doesn't exist locally:
-					// git fetch origin <branch>
-					// git checkout -b <branch> origin/<branch>
-					fetchCmd := exec.Command("git", "fetch", "origin", pConfig.Branch)
-					fetchCmd.Dir = agentDir
-					fetchCmd.Run()
-
-					checkout = exec.Command("git", "checkout", "-b", pConfig.Branch, "origin/"+pConfig.Branch)
-					checkout.Dir = agentDir
-					if err := checkout.Run(); err != nil {
-						// One last try: maybe it already exists but checkout failed (e.g. detached HEAD)
-						checkout = exec.Command("git", "checkout", pConfig.Branch)
-						checkout.Dir = agentDir
-						if err := checkout.Run(); err != nil {
-							return taskFailedMsg{taskID: taskID, reason: fmt.Sprintf("failed to checkout branch %s: %v", pConfig.Branch, err)}
-						}
-					}
+					return taskFailedMsg{taskID: taskID, reason: fmt.Sprintf("failed to create branch %s: %v", taskBranch, err)}
 				}
 			}
 		}
@@ -2001,7 +2274,7 @@ func executeTask(taskID, agentName, projectRoot, repoPath string, pool *accountp
 				preview = preview[:200] + "..."
 			}
 			f2.WriteString(fmt.Sprintf("[%s] 📝 Directive preview: %s\n", time.Now().Format("15:04:05"), preview))
-			f2.WriteString(fmt.Sprintf("[%s] 🤖 Launching gemini in dir: %s\n", time.Now().Format("15:04:05"), projectRoot))
+			f2.WriteString(fmt.Sprintf("[%s] 🤖 Launching gemini in dir: %s\n", time.Now().Format("15:04:05"), agentDir))
 			f2.Close()
 		}
 
@@ -2059,13 +2332,43 @@ func executeTask(taskID, agentName, projectRoot, repoPath string, pool *accountp
 
 		machinatorDir := setup.GetMachinatorDir()
 		geminiPath := filepath.Join(machinatorDir, "gemini")
-		geminiCmd := exec.Command(geminiPath, "--yolo", "--model", modelFlag, "--output-format", "stream-json", directive)
+		geminiArgs := []string{"--yolo", "--sandbox", "--model", modelFlag, "--output-format", "stream-json", directive}
+		geminiCmd := exec.Command(geminiPath, geminiArgs...)
 		geminiCmd.Dir = agentDir
 
-		// Set environment variables, including HOME for the selected account
+		// Log the full command for debugging
+		fCmd, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if fCmd != nil {
+			fCmd.WriteString(fmt.Sprintf("[%s] 🔧 Command: %s %v\n", time.Now().Format("15:04:05"), geminiPath, geminiArgs))
+			fCmd.WriteString(fmt.Sprintf("[%s] 📂 Working dir: %s\n", time.Now().Format("15:04:05"), agentDir))
+			fCmd.Close()
+		}
+
+		// Set environment variables for sandboxed execution
+		// GEMINI_FORCE_FILE_STORAGE bypasses macOS keychain
 		geminiCmd.Env = os.Environ()
+		geminiCmd.Env = append(geminiCmd.Env, "GEMINI_FORCE_FILE_STORAGE=true")
+
+		// Create a fresh temp HOME for this agent launch (sandboxing)
+		// This prevents the agent from accessing/modifying user's real ~/.config, ~/.cache, etc.
+		tempHome, err := os.MkdirTemp("", "machinator-agent-home-")
+		if err == nil {
+			geminiCmd.Env = append(geminiCmd.Env, "HOME="+tempHome)
+			f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if f != nil {
+				f.WriteString(fmt.Sprintf("[%s] 🏠 Using sandboxed HOME: %s\n", time.Now().Format("15:04:05"), tempHome))
+				f.Close()
+			}
+			// Note: We don't clean up tempHome immediately - the goroutine will handle it after Gemini exits
+		}
+
+		// Enable custom sandbox profile - file is at .gemini/sandbox-macos-custom.sb relative to agentDir
+		geminiCmd.Env = append(geminiCmd.Env, "SEATBELT_PROFILE=custom")
+
 		if selectedAccount != nil {
-			geminiCmd.Env = append(geminiCmd.Env, "HOME="+selectedAccount.HomeDir)
+			// GEMINI_CLI_HOME tells Gemini CLI where to find its config (credentials)
+			// This is separate from HOME so credentials work while agent is sandboxed
+			geminiCmd.Env = append(geminiCmd.Env, "GEMINI_CLI_HOME="+selectedAccount.HomeDir)
 		}
 
 		// Merge stderr into stdout for unified output capture
@@ -2116,15 +2419,15 @@ func executeTask(taskID, agentName, projectRoot, repoPath string, pool *accountp
 
 				// Send to channel for main loop to pick up (non-blocking)
 				select {
-				case acpEventChan <- event:
+				case acpEventChan <- acpEventMsg{AgentID: agentID, Event: event}:
 				default:
 					// Channel full - this shouldn't happen with buffer of 100
 				}
 
-				// Log raw output for debugging
-				f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				// Log raw output to gemini log file
+				f, _ := os.OpenFile(geminiLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 				if f != nil {
-					f.WriteString(fmt.Sprintf("[%s] RAW: %s\n", time.Now().Format("15:04:05"), line))
+					f.WriteString(fmt.Sprintf("[%s] %s\n", time.Now().Format("15:04:05"), line))
 					f.Close()
 				}
 			}
@@ -2143,18 +2446,23 @@ func executeTask(taskID, agentName, projectRoot, repoPath string, pool *accountp
 
 			// Notify completion via channel - tick handler will pick this up
 			select {
-			case geminiDoneChan <- taskID:
+			case geminiDoneChan <- geminiDoneMsg{AgentID: agentID, TaskID: taskID}:
 			default:
 				// Channel full - shouldn't happen
 			}
+
+			// Clean up the sandboxed temp HOME directory
+			if tempHome != "" {
+				os.RemoveAll(tempHome)
+			}
 		}()
 
-		return taskStartedMsg{taskID: taskID, account: selectedAccount, cmd: geminiCmd}
+		return taskStartedMsg{agentID: agentID, taskID: taskID, account: selectedAccount, cmd: geminiCmd}
 	}
 }
 
 func buildDirective(agentName, taskID, projectRoot string) (string, error) {
-	logPath := filepath.Join(originalCwd, "machinator", "logs", "tui_debug.log")
+	logPath := orchestratorLogPath()
 
 	taskContext := ""
 	cmd := exec.Command("bd", "show", taskID)

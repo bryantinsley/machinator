@@ -18,14 +18,16 @@ func TestInitAccountsDir(t *testing.T) {
 		t.Fatalf("InitAccountsDir failed: %v", err)
 	}
 
-	defaultAccountDir := filepath.Join(tempDir, "accounts", "default")
-	if _, err := os.Stat(defaultAccountDir); os.IsNotExist(err) {
-		t.Errorf("Default account dir not created")
+	// Should only create the accounts directory, NOT a default account
+	accountsDir := filepath.Join(tempDir, "accounts")
+	if _, err := os.Stat(accountsDir); os.IsNotExist(err) {
+		t.Errorf("accounts directory not created")
 	}
 
-	configPath := filepath.Join(defaultAccountDir, "account.json")
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		t.Errorf("account.json not created in default account")
+	// Default account should NOT be created
+	defaultAccountDir := filepath.Join(tempDir, "accounts", "default")
+	if _, err := os.Stat(defaultAccountDir); err == nil {
+		t.Errorf("default account dir should NOT be created automatically")
 	}
 }
 
@@ -45,8 +47,9 @@ func TestGetAccounts(t *testing.T) {
 		t.Fatalf("GetAccounts failed: %v", err)
 	}
 
-	if len(accounts) != 1 || accounts[0].Name != "default" {
-		t.Errorf("expected [default], got %v", accounts)
+	// With no accounts created, should return empty list
+	if len(accounts) != 0 {
+		t.Errorf("expected empty list, got %v", accounts)
 	}
 }
 

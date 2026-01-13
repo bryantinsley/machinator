@@ -21,6 +21,7 @@ type AgentCard struct {
 	Name    string
 	Status  AgentStatus
 	Task    string
+	Elapsed string // Time elapsed on current task
 	OnClick func() tea.Cmd
 
 	x, y          int
@@ -92,6 +93,11 @@ func (c *AgentCard) Render() string {
 	}
 
 	header := fmt.Sprintf("%s %s", statusStyle.Render(icon), c.Name)
+
+	// Show elapsed time if available
+	if c.Elapsed != "" {
+		header = fmt.Sprintf("%s [%s]", header, c.Elapsed)
+	}
 
 	// Truncate task
 	task := c.Task

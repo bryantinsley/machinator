@@ -1,7 +1,6 @@
 package setup
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -11,23 +10,10 @@ import (
 )
 
 // InitAccountsDir ensures the accounts directory structure exists
+// Note: It does NOT create any default accounts - users must explicitly add accounts
 func InitAccountsDir(machinatorDir string) error {
 	accountsDir := filepath.Join(machinatorDir, "accounts")
-	defaultAccountDir := filepath.Join(accountsDir, "default")
-	if err := os.MkdirAll(defaultAccountDir, 0755); err != nil {
-		return err
-	}
-
-	configPath := filepath.Join(defaultAccountDir, "account.json")
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		defaultConfig := accountpool.Account{
-			Name:     "default",
-			AuthType: accountpool.AuthTypeAPIKey,
-		}
-		data, _ := json.MarshalIndent(defaultConfig, "", "  ")
-		return os.WriteFile(configPath, data, 0644)
-	}
-	return nil
+	return os.MkdirAll(accountsDir, 0755)
 }
 
 // SetupDefaultAccount copies the user's ~/.gemini to ~/.machinator/accounts/default/.gemini

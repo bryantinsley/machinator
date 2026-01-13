@@ -23,6 +23,15 @@ const (
 	geminiCLIRepo = "https://github.com/bryantinsley/gemini-cli-mods.git"
 )
 
+// regenerateGeminiWrapper recreates the gemini wrapper script to apply any code fixes
+func regenerateGeminiWrapper(geminiCLIDir, geminiPath string) {
+	// Use --prefix to preserve caller's working directory for sandbox
+	wrapperContent := fmt.Sprintf(`#!/bin/bash
+npm run start --prefix "%s" -- "$@"
+`, geminiCLIDir)
+	os.WriteFile(geminiPath, []byte(wrapperContent), 0755)
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Styles
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -189,6 +198,10 @@ func (m model) checkInit() tea.Cmd {
 			if out, err := cmd.Output(); err == nil {
 				result.geminiStatus = geminiInstalled
 				result.geminiVersion = strings.TrimSpace(string(out))
+
+				// Regenerate wrapper to apply any code fixes
+				regenerateGeminiWrapper(m.geminiCLIDir, m.geminiCLIPath)
+
 				select {
 				case ch <- "✓ Gemini CLI is up to date":
 				default:
@@ -218,7 +231,6 @@ func (m model) checkInit() tea.Cmd {
 
 		// Load accounts
 		InitAccountsDir(m.machinatorDir)
-		SetupDefaultAccount(m.machinatorDir)
 		result.accounts, _ = GetAccounts(m.machinatorDir)
 
 		if len(result.projects) > 0 {
@@ -370,6 +382,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.accounts = msg.accounts
 		m.screen = screenManageAccounts
 		m.addStatus("Account added successfully")
+
+	case geminiAuthDoneMsg:
+		// Gemini exited after interactive auth - reload accounts to check auth status
+		if msg.err != nil {
+			m.addStatus(fmt.Sprintf("Gemini auth error: %v", msg.err))
+		} else {
+			m.addStatus("Authentication complete - type /quit in Gemini when done")
+		}
+		// Reload accounts to reflect any auth changes
+		accounts, _ := GetAccounts(m.machinatorDir)
+		m.accounts = accounts
+		// Stay on the Google info screen so user can finish or try again
 
 	case agentProgressMsg:
 		m.addStatus(string(msg))
@@ -2005,6 +2029,23 @@ func (m model) handleAddAccountAPIKeyKeys(key string, msg tea.KeyMsg) (tea.Model
 
 func (m model) handleAddAccountGoogleInfoKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
+	case "a":
+		// Launch Gemini interactively for authentication
+		// tea.Exec suspends the TUI, runs the command, and resumes when done
+		accountDir := filepath.Join(m.machinatorDir, "accounts", m.newAccountName)
+		geminiPath := filepath.Join(m.machinatorDir, "gemini")
+
+		c := exec.Command(geminiPath)
+		// GEMINI_CLI_HOME tells Gemini CLI where to find its config (not HOME)
+		c.Env = append(os.Environ(),
+			"GEMINI_CLI_HOME="+accountDir,
+			"GEMINI_FORCE_FILE_STORAGE=true",
+		)
+
+		return m, tea.ExecProcess(c, func(err error) tea.Msg {
+			// Called when Gemini exits - return to setup
+			return geminiAuthDoneMsg{err: err}
+		})
 	case "enter", "esc", "q":
 		return m, m.finishAddAccount()
 	}
@@ -2254,36 +2295,49 @@ func (m model) viewAddAccountGoogleInfoLeft(yOffset int) string {
 	b.WriteString(titleStyle.Render("👤 Add Account: " + m.newAccountName))
 	b.WriteString("\n\n")
 
-	b.WriteString(sectionStyle.Render("Google OAuth Setup"))
+	b.WriteString(sectionStyle.Render("Authenticate Account"))
 	b.WriteString("\n\n")
 
-	b.WriteString(itemStyle.Render("Account created! To authenticate, run:"))
+	b.WriteString(itemStyle.Render("Press 'a' to launch Gemini and authenticate."))
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("Use /quit in Gemini when done to return here."))
 	b.WriteString("\n\n")
+
+	b.WriteString(dimStyle.Render("Or run manually:"))
+	b.WriteString("\n")
 
 	accountDir := filepath.Join(m.machinatorDir, "accounts", m.newAccountName)
-	cmd := fmt.Sprintf("HOME=%s gemini auth", accountDir)
+	cmd := fmt.Sprintf("GEMINI_CLI_HOME=%s GEMINI_FORCE_FILE_STORAGE=true gemini", accountDir)
 
 	b.WriteString(lipgloss.NewStyle().
 		Background(lipgloss.Color("235")).
 		Foreground(lipgloss.Color("86")).
-		Padding(1, 2).
+		Padding(0, 1).
 		Render(cmd))
 
 	b.WriteString("\n\n")
 
-	// Button
+	// Buttons
 	contentX := 4
-	contentY := yOffset + 11 // Adjusted for extra lines
+	contentY := yOffset + 12
 
+	authBtn := components.NewButton("[a] Authenticate Now", func() tea.Cmd {
+		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")} }
+	})
 	doneBtn := components.NewButton("Done", func() tea.Cmd {
 		return func() tea.Msg { return tea.KeyMsg{Type: tea.KeyEnter} }
 	})
 
+	authRendered := authBtn.Render()
 	doneRendered := doneBtn.Render()
-	b.WriteString(doneRendered)
 
-	// Register button
-	doneBtn.SetBounds(contentX, contentY, lipgloss.Width(doneRendered), 1)
+	b.WriteString(authRendered + "  " + doneRendered)
+
+	// Register buttons
+	authBtn.SetBounds(contentX, contentY, lipgloss.Width(authRendered), 1)
+	m.clickDispatcher.Register(authBtn)
+
+	doneBtn.SetBounds(contentX+lipgloss.Width(authRendered)+2, contentY, lipgloss.Width(doneRendered), 1)
 	m.clickDispatcher.Register(doneBtn)
 
 	return b.String()
@@ -2328,10 +2382,10 @@ func (m model) installGemini() tea.Cmd {
 			return geminiInstallMsg{success: false, err: fmt.Errorf("build failed: %s", string(out))}
 		}
 
-		// Create wrapper
+		// Create wrapper - use --prefix to run npm without changing CWD
+		// This preserves the caller's working directory for sandbox
 		wrapperContent := fmt.Sprintf(`#!/bin/bash
-cd "%s"
-exec npm run start -- "$@"
+npm run start --prefix "%s" -- "$@"
 `, m.geminiCLIDir)
 		if err := os.WriteFile(m.geminiCLIPath, []byte(wrapperContent), 0755); err != nil {
 			return geminiInstallMsg{success: false, err: fmt.Errorf("failed to create wrapper: %w", err)}
@@ -2825,10 +2879,16 @@ func (m model) addAgentCmd(p ProjectConfig) tea.Cmd {
 			}
 		}
 
-		// Initialize beads database in the new agent worktree
+		// Configure git hooks for the worktree
+		hooksCmd := exec.Command("git", "config", "core.hooksPath", "scripts/hooks")
+		hooksCmd.Dir = newAgentDir
+		hooksCmd.Run() // Ignore errors if scripts/hooks doesn't exist
+
+		// Initialize beads database from JSONL files in the worktree
 		beadsDir := filepath.Join(newAgentDir, ".beads")
 		if _, err := os.Stat(beadsDir); err == nil {
-			bdInit := exec.Command("bd", "init")
+			// Use --from-jsonl to build SQLite from existing JSONL
+			bdInit := exec.Command("bd", "init", "--from-jsonl")
 			bdInit.Dir = newAgentDir
 			bdInit.Run()
 		}

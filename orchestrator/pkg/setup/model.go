@@ -261,5 +261,8 @@ type selectEditCursorMsg int
 type selectAgentCursorMsg int
 type setScreenMsg screen
 type startAddProjectMsg struct{}
+type geminiAuthDoneMsg struct {
+	err error
+}
 
 type tickMsg time.Time
