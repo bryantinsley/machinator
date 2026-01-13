@@ -26,3 +26,31 @@ go_test(
     srcs = ["main_test.go"],
     embed = [":dummy-gemini_lib"],
 )
+
+go_test(
+    name = "dummy-gemini_happy_test",
+    srcs = ["main_test.go"],
+    args = ["-test.run=TestModes/happy"],
+    embed = [":dummy-gemini_lib"],
+)
+
+go_test(
+    name = "dummy-gemini_error_test",
+    srcs = ["main_test.go"],
+    args = ["-test.run=TestModes/error"],
+    embed = [":dummy-gemini_lib"],
+)
+
+go_test(
+    name = "dummy-gemini_stuck_test",
+    srcs = ["main_test.go"],
+    args = ["-test.run=TestModes/stuck"],
+    embed = [":dummy-gemini_lib"],
+)
+
+go_test(
+    name = "dummy-gemini_scripted_test",
+    srcs = ["main_test.go"],
+    args = ["-test.run=TestScripted"],
+    embed = [":dummy-gemini_lib"],
+)
