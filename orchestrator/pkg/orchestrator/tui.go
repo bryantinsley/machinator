@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -236,6 +237,10 @@ var geminiDoneChan = make(chan geminiDoneMsg, 10)
 var claimedTasksMu sync.Mutex
 var claimedTasks = make(map[string]int) // taskID -> agentID
 
+// Retry counter for uncommitted changes recovery
+var taskRetryCount = make(map[string]int) // taskID -> retry count
+const maxTaskRetries = 5
+
 func claimTask(taskID string, agentID int) bool {
 	claimedTasksMu.Lock()
 	defer claimedTasksMu.Unlock()
@@ -257,6 +262,19 @@ func isTaskClaimed(taskID string) bool {
 	defer claimedTasksMu.Unlock()
 	_, claimed := claimedTasks[taskID]
 	return claimed
+}
+
+func incrementRetry(taskID string) int {
+	claimedTasksMu.Lock()
+	defer claimedTasksMu.Unlock()
+	taskRetryCount[taskID]++
+	return taskRetryCount[taskID]
+}
+
+func clearRetry(taskID string) {
+	claimedTasksMu.Lock()
+	defer claimedTasksMu.Unlock()
+	delete(taskRetryCount, taskID)
 }
 
 type model struct {
@@ -1075,15 +1093,69 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			agent.CurrentTaskID = ""
 			agent.Cmd = nil
 			agent.Account = nil
-			m.addActivity(fmt.Sprintf("✅ Agent %d: Task %s completed", msg.AgentID, msg.TaskID))
-			m.addLog(fmt.Sprintf("✓ Agent %d: Task %s finished", msg.AgentID, msg.TaskID))
 
-			// Check for next task for this agent
-			if m.toolsCheck.State == ToolsCheckStatePassed && m.state == StateRunning {
-				taskID := findReadyTask(m.tasks, agent.Name, agent.FailedTasks, m.repoPath)
-				if taskID != "" && claimTask(taskID, msg.AgentID) {
-					m.addLog(fmt.Sprintf("🔄 Agent %d: Next task %s", msg.AgentID, taskID))
-					cmds = append(cmds, executeTask(msg.AgentID, taskID, agent.Name, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+			// Check for uncommitted changes left behind
+			agentDir := filepath.Join(m.projectRoot, "agents", fmt.Sprintf("%d", msg.AgentID))
+			statusCmd := exec.Command("git", "status", "--porcelain")
+			statusCmd.Dir = agentDir
+			if output, err := statusCmd.Output(); err == nil && len(output) > 0 {
+				// Check if changes are minor (1 file, <20 lines diff)
+				fileCount := len(strings.Split(strings.TrimSpace(string(output)), "\n"))
+				diffCmd := exec.Command("git", "diff", "--stat")
+				diffCmd.Dir = agentDir
+				diffOutput, _ := diffCmd.Output()
+				lineCount := 0
+				if lines := strings.Split(string(diffOutput), "\n"); len(lines) > 0 {
+					// Last line has format "X file(s) changed, Y insertions(+), Z deletions(-)"
+					for _, line := range lines {
+						if strings.Contains(line, "insertion") || strings.Contains(line, "deletion") {
+							// Parse numbers from stat line
+							parts := strings.Fields(line)
+							for _, p := range parts {
+								if n, err := strconv.Atoi(p); err == nil {
+									lineCount += n
+								}
+							}
+						}
+					}
+				}
+
+				if fileCount <= 1 && lineCount < 20 {
+					// Minor changes - just discard
+					m.addActivity(fmt.Sprintf("🗑️ Agent %d: Minor changes discarded (%d lines)", msg.AgentID, lineCount))
+					m.addLog(fmt.Sprintf("🗑️ Agent %d: Task %s minor changes discarded:\n%s", msg.AgentID, msg.TaskID, string(output)))
+					discardCmd := exec.Command("git", "checkout", "--", ".")
+					discardCmd.Dir = agentDir
+					discardCmd.Run()
+				} else {
+					// Significant changes - retry
+					retryCount := incrementRetry(msg.TaskID)
+					if retryCount <= maxTaskRetries {
+						m.addActivity(fmt.Sprintf("⚠️ Agent %d: Uncommitted changes - retry %d/%d", msg.AgentID, retryCount, maxTaskRetries))
+						m.addLog(fmt.Sprintf("⚠️ Agent %d: Task %s left uncommitted changes (retry %d/%d):\n%s", msg.AgentID, msg.TaskID, retryCount, maxTaskRetries, string(output)))
+						// Restart the same task to let the agent finish
+						if claimTask(msg.TaskID, msg.AgentID) {
+							cmds = append(cmds, executeTask(msg.AgentID, msg.TaskID, agent.Name, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+						}
+					} else {
+						m.addActivity(fmt.Sprintf("❌ Agent %d: Task %s gave up after %d retries", msg.AgentID, msg.TaskID, maxTaskRetries))
+						m.addLog(fmt.Sprintf("❌ Agent %d: Task %s exceeded retry limit, uncommitted changes abandoned:\n%s", msg.AgentID, msg.TaskID, string(output)))
+						clearRetry(msg.TaskID)
+						agent.FailedTasks[msg.TaskID] = time.Now()
+					}
+				}
+			} else {
+				clearRetry(msg.TaskID) // Success - clear any retry count
+				m.addActivity(fmt.Sprintf("✅ Agent %d: Task %s completed", msg.AgentID, msg.TaskID))
+				m.addLog(fmt.Sprintf("✓ Agent %d: Task %s finished", msg.AgentID, msg.TaskID))
+
+				// Check for next task for this agent
+				if m.toolsCheck.State == ToolsCheckStatePassed && m.state == StateRunning {
+					taskID := findReadyTask(m.tasks, agent.Name, agent.FailedTasks, m.repoPath)
+					if taskID != "" && claimTask(taskID, msg.AgentID) {
+						m.addLog(fmt.Sprintf("🔄 Agent %d: Next task %s", msg.AgentID, taskID))
+						cmds = append(cmds, executeTask(msg.AgentID, taskID, agent.Name, m.projectRoot, m.repoPath, m.accountPool, m.config.PoolingEnabled))
+					}
 				}
 			}
 		}
