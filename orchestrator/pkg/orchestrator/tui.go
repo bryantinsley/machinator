@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -2457,8 +2458,10 @@ func executeTask(agentID int, taskID, agentName, projectRoot, repoPath string, p
 			}
 		}
 
-		// Update task status to in_progress
-		cmd := exec.Command("bd", "update", taskID, "--status=in_progress", fmt.Sprintf("--assignee=%s", agentName))
+		// Update task status to in_progress (with timeout to prevent hanging)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "bd", "update", taskID, "--status=in_progress", fmt.Sprintf("--assignee=%s", agentName))
 		cmd.Dir = agentDir // Use agent dir for bd commands too? Usually bd is in root or handled by path.
 		// Actually bd uses current dir to find .beads. So it MUST be agentDir.
 		if err := cmd.Run(); err != nil {
