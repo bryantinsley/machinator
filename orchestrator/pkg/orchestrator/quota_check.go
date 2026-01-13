@@ -23,10 +23,19 @@ type QuotaResponse struct {
 	Buckets []QuotaBucket `json:"buckets"`
 }
 
+// AccountQuota holds per-model quota information for an account
+type AccountQuota struct {
+	Flash int // gemini-3-flash-preview quota (0-100, -1 for error)
+	Pro   int // gemini-3-pro-preview quota (0-100, -1 for error)
+}
+
+// quotaDetailMsg is sent when quota check completes with per-model data
+type quotaDetailMsg map[string]AccountQuota
+
 // checkQuota runs gemini --dump-quota for all accounts
 func checkQuota(pool *accountpool.Pool) tea.Cmd {
 	return func() tea.Msg {
-		quotas := make(map[string]int)
+		quotas := make(map[string]AccountQuota)
 		accounts := pool.GetAccounts()
 
 		// Debug log
@@ -41,7 +50,7 @@ func checkQuota(pool *accountpool.Pool) tea.Cmd {
 			if f != nil {
 				f.Close()
 			}
-			return quotaMsg(map[string]int{"default": 100})
+			return quotaDetailMsg(map[string]AccountQuota{"default": {Flash: 100, Pro: 100}})
 		}
 
 		machinatorDir := setup.GetMachinatorDir()
@@ -57,8 +66,8 @@ func checkQuota(pool *accountpool.Pool) tea.Cmd {
 				if f != nil {
 					f.WriteString(fmt.Sprintf("[%s] Error checking quota for %s: %v (output: %s)\n", time.Now().Format("15:04:05"), acc.Name, err, string(output)))
 				}
-				// Use -1 to indicate error - UI will show this as "Error" not 100%
-				quotas[acc.Name] = -1
+				// Use -1 to indicate error
+				quotas[acc.Name] = AccountQuota{Flash: -1, Pro: -1}
 				continue
 			}
 
@@ -67,40 +76,34 @@ func checkQuota(pool *accountpool.Pool) tea.Cmd {
 				if f != nil {
 					f.WriteString(fmt.Sprintf("[%s] JSON error for %s: %v (output: %s)\n", time.Now().Format("15:04:05"), acc.Name, err, string(output)))
 				}
-				quotas[acc.Name] = -1
+				quotas[acc.Name] = AccountQuota{Flash: -1, Pro: -1}
 				continue
 			}
 
-			minPercent := 100
-			modelsToCheck := []string{"gemini-3-flash-preview", "gemini-3-pro-preview"}
-			foundAny := false
+			// Extract per-model quotas
+			accQuota := AccountQuota{Flash: -1, Pro: -1} // Default to -1 (not found)
 
 			for _, bucket := range response.Buckets {
-				for _, model := range modelsToCheck {
-					if bucket.ModelID == model {
-						foundAny = true
-						percent := int(bucket.RemainingFraction * 100)
-						if percent < minPercent {
-							minPercent = percent
-						}
-					}
+				percent := int(bucket.RemainingFraction * 100)
+				switch bucket.ModelID {
+				case "gemini-3-flash-preview":
+					accQuota.Flash = percent
+				case "gemini-3-pro-preview":
+					accQuota.Pro = percent
 				}
 			}
 
-			if foundAny {
-				quotas[acc.Name] = minPercent
-			} else {
-				quotas[acc.Name] = 100
-			}
+			quotas[acc.Name] = accQuota
 
 			if f != nil {
-				f.WriteString(fmt.Sprintf("[%s] Quota for %s: %d%%\n", time.Now().Format("15:04:05"), acc.Name, quotas[acc.Name]))
+				f.WriteString(fmt.Sprintf("[%s] Quota for %s: Flash=%d%%, Pro=%d%%\n",
+					time.Now().Format("15:04:05"), acc.Name, accQuota.Flash, accQuota.Pro))
 			}
 		}
 
 		if f != nil {
 			f.Close()
 		}
-		return quotaMsg(quotas)
+		return quotaDetailMsg(quotas)
 	}
 }

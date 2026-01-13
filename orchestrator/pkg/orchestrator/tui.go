@@ -188,7 +188,7 @@ type model struct {
 	confirmQuit     bool       // Whether we're waiting for quit confirmation
 	showHelp        bool       // Whether to show keyboard help modal
 	logs            viewport.Model
-	quotas          map[string]int
+	quotas          map[string]AccountQuota // Per-model quotas (Flash, Pro)
 	quotaLoaded     bool
 	agentName       string
 	tickCount       int // Counts 1-second ticks for periodic operations
@@ -322,7 +322,7 @@ func initialModel(projectConfig *setup.ProjectConfig, autoRun bool) model {
 		activityScroll:  0,
 		focusPanel:      1, // Start focused on activity panel
 		logs:            vp,
-		quotas:          make(map[string]int),
+		quotas:          make(map[string]AccountQuota),
 		agentName:       config.AgentName,
 		cycle:           0,
 		maxCycles:       config.MaxCycles,
@@ -832,7 +832,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		cmds = append(cmds, tick())
 
-	case quotaMsg:
+	case quotaDetailMsg:
 		m.quotas = msg
 		m.quotaLoaded = true
 		// Direct file write for debugging
@@ -1153,6 +1153,27 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%ds", s)
 }
 
+// getQuotaStyle returns the lipgloss style for a quota percentage
+func (m model) getQuotaStyle(percent int) lipgloss.Style {
+	if percent < 0 {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true) // Red bold for error
+	} else if percent < 10 {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
+	} else if percent < 30 {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("220")) // Yellow
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("46")) // Green
+}
+
+// renderQuotaBar renders a progress bar for a quota percentage
+func (m model) renderQuotaBar(percent, barLen int) string {
+	if percent < 0 {
+		return strings.Repeat("░", barLen)
+	}
+	filled := percent * barLen / 100
+	return strings.Repeat("█", filled) + strings.Repeat("░", barLen-filled)
+}
+
 func (m model) View() string {
 	m.clickDispatcher.Clear()
 	m.clickDispatcher.Register(m.agentSelector)
@@ -1184,60 +1205,11 @@ func (m model) View() string {
 		status = fmt.Sprintf("⚡ Running for %s, last active %s ago", formatDuration(elapsed), formatDuration(sinceAction))
 	}
 
-	if m.quotaLoaded {
-		// Build quota string for all accounts
-		var quotaParts []string
-		for name, percent := range m.quotas {
-			// Handle error state (-1)
-			if percent < 0 {
-				errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true) // Red bold
-				quotaParts = append(quotaParts, fmt.Sprintf("%s: %s", name, errorStyle.Render("ERROR")))
-				continue
-			}
-
-			// Color code based on percentage
-			var style lipgloss.Style
-			if percent < 10 {
-				style = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
-			} else if percent < 30 {
-				style = lipgloss.NewStyle().Foreground(lipgloss.Color("220")) // Yellow
-			} else {
-				style = lipgloss.NewStyle().Foreground(lipgloss.Color("46")) // Green
-			}
-
-			// Shorten bar for multi-account
-			barLen := 5
-			filled := percent * barLen / 100
-			bar := strings.Repeat("█", filled) + strings.Repeat("░", barLen-filled)
-
-			quotaParts = append(quotaParts, fmt.Sprintf("%s: %s %s", name, style.Render(bar), style.Render(fmt.Sprintf("%d%%", percent))))
-		}
-
-		// If too many, collapse? For now, just join them.
-		quotaStr := strings.Join(quotaParts, "  ")
-		if !m.expandQuota && len(quotaStr) > 60 {
-			// Fallback to summary if too long and not expanded
-			// Count exhausted
-			exhausted := 0
-			for _, p := range m.quotas {
-				if p == 0 {
-					exhausted++
-				}
-			}
-			available := len(m.quotas) - exhausted
-			quotaStr = fmt.Sprintf("Quotas: %d/%d avail (click to expand)", available, len(m.quotas))
-		}
-
-		title = titleStyle.Width(m.width).Render(fmt.Sprintf(
-			"🤖 Machinator    Agent: %s%s    %s    Cycle: %d    %s",
-			m.agentName, accountInfo, quotaStr, m.cycle, status,
-		))
-	} else {
-		title = titleStyle.Width(m.width).Render(fmt.Sprintf(
-			"🤖 Machinator    Agent: %s%s    Quota: Loading...    Cycle: %d    %s",
-			m.agentName, accountInfo, m.cycle, status,
-		))
-	}
+	// Simplified title bar (quota details are in the dedicated panel)
+	title = titleStyle.Width(m.width).Render(fmt.Sprintf(
+		"🤖 Machinator    Agent: %s%s    Cycle: %d    %s",
+		m.agentName, accountInfo, m.cycle, status,
+	))
 
 	// Register title button for quota toggle
 	titleHeight := lipgloss.Height(title)
@@ -1432,32 +1404,24 @@ func (m model) View() string {
 	// Build quota panel (to the right of agent grid)
 	quotaPanelContent := "📊 Quotas\n\n"
 	if m.quotaLoaded {
-		for name, percent := range m.quotas {
-			var statusStr string
-			var barStyle lipgloss.Style
+		for name, quota := range m.quotas {
+			quotaPanelContent += fmt.Sprintf("  %s\n", name)
 
-			if percent < 0 {
+			if quota.Flash < 0 && quota.Pro < 0 {
 				// Error state
-				barStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-				statusStr = fmt.Sprintf("  %s: %s\n", name, barStyle.Bold(true).Render("ERROR - Check auth"))
+				errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+				quotaPanelContent += fmt.Sprintf("    %s\n\n", errorStyle.Render("ERROR - Check auth"))
 			} else {
-				// Color based on percentage
-				if percent < 10 {
-					barStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
-				} else if percent < 30 {
-					barStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("220")) // Yellow
-				} else {
-					barStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("46")) // Green
-				}
+				// Flash quota
+				flashStyle := m.getQuotaStyle(quota.Flash)
+				flashBar := m.renderQuotaBar(quota.Flash, 8)
+				quotaPanelContent += fmt.Sprintf("    Flash: %s %s\n", flashStyle.Render(flashBar), flashStyle.Render(fmt.Sprintf("%d%%", max(0, quota.Flash))))
 
-				// Longer bar for the panel (10 chars)
-				barLen := 10
-				filled := percent * barLen / 100
-				bar := strings.Repeat("█", filled) + strings.Repeat("░", barLen-filled)
-
-				statusStr = fmt.Sprintf("  %s\n  %s %d%%\n\n", name, barStyle.Render(bar), percent)
+				// Pro quota
+				proStyle := m.getQuotaStyle(quota.Pro)
+				proBar := m.renderQuotaBar(quota.Pro, 8)
+				quotaPanelContent += fmt.Sprintf("    Pro:   %s %s\n\n", proStyle.Render(proBar), proStyle.Render(fmt.Sprintf("%d%%", max(0, quota.Pro))))
 			}
-			quotaPanelContent += statusStr
 		}
 	} else {
 		quotaPanelContent += "  Loading..."
@@ -2066,7 +2030,7 @@ func executeTask(taskID, agentName, projectRoot, repoPath string, pool *accountp
 		// ╚══════════════════════════════════════════════════════════════════════════════╝
 
 		// Determine model based on CHALLENGE tag in task description
-		modelFlag := "gemini-2.5-flash" // Default to Flash (cheaper, faster)
+		modelFlag := "gemini-3-flash-preview" // Default to Flash (cheaper, faster)
 
 		// Fetch task description to check for CHALLENGE tag
 		bdShowCmd := exec.Command("bd", "show", taskID, "--json")
@@ -2076,7 +2040,7 @@ func executeTask(taskID, agentName, projectRoot, repoPath string, pool *accountp
 			if json.Unmarshal(taskOutput, &taskData) == nil {
 				if desc, ok := taskData["description"].(string); ok {
 					if strings.Contains(desc, "CHALLENGE:complex") {
-						modelFlag = "gemini-2.5-pro" // Use Pro for complex tasks
+						modelFlag = "gemini-3-pro-preview" // Use Pro for complex tasks
 						f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 						if f != nil {
 							f.WriteString(fmt.Sprintf("[%s] 🧠 Complex task detected, using %s\n", time.Now().Format("15:04:05"), modelFlag))
