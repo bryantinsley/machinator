@@ -5,4 +5,5 @@ go_library(
     srcs = ["config.go"],
     importpath = "github.com/bryantinsley/machinator/backend/internal/project",
     visibility = ["//backend:__subpackages__"],
+    deps = ["//backend/internal/config"],
 )

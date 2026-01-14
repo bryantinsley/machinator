@@ -409,7 +409,7 @@ func runCmd() {
 
 	// Ensure we have at least one agent
 	if len(st.Agents) == 0 {
-		for i := 0; i < cfg.Agents.Count; i++ {
+		for i := 0; i < cfg.DefaultAgentCount; i++ {
 			st.AddAgent()
 		}
 		st.Save()
@@ -438,7 +438,8 @@ func runCmd() {
 		logger.Log("main", "Shutting down...")
 	} else {
 		// TUI mode
-		ui := tui.New(st, q, repoDir)
+		projectConfigPath := project.ConfigPath(cfg.MachinatorDir, projectID)
+		ui := tui.New(st, q, repoDir, cfg, projCfg, projectConfigPath)
 		go func() {
 			// Feed file logger to TUI
 			// TUI will display its own view
@@ -458,7 +459,7 @@ func quotaWatcher(q *quota.Quota, cfg *config.Config, logger tui.Logger) {
 		} else {
 			logger.Log("quota", fmt.Sprintf("Refreshed: %d accounts", len(q.Accounts)))
 		}
-		time.Sleep(cfg.Intervals.QuotaRefresh)
+		time.Sleep(cfg.Intervals.QuotaRefresh.Duration())
 	}
 }
 
@@ -507,13 +508,13 @@ func setupWatcher(st *state.State, cfg *config.Config, projCfg *project.Config, 
 func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *project.Config, repoDir string, logger tui.Logger) {
 	for {
 		if st.AssignmentPaused {
-			time.Sleep(cfg.Intervals.Assigner)
+			time.Sleep(cfg.Intervals.Assigner.Duration())
 			continue
 		}
 
 		readyAgents := st.ReadyAgents()
 		if len(readyAgents) == 0 {
-			time.Sleep(cfg.Intervals.Assigner)
+			time.Sleep(cfg.Intervals.Assigner.Duration())
 			continue
 		}
 
@@ -521,13 +522,13 @@ func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *proj
 		tasks, err := beads.LoadTasks(repoDir)
 		if err != nil {
 			logger.Log("assign", fmt.Sprintf("Error loading tasks: %v", err))
-			time.Sleep(cfg.Intervals.Assigner)
+			time.Sleep(cfg.Intervals.Assigner.Duration())
 			continue
 		}
 
 		readyTasks := beads.ReadyTasks(tasks)
 		if len(readyTasks) == 0 {
-			time.Sleep(cfg.Intervals.Assigner)
+			time.Sleep(cfg.Intervals.Assigner.Duration())
 			continue
 		}
 
@@ -560,7 +561,7 @@ func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *proj
 			readyTasks = removeTask(readyTasks, task.ID)
 		}
 
-		time.Sleep(cfg.Intervals.Assigner)
+		time.Sleep(cfg.Intervals.Assigner.Duration())
 	}
 }
 

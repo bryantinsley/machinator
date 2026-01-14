@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/bryantinsley/machinator/backend/internal/config"
 )
 
 // Config holds project-specific configuration.
@@ -28,7 +30,7 @@ func Load(machinatorDir string, projectID string) (*Config, error) {
 	}
 
 	// Strip JSONC comments (// style)
-	data = stripJSONComments(data)
+	data = config.StripJSONComments(data)
 
 	cfg := &Config{
 		// Defaults
@@ -46,32 +48,6 @@ func Load(machinatorDir string, projectID string) (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-// stripJSONComments removes // comments from JSONC
-func stripJSONComments(data []byte) []byte {
-	var result []byte
-	inString := false
-	i := 0
-	for i < len(data) {
-		// Track string state
-		if data[i] == '"' && (i == 0 || data[i-1] != '\\') {
-			inString = !inString
-		}
-
-		// Check for // comment outside strings
-		if !inString && i+1 < len(data) && data[i] == '/' && data[i+1] == '/' {
-			// Skip to end of line
-			for i < len(data) && data[i] != '\n' {
-				i++
-			}
-			continue
-		}
-
-		result = append(result, data[i])
-		i++
-	}
-	return result
 }
 
 // Save saves project config to disk.
