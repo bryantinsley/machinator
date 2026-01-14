@@ -165,7 +165,10 @@ func (t *TUI) handleInput(event *tcell.EventKey) *tcell.EventKey {
 		t.logFilter = fmt.Sprintf("agent-%d", agentNum)
 		t.rightPane.SetTitle(fmt.Sprintf(" [%d] Agent %d Log ", agentNum, agentNum))
 	}
-	t.updateRightPane()
+	// Defer update to avoid blocking input handler
+	go func() {
+		t.updateRightPane()
+	}()
 	return event
 }
 
