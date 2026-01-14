@@ -13,6 +13,7 @@ import (
 
 	"github.com/bryantinsley/machinator/backend/internal/beads"
 	"github.com/bryantinsley/machinator/backend/internal/config"
+	"github.com/bryantinsley/machinator/backend/internal/project"
 	"github.com/bryantinsley/machinator/backend/internal/quota"
 	"github.com/bryantinsley/machinator/backend/internal/setup"
 	"github.com/bryantinsley/machinator/backend/internal/state"
@@ -27,6 +28,7 @@ Usage:
 Commands:
   run            Run the orchestrator
   setup          Setup project (clone repo, build gemini CLI)
+  project        List/create/show project configs
   quota          Dump quota for all accounts
   select-task    Show what task would be selected
   help           Show this help
@@ -51,6 +53,8 @@ func main() {
 		selectTaskCmd()
 	case "setup":
 		setupCmd()
+	case "project":
+		projectCmd()
 	case "run":
 		runCmd()
 	case "help", "-h", "--help":
@@ -146,6 +150,93 @@ func setupCmd() {
 	}
 
 	fmt.Println("Setup complete!")
+}
+
+func projectCmd() {
+	// Parse flags
+	projectID := ""
+	create := false
+	repo := ""
+	branch := "main"
+
+	for i := 2; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		if strings.HasPrefix(arg, "--project=") {
+			projectID = strings.TrimPrefix(arg, "--project=")
+		} else if arg == "--create" {
+			create = true
+		} else if strings.HasPrefix(arg, "--repo=") {
+			repo = strings.TrimPrefix(arg, "--repo=")
+		} else if strings.HasPrefix(arg, "--branch=") {
+			branch = strings.TrimPrefix(arg, "--branch=")
+		}
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// If creating a new project
+	if create {
+		if projectID == "" {
+			projectID = "1"
+		}
+		if repo == "" {
+			fmt.Fprintln(os.Stderr, "Usage: machinator project --create --repo=URL [--project=N] [--branch=main]")
+			os.Exit(1)
+		}
+
+		projCfg := &project.Config{
+			Repo:             repo,
+			Branch:           branch,
+			SimpleModelName:  "gemini-3-flash-preview",
+			ComplexModelName: "gemini-3-pro-preview",
+		}
+
+		if err := project.Save(cfg.MachinatorDir, projectID, projCfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Error saving project: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Created project %s\n", projectID)
+		return
+	}
+
+	// List or show projects
+	if projectID == "" {
+		// List all projects
+		projectsDir := filepath.Join(cfg.MachinatorDir, "projects")
+		entries, err := os.ReadDir(projectsDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading projects: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("Projects:")
+		for _, e := range entries {
+			if e.IsDir() {
+				projCfg, err := project.Load(cfg.MachinatorDir, e.Name())
+				if err != nil {
+					fmt.Printf("  %s: (error: %v)\n", e.Name(), err)
+				} else {
+					fmt.Printf("  %s: %s @ %s\n", e.Name(), projCfg.Repo, projCfg.Branch)
+				}
+			}
+		}
+	} else {
+		// Show specific project
+		projCfg, err := project.Load(cfg.MachinatorDir, projectID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Project %s:\n", projectID)
+		fmt.Printf("  Repo:          %s\n", projCfg.Repo)
+		fmt.Printf("  Branch:        %s\n", projCfg.Branch)
+		fmt.Printf("  Simple model:  %s\n", projCfg.SimpleModelName)
+		fmt.Printf("  Complex model: %s\n", projCfg.ComplexModelName)
+	}
 }
 
 func selectTaskCmd() {
