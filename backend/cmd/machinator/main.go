@@ -370,11 +370,31 @@ func selectTaskCmd() {
 }
 
 func runCmd() {
+	// Parse flags
+	projectID := ""
+	for i := 2; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		if strings.HasPrefix(arg, "--project=") {
+			projectID = strings.TrimPrefix(arg, "--project=")
+		}
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Resolve project
+	if projectID == "" {
+		projectID = "1" // Default to project 1
+	}
+	projCfg, err := project.Load(cfg.MachinatorDir, projectID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading project: %v\n", err)
+		os.Exit(1)
+	}
+	repoDir := project.RepoDir(cfg.MachinatorDir, projectID)
 
 	st, err := state.Load(cfg.MachinatorDir)
 	if err != nil {
@@ -394,13 +414,15 @@ func runCmd() {
 
 	log.Println("Machinator v3 starting...")
 	log.Printf("  MACHINATOR_DIR: %s", cfg.MachinatorDir)
+	log.Printf("  Project: %s", projectID)
+	log.Printf("  Repo: %s @ %s", projCfg.Repo, projCfg.Branch)
 	log.Printf("  Agents: %d", len(st.Agents))
-	log.Printf("  Idle timeout: %s", cfg.Timeouts.Idle)
-	log.Printf("  Max runtime: %s", cfg.Timeouts.MaxRuntime)
+	log.Printf("  Simple model: %s", projCfg.SimpleModelName)
+	log.Printf("  Complex model: %s", projCfg.ComplexModelName)
 
 	// Start watchers
 	go quotaWatcher(q, cfg)
-	go assigner(st, q, cfg)
+	go assigner(st, q, cfg, projCfg, repoDir)
 	// TODO: go agentWatcher(st, cfg)
 
 	log.Println("Orchestrator running. Press Ctrl+C to stop.")
@@ -425,22 +447,103 @@ func quotaWatcher(q *quota.Quota, cfg *config.Config) {
 	}
 }
 
-func assigner(st *state.State, q *quota.Quota, cfg *config.Config) {
+func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *project.Config, repoDir string) {
 	for {
 		if st.AssignmentPaused {
 			time.Sleep(cfg.Intervals.Assigner)
 			continue
 		}
 
-		for _, agent := range st.ReadyAgents() {
-			log.Printf("Agent %d: ready, looking for work...", agent.ID)
+		readyAgents := st.ReadyAgents()
+		if len(readyAgents) == 0 {
+			time.Sleep(cfg.Intervals.Assigner)
+			continue
+		}
 
-			// TODO: Find task and assign
-			// For now, just log
+		// Load tasks
+		tasks, err := beads.LoadTasks(repoDir)
+		if err != nil {
+			log.Printf("Error loading tasks: %v", err)
+			time.Sleep(cfg.Intervals.Assigner)
+			continue
+		}
+
+		readyTasks := beads.ReadyTasks(tasks)
+		if len(readyTasks) == 0 {
+			time.Sleep(cfg.Intervals.Assigner)
+			continue
+		}
+
+		// Get quota info for model selection
+		simpleQuota := q.TotalFor(projCfg.SimpleModelName)
+		complexQuota := q.TotalFor(projCfg.ComplexModelName)
+
+		for _, agent := range readyAgents {
+			// Find a task to assign (weighted selection)
+			task := selectTask(readyTasks, simpleQuota, complexQuota, st)
+			if task == nil {
+				break
+			}
+
+			// Determine model
+			model := projCfg.SimpleModelName
+			if task.IsComplex {
+				model = projCfg.ComplexModelName
+			} else if simpleQuota <= 0 && complexQuota > 0 {
+				model = projCfg.ComplexModelName // Upgrade
+			}
+
+			log.Printf("Agent %d: ASSIGNED task %s (%s) using %s",
+				agent.ID, task.ID, task.Title, model)
+
+			// Update agent state
+			agent.State = "assigned"
+			agent.TaskID = task.ID
+			st.Save()
+
+			// Remove task from ready list (for this iteration)
+			readyTasks = removeTask(readyTasks, task.ID)
 		}
 
 		time.Sleep(cfg.Intervals.Assigner)
 	}
+}
+
+func selectTask(tasks []*beads.Task, simpleQuota, complexQuota float64, st *state.State) *beads.Task {
+	for _, task := range tasks {
+		// Skip barred tasks
+		if st.IsTaskBarred(task.ID) {
+			continue
+		}
+
+		// Skip tasks already assigned to another agent
+		if st.IsTaskAssigned(task.ID) {
+			continue
+		}
+
+		// Check quota
+		if task.IsComplex && complexQuota <= 0 {
+			continue
+		}
+		if !task.IsComplex && simpleQuota <= 0 && complexQuota <= 0 {
+			continue
+		}
+
+		// For now, just return the first available task
+		// TODO: weighted random selection
+		return task
+	}
+	return nil
+}
+
+func removeTask(tasks []*beads.Task, id string) []*beads.Task {
+	var result []*beads.Task
+	for _, t := range tasks {
+		if t.ID != id {
+			result = append(result, t)
+		}
+	}
+	return result
 }
 
 func resolveProjectRepo(machinatorDir, projectID string) (string, error) {

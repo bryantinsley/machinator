@@ -167,3 +167,16 @@ func (s *State) BarTask(taskID string) {
 	}
 	s.BarredTasks = append(s.BarredTasks, taskID)
 }
+
+// IsTaskAssigned checks if a task is currently assigned to any agent.
+func (s *State) IsTaskAssigned(taskID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, a := range s.Agents {
+		if a.TaskID == taskID && a.State == "assigned" {
+			return true
+		}
+	}
+	return false
+}
