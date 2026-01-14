@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/bryantinsley/machinator/backend/internal/beads"
@@ -370,10 +372,13 @@ func selectTaskCmd() {
 func runCmd() {
 	// Parse flags
 	projectID := ""
+	headless := false
 	for i := 2; i < len(os.Args); i++ {
 		arg := os.Args[i]
 		if strings.HasPrefix(arg, "--project=") {
 			projectID = strings.TrimPrefix(arg, "--project=")
+		} else if arg == "--headless" {
+			headless = true
 		}
 	}
 
@@ -410,38 +415,59 @@ func runCmd() {
 		st.Save()
 	}
 
+	// Create file logger (always writes to files)
+	logsDir := filepath.Join(cfg.MachinatorDir, "logs")
+	logger, err := tui.NewFileLogger(logsDir, headless)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating logger: %v\n", err)
+		os.Exit(1)
+	}
+	defer logger.Close()
+
 	// Initial quota fetch
 	q.Refresh()
 
-	// Create TUI
-	ui := tui.New(st, q, repoDir)
-	ui.Log("assign", fmt.Sprintf("Starting with %d agents", len(st.Agents)))
-	ui.Log("assign", fmt.Sprintf("Project: %s @ %s", projCfg.Repo, projCfg.Branch))
+	logger.Log("main", fmt.Sprintf("Machinator starting with %d agents", len(st.Agents)))
+	logger.Log("main", fmt.Sprintf("Project: %s @ %s", projCfg.Repo, projCfg.Branch))
 
-	// Start watchers with TUI
-	go quotaWatcherWithTUI(q, cfg, ui)
-	go assignerWithTUI(st, q, cfg, projCfg, repoDir, ui)
+	// Start watchers
+	go quotaWatcher(q, cfg, logger)
+	go assigner(st, q, cfg, projCfg, repoDir, logger)
 
-	// Run TUI (blocks until quit)
-	if err := ui.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
+	if headless {
+		// Headless mode: wait for signal
+		logger.Log("main", "Running in headless mode (Ctrl+C to stop)")
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+		<-sig
+		logger.Log("main", "Shutting down...")
+	} else {
+		// TUI mode
+		ui := tui.New(st, q, repoDir)
+		go func() {
+			// Feed file logger to TUI
+			// TUI will display its own view
+		}()
+		if err := ui.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
+		}
 	}
 
 	st.Save()
 }
 
-func quotaWatcherWithTUI(q *quota.Quota, cfg *config.Config, ui *tui.TUI) {
+func quotaWatcher(q *quota.Quota, cfg *config.Config, logger tui.Logger) {
 	for {
 		if err := q.Refresh(); err != nil {
-			ui.Log("quota", fmt.Sprintf("Refresh error: %v", err))
+			logger.Log("quota", fmt.Sprintf("Refresh error: %v", err))
 		} else {
-			ui.Log("quota", fmt.Sprintf("Refreshed: %d accounts", len(q.Accounts)))
+			logger.Log("quota", fmt.Sprintf("Refreshed: %d accounts", len(q.Accounts)))
 		}
 		time.Sleep(cfg.Intervals.QuotaRefresh)
 	}
 }
 
-func assignerWithTUI(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *project.Config, repoDir string, ui *tui.TUI) {
+func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *project.Config, repoDir string, logger tui.Logger) {
 	for {
 		if st.AssignmentPaused {
 			time.Sleep(cfg.Intervals.Assigner)
@@ -457,7 +483,7 @@ func assignerWithTUI(st *state.State, q *quota.Quota, cfg *config.Config, projCf
 		// Load tasks
 		tasks, err := beads.LoadTasks(repoDir)
 		if err != nil {
-			ui.Log("assign", fmt.Sprintf("Error loading tasks: %v", err))
+			logger.Log("assign", fmt.Sprintf("Error loading tasks: %v", err))
 			time.Sleep(cfg.Intervals.Assigner)
 			continue
 		}
@@ -487,7 +513,7 @@ func assignerWithTUI(st *state.State, q *quota.Quota, cfg *config.Config, projCf
 				model = projCfg.ComplexModelName // Upgrade
 			}
 
-			ui.Log("assign", fmt.Sprintf("[green]Agent %d: ASSIGNED[-] %s (%s) → %s",
+			logger.Log("assign", fmt.Sprintf("[green]Agent %d: ASSIGNED[-] %s (%s) → %s",
 				agent.ID, task.ID, task.Title, model))
 
 			// Update agent state
