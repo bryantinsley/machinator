@@ -80,6 +80,76 @@ func (s *Setup) EnsureGeminiCLI() (string, error) {
 	return geminiPath, nil
 }
 
+// BuildGeminiCLI clones and builds the specialized gemini-cli from source.
+func (s *Setup) BuildGeminiCLI() error {
+	resourcesDir := filepath.Join(s.MachinatorDir, "resources")
+	geminiModsDir := filepath.Join(resourcesDir, "gemini-cli-mods")
+
+	// Clone or update the repo
+	if _, err := os.Stat(filepath.Join(geminiModsDir, ".git")); err == nil {
+		// Already cloned, fetch and reset
+		fmt.Println("Updating gemini-cli-mods...")
+		cmd := exec.Command("git", "-C", geminiModsDir, "fetch", "origin")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("git fetch: %w", err)
+		}
+		cmd = exec.Command("git", "-C", geminiModsDir, "reset", "--hard", "origin/main")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("git reset: %w", err)
+		}
+	} else {
+		// Clone fresh
+		if err := os.MkdirAll(resourcesDir, 0755); err != nil {
+			return fmt.Errorf("create resources dir: %w", err)
+		}
+		fmt.Println("Cloning gemini-cli-mods...")
+		cmd := exec.Command("git", "clone",
+			"https://github.com/bryantinsley/gemini-cli-mods.git",
+			geminiModsDir)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("git clone: %w", err)
+		}
+	}
+
+	// Install dependencies
+	fmt.Println("Installing dependencies...")
+	cmd := exec.Command("npm", "install")
+	cmd.Dir = geminiModsDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("npm install: %w", err)
+	}
+
+	// Build
+	fmt.Println("Building...")
+	cmd = exec.Command("npm", "run", "build")
+	cmd.Dir = geminiModsDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("npm build: %w", err)
+	}
+
+	// Create wrapper script
+	geminiPath := filepath.Join(s.MachinatorDir, "gemini")
+	distPath := filepath.Join(geminiModsDir, "packages", "cli", "dist", "index.js")
+
+	wrapper := fmt.Sprintf("#!/bin/bash\nexec node \"%s\" \"$@\"\n", distPath)
+	if err := os.WriteFile(geminiPath, []byte(wrapper), 0755); err != nil {
+		return fmt.Errorf("write wrapper: %w", err)
+	}
+
+	fmt.Println("gemini-cli built successfully!")
+	return nil
+}
+
 // CloneRepo clones or updates the project repository.
 func (s *Setup) CloneRepo(projectID int, repoURL, branch string) (string, error) {
 	projectDir := filepath.Join(s.MachinatorDir, "projects", fmt.Sprintf("%d", projectID))

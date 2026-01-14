@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/bryantinsley/machinator/backend/internal/beads"
 	"github.com/bryantinsley/machinator/backend/internal/config"
 	"github.com/bryantinsley/machinator/backend/internal/quota"
+	"github.com/bryantinsley/machinator/backend/internal/setup"
 	"github.com/bryantinsley/machinator/backend/internal/state"
 )
 
@@ -24,6 +26,7 @@ Usage:
 
 Commands:
   run            Run the orchestrator
+  setup          Setup project (clone repo, build gemini CLI)
   quota          Dump quota for all accounts
   select-task    Show what task would be selected
   help           Show this help
@@ -46,6 +49,8 @@ func main() {
 		quotaCmd()
 	case "select-task":
 		selectTaskCmd()
+	case "setup":
+		setupCmd()
 	case "run":
 		runCmd()
 	case "help", "-h", "--help":
@@ -78,6 +83,69 @@ func quotaCmd() {
 			fmt.Printf("  %s: %.0f%%\n", model, remaining*100)
 		}
 	}
+}
+
+func setupCmd() {
+	// Parse flags
+	projectID := ""
+	repoURL := ""
+	branch := "main"
+	buildGemini := false
+
+	for i := 2; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		if strings.HasPrefix(arg, "--project=") {
+			projectID = strings.TrimPrefix(arg, "--project=")
+		} else if strings.HasPrefix(arg, "--repo=") {
+			repoURL = strings.TrimPrefix(arg, "--repo=")
+		} else if strings.HasPrefix(arg, "--branch=") {
+			branch = strings.TrimPrefix(arg, "--branch=")
+		} else if arg == "--build-gemini" {
+			buildGemini = true
+		}
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	s := setup.New(cfg.MachinatorDir)
+
+	// Ensure base directories exist
+	fmt.Println("Creating directories...")
+	if err := s.EnsureDirectories(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating directories: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Build gemini CLI if requested
+	if buildGemini {
+		fmt.Println("Building gemini CLI...")
+		if err := s.BuildGeminiCLI(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error building gemini CLI: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// Clone/update project if specified
+	if repoURL != "" {
+		if projectID == "" {
+			projectID = "1"
+		}
+		fmt.Printf("Setting up project %s...\n", projectID)
+
+		id, _ := strconv.Atoi(projectID)
+		repoDir, err := s.CloneRepo(id, repoURL, branch)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error cloning repo: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Repo at: %s\n", repoDir)
+	}
+
+	fmt.Println("Setup complete!")
 }
 
 func selectTaskCmd() {
