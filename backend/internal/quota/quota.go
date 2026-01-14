@@ -1,6 +1,7 @@
 package quota
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -40,7 +41,7 @@ func (q *Quota) Refresh() error {
 	q.Accounts = nil
 	for _, homeDir := range accounts {
 		name := filepath.Base(homeDir)
-		models, err := fetchQuotaForAccount(homeDir)
+		models, err := fetchQuotaForAccount(q.MachinatorDir, homeDir)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: quota fetch failed for %s: %v\n", name, err)
 			continue
@@ -99,8 +100,10 @@ func (q *Quota) discoverAccounts() ([]string, error) {
 	return accounts, nil
 }
 
-func fetchQuotaForAccount(homeDir string) (map[string]float64, error) {
-	cmd := exec.Command("gemini", "--dump-quota")
+func fetchQuotaForAccount(machinatorDir, homeDir string) (map[string]float64, error) {
+	geminiPath := filepath.Join(machinatorDir, "gemini")
+
+	cmd := exec.Command(geminiPath, "--dump-quota")
 	cmd.Env = append(os.Environ(),
 		"HOME="+homeDir,
 		"GEMINI_CLI_HOME="+homeDir,
@@ -112,21 +115,51 @@ func fetchQuotaForAccount(homeDir string) (map[string]float64, error) {
 		return nil, fmt.Errorf("gemini --dump-quota: %w", err)
 	}
 
-	// Parse JSON output
-	var result struct {
-		Models map[string]struct {
-			Remaining float64 `json:"remaining"`
-		} `json:"models"`
+	// Extract JSON block (skip spurious output before/after)
+	jsonBytes := extractJSON(output)
+	if jsonBytes == nil {
+		return nil, fmt.Errorf("no JSON found in quota output")
 	}
 
-	if err := json.Unmarshal(output, &result); err != nil {
+	// Parse JSON output
+	var result struct {
+		Buckets []struct {
+			ModelId           string  `json:"modelId"`
+			RemainingFraction float64 `json:"remainingFraction"`
+		} `json:"buckets"`
+	}
+
+	if err := json.Unmarshal(jsonBytes, &result); err != nil {
 		return nil, fmt.Errorf("parse quota json: %w", err)
 	}
 
 	models := make(map[string]float64)
-	for name, m := range result.Models {
-		models[name] = m.Remaining
+	for _, b := range result.Buckets {
+		models[b.ModelId] = b.RemainingFraction
 	}
 
 	return models, nil
+}
+
+// extractJSON finds the first JSON object in the output
+func extractJSON(data []byte) []byte {
+	start := bytes.Index(data, []byte("{"))
+	if start == -1 {
+		return nil
+	}
+
+	// Find matching closing brace
+	depth := 0
+	for i := start; i < len(data); i++ {
+		switch data[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return data[start : i+1]
+			}
+		}
+	}
+	return nil
 }
