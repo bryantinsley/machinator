@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -37,6 +38,10 @@ type TUI struct {
 	logMu       sync.Mutex
 	logFilter   string // "all", "assign", "agent-N", "beads"
 	confirmQuit bool
+
+	// Cached beads (refresh every 15s)
+	cachedTasks     []*beads.Task
+	cachedTasksTime time.Time
 
 	mu sync.RWMutex
 }
@@ -194,15 +199,22 @@ func (t *TUI) updateLeftPane() {
 
 	var content string
 
-	// Quota section
+	// Quota section (sorted by account name)
 	content += "[yellow]Quota[-]\n"
 	content += "─────\n"
 	if t.quota != nil && len(t.quota.Accounts) > 0 {
-		for _, acc := range t.quota.Accounts {
+		// Sort accounts by name
+		accounts := make([]quota.AccountQuota, len(t.quota.Accounts))
+		copy(accounts, t.quota.Accounts)
+		sort.Slice(accounts, func(i, j int) bool {
+			return accounts[i].Name < accounts[j].Name
+		})
+
+		for _, acc := range accounts {
 			content += fmt.Sprintf("[white]%s[-]\n", acc.Name)
-			for model, remaining := range acc.Models {
-				// Only show flash and pro
-				if model == "gemini-3-flash-preview" || model == "gemini-3-pro-preview" {
+			// Show flash then pro (sorted order)
+			for _, model := range []string{"gemini-3-flash-preview", "gemini-3-pro-preview"} {
+				if remaining, ok := acc.Models[model]; ok {
 					shortName := "flash"
 					if model == "gemini-3-pro-preview" {
 						shortName = "pro"
@@ -241,6 +253,57 @@ func (t *TUI) updateLeftPane() {
 				content += fmt.Sprintf("   [gray]%s%s[-]\n", agent.TaskID, elapsed)
 			}
 		}
+	}
+
+	// Beads section (cached, refresh every 15s)
+	content += "\n[yellow]Beads[-]\n"
+	content += "─────\n"
+
+	// Refresh cache if stale
+	if time.Since(t.cachedTasksTime) > 15*time.Second {
+		tasks, err := beads.LoadTasks(t.repoDir)
+		if err == nil {
+			t.cachedTasks = tasks
+			t.cachedTasksTime = time.Now()
+		}
+	}
+
+	if len(t.cachedTasks) == 0 {
+		content += "[gray]No tasks[-]\n"
+	} else {
+		// Build closed set for blocking check
+		closedIDs := make(map[string]bool)
+		for _, task := range t.cachedTasks {
+			if task.Status == "closed" {
+				closedIDs[task.ID] = true
+			}
+		}
+
+		ready, assigned, blocked, closed := 0, 0, 0, 0
+		for _, task := range t.cachedTasks {
+			switch task.Status {
+			case "open":
+				// Check if actually blocked (has unclosed blockers)
+				isBlocked := false
+				for _, blockerID := range task.BlockedBy {
+					if !closedIDs[blockerID] {
+						isBlocked = true
+						break
+					}
+				}
+				if isBlocked {
+					blocked++
+				} else {
+					ready++
+				}
+			case "in_progress":
+				assigned++
+			case "closed":
+				closed++
+			}
+		}
+		content += fmt.Sprintf("ready:[green]%d[-] assigned:[blue]%d[-]\n", ready, assigned)
+		content += fmt.Sprintf("blocked:[yellow]%d[-] closed:[gray]%d[-]\n", blocked, closed)
 	}
 
 	t.app.QueueUpdateDraw(func() {
