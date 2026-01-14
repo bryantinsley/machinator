@@ -432,6 +432,7 @@ func runCmd() {
 
 	// Start watchers
 	go quotaWatcher(q, cfg, logger)
+	go setupWatcher(st, cfg, logger)
 	go assigner(st, q, cfg, projCfg, repoDir, logger)
 
 	if headless {
@@ -464,6 +465,23 @@ func quotaWatcher(q *quota.Quota, cfg *config.Config, logger tui.Logger) {
 			logger.Log("quota", fmt.Sprintf("Refreshed: %d accounts", len(q.Accounts)))
 		}
 		time.Sleep(cfg.Intervals.QuotaRefresh)
+	}
+}
+
+func setupWatcher(st *state.State, cfg *config.Config, logger tui.Logger) {
+	for {
+		// Find pending agents
+		for _, agent := range st.PendingAgents() {
+			logger.Log("setup", fmt.Sprintf("Setting up agent %d...", agent.ID))
+
+			// TODO: Actually setup worktree, etc.
+			// For now, just mark as ready
+			st.SetAgentReady(agent.ID)
+
+			logger.Log("setup", fmt.Sprintf("[green]Agent %d ready[-]", agent.ID))
+		}
+
+		time.Sleep(2 * time.Second)
 	}
 }
 

@@ -152,6 +152,9 @@ func (t *TUI) handleInput(event *tcell.EventKey) *tcell.EventKey {
 	case 'b', 'B':
 		t.logFilter = "beads"
 		t.rightPane.SetTitle(" [b] Beads Status ")
+	case '+', '=':
+		agent := t.state.AddAgent()
+		t.Log("main", fmt.Sprintf("[blue]Added agent %d (pending)[-]", agent.ID))
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		agentNum := int(event.Rune() - '0')
 		t.logFilter = fmt.Sprintf("agent-%d", agentNum)
@@ -166,9 +169,9 @@ func (t *TUI) updateHelpBar() {
 	if t.confirmQuit {
 		text = "[red]Quit? (y/n)[-]"
 	} else if t.state.AssignmentPaused {
-		text = "[yellow]PAUSED[-]  [0-9]Agent [a]Assign [b]Beads [s]Start [q]Quit"
+		text = "[yellow]PAUSED[-]  [0-9]Agent [a]Assign [b]Beads [+]Add [s]Start [q]Quit"
 	} else {
-		text = "[green]RUNNING[-] [0-9]Agent [a]Assign [b]Beads [p]Pause [q]Quit"
+		text = "[green]RUNNING[-] [0-9]Agent [a]Assign [b]Beads [+]Add [p]Pause [q]Quit"
 	}
 	t.app.QueueUpdateDraw(func() {
 		t.helpBar.SetText(text)

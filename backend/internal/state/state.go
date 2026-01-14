@@ -121,7 +121,35 @@ func (s *State) AssignedAgents() []*Agent {
 	return assigned
 }
 
-// AddAgent adds a new agent slot.
+// PendingAgents returns agents in pending state.
+func (s *State) PendingAgents() []*Agent {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var pending []*Agent
+	for _, a := range s.Agents {
+		if a.State == "pending" {
+			pending = append(pending, a)
+		}
+	}
+	return pending
+}
+
+// SetAgentReady marks an agent as ready and saves.
+func (s *State) SetAgentReady(agentID int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, a := range s.Agents {
+		if a.ID == agentID {
+			a.State = "ready"
+			s.save()
+			return
+		}
+	}
+}
+
+// AddAgent adds a new agent slot in pending state and saves.
 func (s *State) AddAgent() *Agent {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -136,9 +164,10 @@ func (s *State) AddAgent() *Agent {
 
 	agent := &Agent{
 		ID:    maxID + 1,
-		State: "ready",
+		State: "pending", // Setup watcher will move to ready
 	}
 	s.Agents = append(s.Agents, agent)
+	s.save()
 	return agent
 }
 
