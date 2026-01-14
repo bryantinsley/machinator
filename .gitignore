@@ -1,1 +1,3 @@
 bazel-*
+.go-cache
+.go-build-cache

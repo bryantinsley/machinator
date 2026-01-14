@@ -173,9 +173,12 @@ func (t *TUI) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			t.rightPane.SetTitle(fmt.Sprintf(" [%d] Agent %d Log ", agentNum, agentNum))
 		})
 	}
-	// Defer update to avoid blocking input handler
+	// Trigger immediate update
 	go func() {
-		t.updateRightPane()
+		content := t.buildRightContent()
+		t.app.QueueUpdateDraw(func() {
+			t.rightPane.SetText(content)
+		})
 	}()
 	return event
 }
@@ -193,205 +196,199 @@ func (t *TUI) updateHelpBar() {
 }
 
 func (t *TUI) refreshLoop() {
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		t.updateLeftPane()
-		t.updateRightPane()
+		// Build content outside event loop
+		leftContent := t.buildLeftContent()
+		rightContent := t.buildRightContent()
+
+		// Single update to tview
+		t.app.QueueUpdateDraw(func() {
+			t.leftPane.SetText(leftContent)
+			t.rightPane.SetText(rightContent)
+		})
 	}
 }
 
-func (t *TUI) updateLeftPane() {
+func (t *TUI) buildLeftContent() string {
 	var content string
 
-	// Build content with lock held
-	func() {
-		t.mu.RLock()
-		defer t.mu.RUnlock()
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 
-		// Quota section (sorted by account name)
-		content += "[yellow]Quota[-]\n"
-		content += "─────\n"
-		if t.quota != nil && len(t.quota.Accounts) > 0 {
-			// Sort accounts by name
-			accounts := make([]quota.AccountQuota, len(t.quota.Accounts))
-			copy(accounts, t.quota.Accounts)
-			sort.Slice(accounts, func(i, j int) bool {
-				return accounts[i].Name < accounts[j].Name
-			})
+	// Quota section (sorted by account name)
+	content += "[yellow]Quota[-]\n"
+	content += "─────\n"
+	if t.quota != nil && len(t.quota.Accounts) > 0 {
+		// Sort accounts by name
+		accounts := make([]quota.AccountQuota, len(t.quota.Accounts))
+		copy(accounts, t.quota.Accounts)
+		sort.Slice(accounts, func(i, j int) bool {
+			return accounts[i].Name < accounts[j].Name
+		})
 
-			for _, acc := range accounts {
-				content += fmt.Sprintf("[white]%s[-]\n", acc.Name)
-				// Show flash then pro (sorted order)
-				for _, model := range []string{"gemini-3-flash-preview", "gemini-3-pro-preview"} {
-					if remaining, ok := acc.Models[model]; ok {
-						shortName := "flash"
-						if model == "gemini-3-pro-preview" {
-							shortName = "pro"
-						}
-						color := "green"
-						if remaining < 0.3 {
-							color = "red"
-						} else if remaining < 0.7 {
-							color = "yellow"
-						}
-						content += fmt.Sprintf("  %s: [%s]%.0f%%[-]\n", shortName, color, remaining*100)
+		for _, acc := range accounts {
+			content += fmt.Sprintf("[white]%s[-]\n", acc.Name)
+			// Show flash then pro (sorted order)
+			for _, model := range []string{"gemini-3-flash-preview", "gemini-3-pro-preview"} {
+				if remaining, ok := acc.Models[model]; ok {
+					shortName := "flash"
+					if model == "gemini-3-pro-preview" {
+						shortName = "pro"
 					}
-				}
-			}
-		} else {
-			content += "[gray]No quota data[-]\n"
-		}
-
-		// Agents section
-		content += "\n[yellow]Agents[-]\n"
-		content += "──────\n"
-		if t.state != nil {
-			for _, agent := range t.state.Agents {
-				stateColor := "green"
-				if agent.State == "assigned" {
-					stateColor = "blue"
-				} else if agent.State == "pending" {
-					stateColor = "yellow"
-				}
-				content += fmt.Sprintf("[white]%d:[-] [%s]%s[-]\n", agent.ID, stateColor, agent.State)
-				if agent.TaskID != "" {
-					elapsed := ""
-					if !agent.StartedAt.IsZero() {
-						elapsed = fmt.Sprintf(" (%s)", time.Since(agent.StartedAt).Round(time.Second))
+					color := "green"
+					if remaining < 0.3 {
+						color = "red"
+					} else if remaining < 0.7 {
+						color = "yellow"
 					}
-					content += fmt.Sprintf("   [gray]%s%s[-]\n", agent.TaskID, elapsed)
+					content += fmt.Sprintf("  %s: [%s]%.0f%%[-]\n", shortName, color, remaining*100)
 				}
 			}
 		}
+	} else {
+		content += "[gray]No quota data[-]\n"
+	}
 
-		// Beads section (cached, refresh every 15s)
-		content += "\n[yellow]Beads[-]\n"
-		content += "─────\n"
+	// Agents section
+	content += "\n[yellow]Agents[-]\n"
+	content += "──────\n"
+	if t.state != nil {
+		for _, agent := range t.state.Agents {
+			stateColor := "green"
+			if agent.State == "assigned" {
+				stateColor = "blue"
+			} else if agent.State == "pending" {
+				stateColor = "yellow"
+			}
+			content += fmt.Sprintf("[white]%d:[-] [%s]%s[-]\n", agent.ID, stateColor, agent.State)
+			if agent.TaskID != "" {
+				elapsed := ""
+				if !agent.StartedAt.IsZero() {
+					elapsed = fmt.Sprintf(" (%s)", time.Since(agent.StartedAt).Round(time.Second))
+				}
+				content += fmt.Sprintf("   [gray]%s%s[-]\n", agent.TaskID, elapsed)
+			}
+		}
+	}
 
-		// Refresh cache if stale
-		if time.Since(t.cachedTasksTime) > 15*time.Second {
-			tasks, err := beads.LoadTasks(t.repoDir)
-			if err == nil {
-				t.cachedTasks = tasks
-				t.cachedTasksTime = time.Now()
+	// Beads section (cached, refresh every 15s)
+	content += "\n[yellow]Beads[-]\n"
+	content += "─────\n"
+
+	// Refresh cache if stale (note: writing while holding read lock is a race, but for display it's fine)
+	if time.Since(t.cachedTasksTime) > 15*time.Second {
+		tasks, err := beads.LoadTasks(t.repoDir)
+		if err == nil {
+			t.cachedTasks = tasks
+			t.cachedTasksTime = time.Now()
+		}
+	}
+
+	if len(t.cachedTasks) == 0 {
+		content += "[gray]No tasks[-]\n"
+	} else {
+		// Build closed set for blocking check
+		closedIDs := make(map[string]bool)
+		for _, task := range t.cachedTasks {
+			if task.Status == "closed" {
+				closedIDs[task.ID] = true
 			}
 		}
 
-		if len(t.cachedTasks) == 0 {
-			content += "[gray]No tasks[-]\n"
-		} else {
-			// Build closed set for blocking check
-			closedIDs := make(map[string]bool)
-			for _, task := range t.cachedTasks {
-				if task.Status == "closed" {
-					closedIDs[task.ID] = true
-				}
-			}
-
-			ready, assigned, blocked, closed := 0, 0, 0, 0
-			for _, task := range t.cachedTasks {
-				switch task.Status {
-				case "open":
-					// Check if actually blocked (has unclosed blockers)
-					isBlocked := false
-					for _, blockerID := range task.BlockedBy {
-						if !closedIDs[blockerID] {
-							isBlocked = true
-							break
-						}
+		ready, assigned, blocked, closed := 0, 0, 0, 0
+		for _, task := range t.cachedTasks {
+			switch task.Status {
+			case "open":
+				// Check if actually blocked (has unclosed blockers)
+				isBlocked := false
+				for _, blockerID := range task.BlockedBy {
+					if !closedIDs[blockerID] {
+						isBlocked = true
+						break
 					}
-					if isBlocked {
-						blocked++
-					} else {
-						ready++
-					}
-				case "in_progress":
-					assigned++
-				case "closed":
-					closed++
 				}
+				if isBlocked {
+					blocked++
+				} else {
+					ready++
+				}
+			case "in_progress":
+				assigned++
+			case "closed":
+				closed++
 			}
-			content += fmt.Sprintf("ready:[green]%d[-] assigned:[blue]%d[-]\n", ready, assigned)
-			content += fmt.Sprintf("blocked:[yellow]%d[-] closed:[gray]%d[-]\n", blocked, closed)
 		}
-	}()
+		content += fmt.Sprintf("ready:[green]%d[-] assigned:[blue]%d[-]\n", ready, assigned)
+		content += fmt.Sprintf("blocked:[yellow]%d[-] closed:[gray]%d[-]\n", blocked, closed)
+	}
 
-	// Queue update without lock held
-	t.app.QueueUpdateDraw(func() {
-		t.leftPane.SetText(content)
-	})
+	return content
 }
 
-func (t *TUI) updateRightPane() {
+func (t *TUI) buildRightContent() string {
+	t.logMu.Lock()
+	defer t.logMu.Unlock()
+
 	var content string
 
-	// Build content with lock held
-	func() {
-		t.logMu.Lock()
-		defer t.logMu.Unlock()
+	if t.logFilter == "beads" {
+		// Show beads status
+		tasks, err := beads.LoadTasks(t.repoDir)
+		if err != nil {
+			content = fmt.Sprintf("[red]Error: %v[-]", err)
+		} else {
+			ready := beads.ReadyTasks(tasks)
 
-		if t.logFilter == "beads" {
-			// Show beads status
-			tasks, err := beads.LoadTasks(t.repoDir)
-			if err != nil {
-				content = fmt.Sprintf("[red]Error: %v[-]", err)
-			} else {
-				ready := beads.ReadyTasks(tasks)
-
-				open := 0
-				closed := 0
-				inProgress := 0
-				for _, task := range tasks {
-					switch task.Status {
-					case "open":
-						open++
-					case "closed":
-						closed++
-					case "in_progress":
-						inProgress++
-					}
-				}
-
-				content += "[yellow]Task Summary[-]\n"
-				content += fmt.Sprintf("Total: %d\n", len(tasks))
-				content += fmt.Sprintf("Open: [green]%d[-]  In Progress: [blue]%d[-]  Closed: [gray]%d[-]\n", open, inProgress, closed)
-				content += fmt.Sprintf("Ready for assignment: [white]%d[-]\n\n", len(ready))
-
-				content += "[yellow]Ready Tasks[-]\n"
-				for _, task := range ready {
-					complexity := "simple"
-					if task.IsComplex {
-						complexity = "complex"
-					}
-					content += fmt.Sprintf("  [white]%s[-] [gray](%s)[-] %s\n", task.ID, complexity, task.Title)
+			open := 0
+			closed := 0
+			inProgress := 0
+			for _, task := range tasks {
+				switch task.Status {
+				case "open":
+					open++
+				case "closed":
+					closed++
+				case "in_progress":
+					inProgress++
 				}
 			}
-		} else {
-			// Show filtered logs
-			for _, entry := range t.logs {
-				match := false
-				switch t.logFilter {
-				case "all":
-					match = true
-				case "assign":
-					match = entry.Source == "assign" || entry.Source == "quota"
-				default:
-					match = entry.Source == t.logFilter
-				}
 
-				if match {
-					timeStr := entry.Time.Format("15:04:05")
-					content += fmt.Sprintf("[gray]%s[-] %s\n", timeStr, entry.Message)
+			content += "[yellow]Task Summary[-]\n"
+			content += fmt.Sprintf("Total: %d\n", len(tasks))
+			content += fmt.Sprintf("Open: [green]%d[-]  In Progress: [blue]%d[-]  Closed: [gray]%d[-]\n", open, inProgress, closed)
+			content += fmt.Sprintf("Ready for assignment: [white]%d[-]\n\n", len(ready))
+
+			content += "[yellow]Ready Tasks[-]\n"
+			for _, task := range ready {
+				complexity := "simple"
+				if task.IsComplex {
+					complexity = "complex"
 				}
+				content += fmt.Sprintf("  [white]%s[-] [gray](%s)[-] %s\n", task.ID, complexity, task.Title)
 			}
 		}
-	}()
+	} else {
+		// Show filtered logs
+		for _, entry := range t.logs {
+			match := false
+			switch t.logFilter {
+			case "all":
+				match = true
+			case "assign":
+				match = entry.Source == "assign" || entry.Source == "quota"
+			default:
+				match = entry.Source == t.logFilter
+			}
 
-	// Queue update without lock held
-	t.app.QueueUpdateDraw(func() {
-		t.rightPane.SetText(content)
-		t.rightPane.ScrollToEnd()
-	})
+			if match {
+				timeStr := entry.Time.Format("15:04:05")
+				content += fmt.Sprintf("[gray]%s[-] %s\n", timeStr, entry.Message)
+			}
+		}
+	}
+
+	return content
 }
