@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -156,6 +157,7 @@ func projectCmd() {
 	// Parse flags
 	projectID := ""
 	create := false
+	edit := false
 	repo := ""
 	branch := "main"
 
@@ -165,6 +167,8 @@ func projectCmd() {
 			projectID = strings.TrimPrefix(arg, "--project=")
 		} else if arg == "--create" {
 			create = true
+		} else if arg == "--edit" {
+			edit = true
 		} else if strings.HasPrefix(arg, "--repo=") {
 			repo = strings.TrimPrefix(arg, "--repo=")
 		} else if strings.HasPrefix(arg, "--branch=") {
@@ -200,6 +204,34 @@ func projectCmd() {
 			os.Exit(1)
 		}
 		fmt.Printf("Created project %s\n", projectID)
+		return
+	}
+
+	// Edit config in $EDITOR
+	if edit {
+		if projectID == "" {
+			projectID = "1"
+		}
+
+		configPath, err := project.EnsureTemplate(cfg.MachinatorDir, projectID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		editor := os.Getenv("EDITOR")
+		if editor == "" {
+			editor = "vim"
+		}
+
+		cmd := exec.Command(editor, configPath)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error running editor: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
 
