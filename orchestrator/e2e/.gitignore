@@ -1,5 +1,0 @@
-# Ignore VHS output artifacts
-*.gif
-*.mp4
-*.webm
-temp/

@@ -1,0 +1,7 @@
+{
+  "files.exclude": {
+    ".beads": true,
+    "MODULE.bazel.lock": true,
+    "bazel-*": true
+  }
+}
