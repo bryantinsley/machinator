@@ -58,6 +58,12 @@ func New(st *state.State, q *quota.Quota, repoDir string) *TUI {
 		logFilter: "assign",
 	}
 
+	// Initialize beads cache
+	if tasks, err := beads.LoadTasks(repoDir); err == nil {
+		t.cachedTasks = tasks
+		t.cachedTasksTime = time.Now()
+	}
+
 	t.app = tview.NewApplication()
 
 	// Left pane: quota and agents
