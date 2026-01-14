@@ -203,185 +203,193 @@ func (t *TUI) refreshLoop() {
 }
 
 func (t *TUI) updateLeftPane() {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
 	var content string
 
-	// Quota section (sorted by account name)
-	content += "[yellow]Quota[-]\n"
-	content += "─────\n"
-	if t.quota != nil && len(t.quota.Accounts) > 0 {
-		// Sort accounts by name
-		accounts := make([]quota.AccountQuota, len(t.quota.Accounts))
-		copy(accounts, t.quota.Accounts)
-		sort.Slice(accounts, func(i, j int) bool {
-			return accounts[i].Name < accounts[j].Name
-		})
+	// Build content with lock held
+	func() {
+		t.mu.RLock()
+		defer t.mu.RUnlock()
 
-		for _, acc := range accounts {
-			content += fmt.Sprintf("[white]%s[-]\n", acc.Name)
-			// Show flash then pro (sorted order)
-			for _, model := range []string{"gemini-3-flash-preview", "gemini-3-pro-preview"} {
-				if remaining, ok := acc.Models[model]; ok {
-					shortName := "flash"
-					if model == "gemini-3-pro-preview" {
-						shortName = "pro"
-					}
-					color := "green"
-					if remaining < 0.3 {
-						color = "red"
-					} else if remaining < 0.7 {
-						color = "yellow"
-					}
-					content += fmt.Sprintf("  %s: [%s]%.0f%%[-]\n", shortName, color, remaining*100)
-				}
-			}
-		}
-	} else {
-		content += "[gray]No quota data[-]\n"
-	}
+		// Quota section (sorted by account name)
+		content += "[yellow]Quota[-]\n"
+		content += "─────\n"
+		if t.quota != nil && len(t.quota.Accounts) > 0 {
+			// Sort accounts by name
+			accounts := make([]quota.AccountQuota, len(t.quota.Accounts))
+			copy(accounts, t.quota.Accounts)
+			sort.Slice(accounts, func(i, j int) bool {
+				return accounts[i].Name < accounts[j].Name
+			})
 
-	// Agents section
-	content += "\n[yellow]Agents[-]\n"
-	content += "──────\n"
-	if t.state != nil {
-		for _, agent := range t.state.Agents {
-			stateColor := "green"
-			if agent.State == "assigned" {
-				stateColor = "blue"
-			} else if agent.State == "pending" {
-				stateColor = "yellow"
-			}
-			content += fmt.Sprintf("[white]%d:[-] [%s]%s[-]\n", agent.ID, stateColor, agent.State)
-			if agent.TaskID != "" {
-				elapsed := ""
-				if !agent.StartedAt.IsZero() {
-					elapsed = fmt.Sprintf(" (%s)", time.Since(agent.StartedAt).Round(time.Second))
-				}
-				content += fmt.Sprintf("   [gray]%s%s[-]\n", agent.TaskID, elapsed)
-			}
-		}
-	}
-
-	// Beads section (cached, refresh every 15s)
-	content += "\n[yellow]Beads[-]\n"
-	content += "─────\n"
-
-	// Refresh cache if stale
-	if time.Since(t.cachedTasksTime) > 15*time.Second {
-		tasks, err := beads.LoadTasks(t.repoDir)
-		if err == nil {
-			t.cachedTasks = tasks
-			t.cachedTasksTime = time.Now()
-		}
-	}
-
-	if len(t.cachedTasks) == 0 {
-		content += "[gray]No tasks[-]\n"
-	} else {
-		// Build closed set for blocking check
-		closedIDs := make(map[string]bool)
-		for _, task := range t.cachedTasks {
-			if task.Status == "closed" {
-				closedIDs[task.ID] = true
-			}
-		}
-
-		ready, assigned, blocked, closed := 0, 0, 0, 0
-		for _, task := range t.cachedTasks {
-			switch task.Status {
-			case "open":
-				// Check if actually blocked (has unclosed blockers)
-				isBlocked := false
-				for _, blockerID := range task.BlockedBy {
-					if !closedIDs[blockerID] {
-						isBlocked = true
-						break
+			for _, acc := range accounts {
+				content += fmt.Sprintf("[white]%s[-]\n", acc.Name)
+				// Show flash then pro (sorted order)
+				for _, model := range []string{"gemini-3-flash-preview", "gemini-3-pro-preview"} {
+					if remaining, ok := acc.Models[model]; ok {
+						shortName := "flash"
+						if model == "gemini-3-pro-preview" {
+							shortName = "pro"
+						}
+						color := "green"
+						if remaining < 0.3 {
+							color = "red"
+						} else if remaining < 0.7 {
+							color = "yellow"
+						}
+						content += fmt.Sprintf("  %s: [%s]%.0f%%[-]\n", shortName, color, remaining*100)
 					}
 				}
-				if isBlocked {
-					blocked++
-				} else {
-					ready++
+			}
+		} else {
+			content += "[gray]No quota data[-]\n"
+		}
+
+		// Agents section
+		content += "\n[yellow]Agents[-]\n"
+		content += "──────\n"
+		if t.state != nil {
+			for _, agent := range t.state.Agents {
+				stateColor := "green"
+				if agent.State == "assigned" {
+					stateColor = "blue"
+				} else if agent.State == "pending" {
+					stateColor = "yellow"
 				}
-			case "in_progress":
-				assigned++
-			case "closed":
-				closed++
+				content += fmt.Sprintf("[white]%d:[-] [%s]%s[-]\n", agent.ID, stateColor, agent.State)
+				if agent.TaskID != "" {
+					elapsed := ""
+					if !agent.StartedAt.IsZero() {
+						elapsed = fmt.Sprintf(" (%s)", time.Since(agent.StartedAt).Round(time.Second))
+					}
+					content += fmt.Sprintf("   [gray]%s%s[-]\n", agent.TaskID, elapsed)
+				}
 			}
 		}
-		content += fmt.Sprintf("ready:[green]%d[-] assigned:[blue]%d[-]\n", ready, assigned)
-		content += fmt.Sprintf("blocked:[yellow]%d[-] closed:[gray]%d[-]\n", blocked, closed)
-	}
 
+		// Beads section (cached, refresh every 15s)
+		content += "\n[yellow]Beads[-]\n"
+		content += "─────\n"
+
+		// Refresh cache if stale
+		if time.Since(t.cachedTasksTime) > 15*time.Second {
+			tasks, err := beads.LoadTasks(t.repoDir)
+			if err == nil {
+				t.cachedTasks = tasks
+				t.cachedTasksTime = time.Now()
+			}
+		}
+
+		if len(t.cachedTasks) == 0 {
+			content += "[gray]No tasks[-]\n"
+		} else {
+			// Build closed set for blocking check
+			closedIDs := make(map[string]bool)
+			for _, task := range t.cachedTasks {
+				if task.Status == "closed" {
+					closedIDs[task.ID] = true
+				}
+			}
+
+			ready, assigned, blocked, closed := 0, 0, 0, 0
+			for _, task := range t.cachedTasks {
+				switch task.Status {
+				case "open":
+					// Check if actually blocked (has unclosed blockers)
+					isBlocked := false
+					for _, blockerID := range task.BlockedBy {
+						if !closedIDs[blockerID] {
+							isBlocked = true
+							break
+						}
+					}
+					if isBlocked {
+						blocked++
+					} else {
+						ready++
+					}
+				case "in_progress":
+					assigned++
+				case "closed":
+					closed++
+				}
+			}
+			content += fmt.Sprintf("ready:[green]%d[-] assigned:[blue]%d[-]\n", ready, assigned)
+			content += fmt.Sprintf("blocked:[yellow]%d[-] closed:[gray]%d[-]\n", blocked, closed)
+		}
+	}()
+
+	// Queue update without lock held
 	t.app.QueueUpdateDraw(func() {
 		t.leftPane.SetText(content)
 	})
 }
 
 func (t *TUI) updateRightPane() {
-	t.logMu.Lock()
-	defer t.logMu.Unlock()
-
 	var content string
 
-	if t.logFilter == "beads" {
-		// Show beads status
-		tasks, err := beads.LoadTasks(t.repoDir)
-		if err != nil {
-			content = fmt.Sprintf("[red]Error: %v[-]", err)
+	// Build content with lock held
+	func() {
+		t.logMu.Lock()
+		defer t.logMu.Unlock()
+
+		if t.logFilter == "beads" {
+			// Show beads status
+			tasks, err := beads.LoadTasks(t.repoDir)
+			if err != nil {
+				content = fmt.Sprintf("[red]Error: %v[-]", err)
+			} else {
+				ready := beads.ReadyTasks(tasks)
+
+				open := 0
+				closed := 0
+				inProgress := 0
+				for _, task := range tasks {
+					switch task.Status {
+					case "open":
+						open++
+					case "closed":
+						closed++
+					case "in_progress":
+						inProgress++
+					}
+				}
+
+				content += "[yellow]Task Summary[-]\n"
+				content += fmt.Sprintf("Total: %d\n", len(tasks))
+				content += fmt.Sprintf("Open: [green]%d[-]  In Progress: [blue]%d[-]  Closed: [gray]%d[-]\n", open, inProgress, closed)
+				content += fmt.Sprintf("Ready for assignment: [white]%d[-]\n\n", len(ready))
+
+				content += "[yellow]Ready Tasks[-]\n"
+				for _, task := range ready {
+					complexity := "simple"
+					if task.IsComplex {
+						complexity = "complex"
+					}
+					content += fmt.Sprintf("  [white]%s[-] [gray](%s)[-] %s\n", task.ID, complexity, task.Title)
+				}
+			}
 		} else {
-			ready := beads.ReadyTasks(tasks)
+			// Show filtered logs
+			for _, entry := range t.logs {
+				match := false
+				switch t.logFilter {
+				case "all":
+					match = true
+				case "assign":
+					match = entry.Source == "assign" || entry.Source == "quota"
+				default:
+					match = entry.Source == t.logFilter
+				}
 
-			open := 0
-			closed := 0
-			inProgress := 0
-			for _, task := range tasks {
-				switch task.Status {
-				case "open":
-					open++
-				case "closed":
-					closed++
-				case "in_progress":
-					inProgress++
+				if match {
+					timeStr := entry.Time.Format("15:04:05")
+					content += fmt.Sprintf("[gray]%s[-] %s\n", timeStr, entry.Message)
 				}
 			}
-
-			content += fmt.Sprintf("[yellow]Task Summary[-]\n")
-			content += fmt.Sprintf("Total: %d\n", len(tasks))
-			content += fmt.Sprintf("Open: [green]%d[-]  In Progress: [blue]%d[-]  Closed: [gray]%d[-]\n", open, inProgress, closed)
-			content += fmt.Sprintf("Ready for assignment: [white]%d[-]\n\n", len(ready))
-
-			content += "[yellow]Ready Tasks[-]\n"
-			for _, task := range ready {
-				complexity := "simple"
-				if task.IsComplex {
-					complexity = "complex"
-				}
-				content += fmt.Sprintf("  [white]%s[-] [gray](%s)[-] %s\n", task.ID, complexity, task.Title)
-			}
 		}
-	} else {
-		// Show filtered logs
-		for _, entry := range t.logs {
-			match := false
-			switch t.logFilter {
-			case "all":
-				match = true
-			case "assign":
-				match = entry.Source == "assign" || entry.Source == "quota"
-			default:
-				match = entry.Source == t.logFilter
-			}
+	}()
 
-			if match {
-				timeStr := entry.Time.Format("15:04:05")
-				content += fmt.Sprintf("[gray]%s[-] %s\n", timeStr, entry.Message)
-			}
-		}
-	}
-
+	// Queue update without lock held
 	t.app.QueueUpdateDraw(func() {
 		t.rightPane.SetText(content)
 		t.rightPane.ScrollToEnd()
