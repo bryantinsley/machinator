@@ -32,13 +32,15 @@ func New(machinatorDir string) *Quota {
 }
 
 // Refresh fetches quota for all discovered accounts.
+// Builds new data, then atomically swaps to avoid visible reload.
 func (q *Quota) Refresh() error {
 	accounts, err := q.discoverAccounts()
 	if err != nil {
 		return fmt.Errorf("discover accounts: %w", err)
 	}
 
-	q.Accounts = nil
+	// Build new list first
+	var newAccounts []AccountQuota
 	for _, homeDir := range accounts {
 		name := filepath.Base(homeDir)
 		models, err := fetchQuotaForAccount(q.MachinatorDir, homeDir)
@@ -47,13 +49,15 @@ func (q *Quota) Refresh() error {
 			continue
 		}
 
-		q.Accounts = append(q.Accounts, AccountQuota{
+		newAccounts = append(newAccounts, AccountQuota{
 			Name:    name,
 			HomeDir: homeDir,
 			Models:  models,
 		})
 	}
 
+	// Atomic swap
+	q.Accounts = newAccounts
 	q.UpdatedAt = time.Now()
 	return nil
 }
