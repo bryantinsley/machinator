@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 )
 
 // Setup handles environment initialization.
@@ -35,48 +34,20 @@ func (s *Setup) EnsureDirectories() error {
 	return nil
 }
 
-// EnsureGeminiCLI downloads and installs the specialized gemini-cli if needed.
+// EnsureGeminiCLI builds the specialized gemini-cli from source if needed.
 func (s *Setup) EnsureGeminiCLI() (string, error) {
-	binDir := filepath.Join(s.MachinatorDir, "bin")
-	geminiPath := filepath.Join(binDir, "gemini")
+	geminiPath := filepath.Join(s.MachinatorDir, "gemini")
 
 	// Check if already installed
 	if _, err := os.Stat(geminiPath); err == nil {
 		return geminiPath, nil
 	}
 
-	fmt.Println("Installing gemini-cli...")
-
-	// Download URL based on OS/arch
-	url := getGeminiDownloadURL()
-	if url == "" {
-		return "", fmt.Errorf("unsupported platform: %s/%s", runtime.GOOS, runtime.GOARCH)
+	// Build from source
+	if err := s.BuildGeminiCLI(); err != nil {
+		return "", err
 	}
 
-	// Download
-	tarPath := filepath.Join(binDir, "gemini.tar.gz")
-	cmd := exec.Command("curl", "-L", "-o", tarPath, url)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("download gemini: %w", err)
-	}
-
-	// Extract
-	cmd = exec.Command("tar", "-xzf", tarPath, "-C", binDir)
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("extract gemini: %w", err)
-	}
-
-	// Cleanup
-	os.Remove(tarPath)
-
-	// Make executable
-	if err := os.Chmod(geminiPath, 0755); err != nil {
-		return "", fmt.Errorf("chmod gemini: %w", err)
-	}
-
-	fmt.Println("gemini-cli installed successfully")
 	return geminiPath, nil
 }
 
@@ -235,20 +206,4 @@ func (s *Setup) ResetWorktree(worktreeDir, branch string) error {
 	}
 
 	return nil
-}
-
-func getGeminiDownloadURL() string {
-	// TODO: Update with actual download URLs
-	base := "https://example.com/gemini-cli"
-	switch runtime.GOOS {
-	case "darwin":
-		if runtime.GOARCH == "arm64" {
-			return base + "/gemini-darwin-arm64.tar.gz"
-		}
-		return base + "/gemini-darwin-amd64.tar.gz"
-	case "linux":
-		return base + "/gemini-linux-amd64.tar.gz"
-	default:
-		return ""
-	}
 }

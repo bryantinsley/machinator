@@ -432,7 +432,7 @@ func runCmd() {
 
 	// Start watchers
 	go quotaWatcher(q, cfg, logger)
-	go setupWatcher(st, cfg, logger)
+	go setupWatcher(st, cfg, projCfg, projectID, logger)
 	go assigner(st, q, cfg, projCfg, repoDir, logger)
 
 	if headless {
@@ -468,16 +468,41 @@ func quotaWatcher(q *quota.Quota, cfg *config.Config, logger tui.Logger) {
 	}
 }
 
-func setupWatcher(st *state.State, cfg *config.Config, logger tui.Logger) {
+func setupWatcher(st *state.State, cfg *config.Config, projCfg *project.Config, projectID string, logger tui.Logger) {
+	s := setup.New(cfg.MachinatorDir)
+
 	for {
 		// Find pending agents
 		for _, agent := range st.PendingAgents() {
 			logger.Log("setup", fmt.Sprintf("Setting up agent %d...", agent.ID))
 
-			// TODO: Actually setup worktree, etc.
-			// For now, just mark as ready
-			st.SetAgentReady(agent.ID)
+			// Check if repo exists
+			repoDir := project.RepoDir(cfg.MachinatorDir, projectID)
+			if _, err := os.Stat(filepath.Join(repoDir, ".git")); os.IsNotExist(err) {
+				// Clone repo first
+				logger.Log("setup", fmt.Sprintf("Cloning repo for project %s...", projectID))
+				id, _ := strconv.Atoi(projectID)
+				_, err := s.CloneRepo(id, projCfg.Repo, projCfg.Branch)
+				if err != nil {
+					logger.Log("setup", fmt.Sprintf("[red]Clone failed: %v[-]", err))
+					time.Sleep(10 * time.Second)
+					continue
+				}
+			}
 
+			// Create worktree for agent
+			id, _ := strconv.Atoi(projectID)
+			agentDir, err := s.CreateWorktree(id, agent.ID, projCfg.Branch)
+			if err != nil {
+				logger.Log("setup", fmt.Sprintf("[red]Worktree failed: %v[-]", err))
+				time.Sleep(10 * time.Second)
+				continue
+			}
+
+			logger.Log("setup", fmt.Sprintf("Worktree created: %s", agentDir))
+
+			// Mark as ready
+			st.SetAgentReady(agent.ID)
 			logger.Log("setup", fmt.Sprintf("[green]Agent %d ready[-]", agent.ID))
 		}
 
