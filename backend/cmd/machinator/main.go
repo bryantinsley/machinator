@@ -516,11 +516,8 @@ func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *proj
 			logger.Log("assign", fmt.Sprintf("[green]Agent %d: ASSIGNED[-] %s (%s) → %s",
 				agent.ID, task.ID, task.Title, model))
 
-			// Update agent state
-			agent.State = "assigned"
-			agent.TaskID = task.ID
-			agent.StartedAt = time.Now()
-			st.Save()
+			// Update agent state (auto-saves)
+			st.AssignTask(agent.ID, task.ID)
 
 			// Remove task from ready list (for this iteration)
 			readyTasks = removeTask(readyTasks, task.ID)

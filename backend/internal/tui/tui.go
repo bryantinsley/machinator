@@ -139,11 +139,11 @@ func (t *TUI) handleInput(event *tcell.EventKey) *tcell.EventKey {
 		t.updateHelpBar()
 		return nil
 	case 'p', 'P':
-		t.state.AssignmentPaused = true
+		t.state.SetPaused(true)
 		t.Log("assign", "[yellow]PAUSED[-] - press 's' to resume")
 		t.updateHelpBar()
 	case 's', 'S':
-		t.state.AssignmentPaused = false
+		t.state.SetPaused(false)
 		t.Log("assign", "[green]RESUMED[-]")
 		t.updateHelpBar()
 	case 'a', 'A':

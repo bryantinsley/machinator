@@ -180,3 +180,121 @@ func (s *State) IsTaskAssigned(taskID string) bool {
 	}
 	return false
 }
+
+// --- Auto-save setters ---
+// These methods mutate state and automatically persist to disk.
+
+// save is a helper that must be called with the lock held.
+func (s *State) save() {
+	path := filepath.Join(s.MachinatorDir, "state.json")
+	data, _ := json.MarshalIndent(s, "", "  ")
+	os.WriteFile(path, data, 0644)
+}
+
+// SetPaused sets assignment paused state and saves.
+func (s *State) SetPaused(paused bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.AssignmentPaused = paused
+	s.save()
+}
+
+// SetLaunchesPaused sets launches paused state and saves.
+func (s *State) SetLaunchesPaused(paused bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.LaunchesPaused = paused
+	s.save()
+}
+
+// AssignTask assigns a task to an agent and saves.
+func (s *State) AssignTask(agentID int, taskID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, a := range s.Agents {
+		if a.ID == agentID {
+			a.State = "assigned"
+			a.TaskID = taskID
+			a.StartedAt = time.Now()
+			a.LastActivity = time.Now()
+			s.save()
+			return true
+		}
+	}
+	return false
+}
+
+// CompleteTask marks agent as ready and clears task.
+func (s *State) CompleteTask(agentID int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, a := range s.Agents {
+		if a.ID == agentID {
+			a.State = "ready"
+			a.TaskID = ""
+			a.PID = 0
+			a.StartedAt = time.Time{}
+			a.LastActivity = time.Time{}
+			s.save()
+			return
+		}
+	}
+}
+
+// SetAgentPID sets the PID for an agent and saves.
+func (s *State) SetAgentPID(agentID, pid int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, a := range s.Agents {
+		if a.ID == agentID {
+			a.PID = pid
+			s.save()
+			return
+		}
+	}
+}
+
+// UpdateActivity updates the last activity time for an agent.
+func (s *State) UpdateActivity(agentID int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, a := range s.Agents {
+		if a.ID == agentID {
+			a.LastActivity = time.Now()
+			s.save()
+			return
+		}
+	}
+}
+
+// BarTaskAndSave adds a task to the barred list and saves.
+func (s *State) BarTaskAndSave(taskID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, t := range s.BarredTasks {
+		if t == taskID {
+			return // Already barred
+		}
+	}
+	s.BarredTasks = append(s.BarredTasks, taskID)
+	s.save()
+}
+
+// UnbarTask removes a task from the barred list and saves.
+func (s *State) UnbarTask(taskID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i, t := range s.BarredTasks {
+		if t == taskID {
+			s.BarredTasks = append(s.BarredTasks[:i], s.BarredTasks[i+1:]...)
+			s.save()
+			return
+		}
+	}
+}
