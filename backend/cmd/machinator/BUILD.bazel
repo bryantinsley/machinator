@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "machinator_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/bryantinsley/machinator/backend/cmd/machinator",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//backend/internal/beads",
+        "//backend/internal/config",
+        "//backend/internal/project",
+        "//backend/internal/quota",
+        "//backend/internal/setup",
+        "//backend/internal/state",
+        "//backend/internal/tui",
+    ],
+)
+
+go_binary(
+    name = "machinator",
+    embed = [":machinator_lib"],
+    visibility = ["//visibility:public"],
+)

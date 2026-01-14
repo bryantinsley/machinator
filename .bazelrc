@@ -1,2 +1,0 @@
-# Enable race detection for Go
-build:race --@io_bazel_rules_go//go/config:race

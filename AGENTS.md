@@ -41,13 +41,29 @@ For VHS tapes (`.tape` files), do NOT run them locally (slow, sandbox issues). I
 
 ## Testing & Building
 
-This project uses **Bazel** as the primary build and test system.
+This project uses **Bazel** as the primary build and test system. **Do NOT use raw Go commands** (`go build`, `go test`, `go mod tidy`) unless absolutely necessary.
+
+### Bazel Commands (PREFERRED)
 
 ```bash
-bazel test //...                    # Run all tests
-bazel build //orchestrator/...      # Build orchestrator
-bazel query //...                  # List all targets
+bazel build //backend/cmd/machinator:machinator   # Build the binary
+bazel test //backend/...                          # Run all backend tests
+bazel test //backend/internal/beads:beads_upstream_test  # Run a specific test
+bazel query //...                                 # List all targets
 ```
+
+### BUILD Files
+
+- Build files are named `BUILD` (NOT `BUILD.bazel`)
+- Each Go package needs a `BUILD` file with `go_library` and optionally `go_test`
+- Use `go_library`, `go_test` from `@rules_go//go:def.bzl`
+
+### Why Bazel?
+
+1. **Hermetic builds** - Same result on any machine
+2. **Caching** - Only rebuilds what changed
+3. **No permission issues** - Avoids macOS sandbox conflicts with Go caches
+4. **Dependency management** - Handled via `go.mod` + `gazelle`
 
 ### Go Environment Setup (Direct Go Usage)
 
@@ -143,7 +159,7 @@ Agents must be able to push changes to the remote repository. This project uses 
 
 1.  **Helper Configuration**: The repository is configured to use the `osxkeychain` credential helper.
 2.  **Auth Flow**: When an agent runs `git push`, git calls the helper. The helper retrieves the Personal Access Token (PAT) from the system keychain.
-    *Note: A global rate limit of 1 push every 30 seconds is enforced via a git pre-push hook. If another push has occurred recently, your push will wait automatically.*
+    _Note: A global rate limit of 1 push every 30 seconds is enforced via a git pre-push hook. If another push has occurred recently, your push will wait automatically._
 3.  **No Explicit Config**: Agents do **not** need to provide passwords, tokens, or SSH keys. As long as the host machine is authenticated, the agents "just work."
 
 ### Alternative: Moving to SSH

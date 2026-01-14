@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "project",
+    srcs = ["config.go"],
+    importpath = "github.com/bryantinsley/machinator/backend/internal/project",
+    visibility = ["//backend:__subpackages__"],
+    deps = ["//backend/internal/config"],
+)

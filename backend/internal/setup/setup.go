@@ -1,0 +1,208 @@
+package setup
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+)
+
+// Setup handles environment initialization.
+type Setup struct {
+	MachinatorDir string
+}
+
+// New creates a new Setup instance.
+func New(machinatorDir string) *Setup {
+	return &Setup{MachinatorDir: machinatorDir}
+}
+
+// EnsureDirectories creates the required directory structure.
+func (s *Setup) EnsureDirectories() error {
+	dirs := []string{
+		filepath.Join(s.MachinatorDir, "accounts"),
+		filepath.Join(s.MachinatorDir, "projects"),
+		filepath.Join(s.MachinatorDir, "logs"),
+		filepath.Join(s.MachinatorDir, "bin"),
+	}
+
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("create %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+// EnsureGeminiCLI builds the specialized gemini-cli from source if needed.
+func (s *Setup) EnsureGeminiCLI() (string, error) {
+	geminiPath := filepath.Join(s.MachinatorDir, "gemini")
+
+	// Check if already installed
+	if _, err := os.Stat(geminiPath); err == nil {
+		return geminiPath, nil
+	}
+
+	// Build from source
+	if err := s.BuildGeminiCLI(); err != nil {
+		return "", err
+	}
+
+	return geminiPath, nil
+}
+
+// BuildGeminiCLI clones and builds the specialized gemini-cli from source.
+func (s *Setup) BuildGeminiCLI() error {
+	resourcesDir := filepath.Join(s.MachinatorDir, "resources")
+	geminiModsDir := filepath.Join(resourcesDir, "gemini-cli-mods")
+
+	// Clone or update the repo
+	if _, err := os.Stat(filepath.Join(geminiModsDir, ".git")); err == nil {
+		// Already cloned, fetch and reset
+		fmt.Println("Updating gemini-cli-mods...")
+		cmd := exec.Command("git", "-C", geminiModsDir, "fetch", "origin")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("git fetch: %w", err)
+		}
+		cmd = exec.Command("git", "-C", geminiModsDir, "reset", "--hard", "origin/main")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("git reset: %w", err)
+		}
+	} else {
+		// Clone fresh
+		if err := os.MkdirAll(resourcesDir, 0755); err != nil {
+			return fmt.Errorf("create resources dir: %w", err)
+		}
+		fmt.Println("Cloning gemini-cli-mods...")
+		cmd := exec.Command("git", "clone",
+			"https://github.com/bryantinsley/gemini-cli-mods.git",
+			geminiModsDir)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("git clone: %w", err)
+		}
+	}
+
+	// Install dependencies
+	fmt.Println("Installing dependencies...")
+	cmd := exec.Command("npm", "install")
+	cmd.Dir = geminiModsDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("npm install: %w", err)
+	}
+
+	// Build
+	fmt.Println("Building...")
+	cmd = exec.Command("npm", "run", "build")
+	cmd.Dir = geminiModsDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("npm build: %w", err)
+	}
+
+	// Create wrapper script
+	geminiPath := filepath.Join(s.MachinatorDir, "gemini")
+	distPath := filepath.Join(geminiModsDir, "packages", "cli", "dist", "index.js")
+
+	wrapper := fmt.Sprintf("#!/bin/bash\nexec node \"%s\" \"$@\"\n", distPath)
+	if err := os.WriteFile(geminiPath, []byte(wrapper), 0755); err != nil {
+		return fmt.Errorf("write wrapper: %w", err)
+	}
+
+	fmt.Println("gemini-cli built successfully!")
+	return nil
+}
+
+// CloneRepo clones or updates the project repository.
+func (s *Setup) CloneRepo(projectID int, repoURL, branch string) (string, error) {
+	projectDir := filepath.Join(s.MachinatorDir, "projects", fmt.Sprintf("%d", projectID))
+	repoDir := filepath.Join(projectDir, "repo")
+
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		return "", fmt.Errorf("create project dir: %w", err)
+	}
+
+	// Check if repo already exists
+	if _, err := os.Stat(filepath.Join(repoDir, ".git")); err == nil {
+		// Already cloned, fetch latest
+		fmt.Printf("Fetching latest from %s...\n", repoURL)
+		cmd := exec.Command("git", "-C", repoDir, "fetch", "origin")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return "", fmt.Errorf("git fetch: %w", err)
+		}
+
+		cmd = exec.Command("git", "-C", repoDir, "checkout", branch)
+		if err := cmd.Run(); err != nil {
+			return "", fmt.Errorf("git checkout: %w", err)
+		}
+
+		cmd = exec.Command("git", "-C", repoDir, "reset", "--hard", "origin/"+branch)
+		if err := cmd.Run(); err != nil {
+			return "", fmt.Errorf("git reset: %w", err)
+		}
+	} else {
+		// Clone fresh
+		fmt.Printf("Cloning %s...\n", repoURL)
+		cmd := exec.Command("git", "clone", "-b", branch, repoURL, repoDir)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return "", fmt.Errorf("git clone: %w", err)
+		}
+	}
+
+	return repoDir, nil
+}
+
+// CreateWorktree creates an agent worktree for a project.
+func (s *Setup) CreateWorktree(projectID, agentID int, branch string) (string, error) {
+	projectDir := filepath.Join(s.MachinatorDir, "projects", fmt.Sprintf("%d", projectID))
+	repoDir := filepath.Join(projectDir, "repo")
+	agentDir := filepath.Join(projectDir, "agents", fmt.Sprintf("%d", agentID))
+
+	// Remove existing worktree if present
+	if _, err := os.Stat(agentDir); err == nil {
+		cmd := exec.Command("git", "-C", repoDir, "worktree", "remove", "--force", agentDir)
+		cmd.Run() // Ignore errors
+		os.RemoveAll(agentDir)
+	}
+
+	// Create new worktree (detached is expected, suppress the advice)
+	cmd := exec.Command("git", "-c", "advice.detachedHead=false", "-C", repoDir, "worktree", "add", "--detach", agentDir, "origin/"+branch)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git worktree add: %w\nOutput: %s", err, string(output))
+	}
+
+	return agentDir, nil
+}
+
+// ResetWorktree resets a worktree to a clean state.
+func (s *Setup) ResetWorktree(worktreeDir, branch string) error {
+	cmd := exec.Command("git", "-C", worktreeDir, "fetch", "origin")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git fetch: %w", err)
+	}
+
+	cmd = exec.Command("git", "-C", worktreeDir, "reset", "--hard", "origin/"+branch)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git reset: %w", err)
+	}
+
+	cmd = exec.Command("git", "-C", worktreeDir, "clean", "-fd")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git clean: %w", err)
+	}
+
+	return nil
+}
