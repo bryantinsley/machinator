@@ -25,6 +25,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 )
 
 // Store the original working directory at startup
@@ -1681,8 +1682,22 @@ func (m model) View() string {
 	}
 
 	// Layout: Tasks (1/4) | Activity (3/4)
-	tasksWidth := m.width / 4
-	activityWidth := m.width - tasksWidth - 4 // -4 for borders
+	// Calculate total widths (including borders/padding) to sum exactly to m.width
+	tasksTotalWidth := m.width / 4
+	if tasksTotalWidth < 20 {
+		tasksTotalWidth = 20
+	}
+	activityTotalWidth := m.width - tasksTotalWidth
+
+	// Calculate content widths (subtracting 4 for Border(1) + Padding(1) on each side)
+	tasksContentWidth := tasksTotalWidth - 4
+	if tasksContentWidth < 0 {
+		tasksContentWidth = 0
+	}
+	activityContentWidth := activityTotalWidth - 4
+	if activityContentWidth < 0 {
+		activityContentWidth = 0
+	}
 
 	// Determine panel border styles based on focus
 	tasksBorder := panelStyle
@@ -1726,6 +1741,8 @@ func (m model) View() string {
 		}
 
 		label := fmt.Sprintf("%s %s%s", icon, shortID, highlight)
+		label = truncate(label, tasksContentWidth-2) // Truncate to fit
+
 		item := components.NewListItem(label, func() tea.Cmd {
 			// Click to focus panel? Or just handle selection.
 			// Currently clicking doesn't do much for tasks except focus panel.
@@ -1738,10 +1755,10 @@ func (m model) View() string {
 
 		// Register with dispatcher
 		// X offset: tasksBorder has padding(1) + border(1) = 2
-		item.SetBounds(2, tasksYOffset+i, tasksWidth-2, 1)
+		item.SetBounds(2, tasksYOffset+i, tasksContentWidth, 1)
 		m.clickDispatcher.Register(item)
 	}
-	tasksPanel := tasksBorder.Width(tasksWidth).Height(panelHeight).MaxHeight(panelHeight).Render(tasksContent)
+	tasksPanel := tasksBorder.Width(tasksContentWidth).Height(panelHeight).MaxHeight(panelHeight).Render(tasksContent)
 
 	// Agent activity panel (wide - 3/4 of screen)
 	activityHeader := "🤖 Agent Activity"
@@ -1753,9 +1770,7 @@ func (m model) View() string {
 	dropdownView := m.agentSelector.Render()
 	// Update dropdown position for hit testing
 	// Tasks width + borders/padding.
-	// Tasks is width/4. +2 for border?
-	// This is approximate but good enough for now.
-	m.agentSelector.SetBounds(tasksWidth+2+len(activityHeader)+2, dropdownY, 0, 0) // We rely on Render to set w/h
+	m.agentSelector.SetBounds(tasksTotalWidth+2+len(activityHeader)+2, dropdownY, 0, 0) // We rely on Render to set w/h
 
 	activityContent := lipgloss.JoinHorizontal(lipgloss.Center, activityHeader, "   ", dropdownView) + "\n\n"
 
@@ -1820,6 +1835,7 @@ func (m model) View() string {
 		idx := i // Capture for closure
 		realIdx := m.filteredIndices[idx]
 		activity := m.agentActivity[realIdx]
+		activity = truncate(activity, activityContentWidth-2) // Truncate
 		isSelected := idx == len(m.filteredIndices)-1-m.eventCursor && m.focusPanel == 2
 
 		item := components.NewListItem(activity, func() tea.Cmd {
@@ -1837,8 +1853,8 @@ func (m model) View() string {
 		listContent += item.Render() + "\n"
 
 		// Register with dispatcher
-		// X offset: tasksWidth + 2 (border/padding) + 2 (list padding)
-		item.SetBounds(tasksWidth+4, listYOffset+(idx-startIdx), activityWidth-4, 1)
+		// X offset: tasksTotalWidth + 2 (border/padding)
+		item.SetBounds(tasksTotalWidth+2, listYOffset+(idx-startIdx), activityContentWidth, 1)
 		m.clickDispatcher.Register(item)
 	}
 
@@ -1846,7 +1862,7 @@ func (m model) View() string {
 		listContent += fmt.Sprintf("  ↓ %d more below\n", len(m.filteredIndices)-endIdx)
 	}
 
-	agentPanel := activityBorder.Width(activityWidth).Height(panelHeight).MaxHeight(panelHeight).Render(activityContent + listContent)
+	agentPanel := activityBorder.Width(activityContentWidth).Height(panelHeight).MaxHeight(panelHeight).Render(activityContent + listContent)
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, tasksPanel, agentPanel)
 
@@ -1867,25 +1883,31 @@ func (m model) View() string {
 		sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#535360"))
 		sep := sepStyle.Render("│")
 
-		// Column width for account data: hearts(5) + bar(5) + space(1) + %(4) = 16, plus padding
-		colWidth := 18
+		// Determine column width based on account names
+		maxNameWidth := 0
+		for _, name := range accountNames {
+			w := runewidth.StringWidth(name)
+			if w > maxNameWidth {
+				maxNameWidth = w
+			}
+		}
+		// Column width for account data: hearts(5) + bar(5) + space(1) + %(4) = 16
+		// We want at least 18 to have some padding, but enough to fit account name
+		colWidth := maxNameWidth + 2
+		if colWidth < 18 {
+			colWidth = 18
+		}
 
 		// Table format: rows = models, columns = accounts
 		// Header row with account names (right-aligned model column, centered account names)
 		quotaPanelContent += fmt.Sprintf("%10s ", "") // Right-align model names (10 chars)
 		for i, name := range accountNames {
-			// Truncate name if too long
-			displayName := name
-			if len(displayName) > colWidth-1 {
-				displayName = displayName[:colWidth-3] + ".."
-			}
-			// Center the account name
-			padding := (colWidth - len(displayName)) / 2
-			centered := fmt.Sprintf("%*s%s%*s", padding, "", displayName, colWidth-len(displayName)-padding, "")
+			// Center the account name using lipgloss for perfect alignment
+			centered := headerStyle.Copy().Width(colWidth).Align(lipgloss.Center).Render(name)
 			if i > 0 {
 				quotaPanelContent += sep
 			}
-			quotaPanelContent += headerStyle.Render(centered)
+			quotaPanelContent += centered
 		}
 		quotaPanelContent += "\n"
 
@@ -1897,12 +1919,13 @@ func (m model) View() string {
 				quotaPanelContent += sep
 			}
 			if quota.Flash < 0 {
-				errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-				quotaPanelContent += errorStyle.Render(fmt.Sprintf("%-*s", colWidth, "⚠ err"))
+				errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Width(colWidth).Align(lipgloss.Right)
+				quotaPanelContent += errorStyle.Render("⚠ err")
 			} else {
 				hearts := m.renderQuotaHearts(quota.Flash, flashLow && quota.Flash < 10)
 				bar := m.renderQuotaBar(quota.Flash, 5)
-				quotaPanelContent += fmt.Sprintf("%s %s %3d%%", hearts, bar, quota.Flash)
+				data := fmt.Sprintf("%s %s %3d%%", hearts, bar, quota.Flash)
+				quotaPanelContent += lipgloss.NewStyle().Width(colWidth).Align(lipgloss.Right).Render(data)
 			}
 		}
 		quotaPanelContent += "\n"
@@ -1915,12 +1938,13 @@ func (m model) View() string {
 				quotaPanelContent += sep
 			}
 			if quota.Pro < 0 {
-				errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-				quotaPanelContent += errorStyle.Render(fmt.Sprintf("%-*s", colWidth, "⚠ err"))
+				errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Width(colWidth).Align(lipgloss.Right)
+				quotaPanelContent += errorStyle.Render("⚠ err")
 			} else {
 				hearts := m.renderQuotaHearts(quota.Pro, flashLow && quota.Pro < 10)
 				bar := m.renderQuotaBar(quota.Pro, 5)
-				quotaPanelContent += fmt.Sprintf("%s %s %3d%%", hearts, bar, quota.Pro)
+				data := fmt.Sprintf("%s %s %3d%%", hearts, bar, quota.Pro)
+				quotaPanelContent += lipgloss.NewStyle().Width(colWidth).Align(lipgloss.Right).Render(data)
 			}
 		}
 		quotaPanelContent += "\n"
@@ -2874,12 +2898,38 @@ func buildDirective(agentName, taskID, projectRoot, branchProtection string) (st
 }
 
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	if maxLen <= 0 {
+		return ""
+	}
+	// Use lipgloss.Width to measure visual width (handles ansi codes and wide chars)
+	if lipgloss.Width(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen-3] + "..."
-}
 
+	// If too long, we need to shorten.
+	// Simple approach: slice runes until width fits.
+	runes := []rune(s)
+	if len(runes) == 0 {
+		return ""
+	}
+
+	// Iterate backwards to find longest prefix that fits
+	for i := len(runes); i > 0; i-- {
+		candidate := string(runes[:i])
+		if lipgloss.Width(candidate) <= maxLen {
+			// If we had to truncate, check if ellipsis fits and is better
+			if i < len(runes) && maxLen > 1 {
+				withEllipsis := string(runes[:i-1]) + "…"
+				if lipgloss.Width(withEllipsis) <= maxLen {
+					return withEllipsis
+				}
+				// If ellipsis doesn't fit in maxLen (e.g. maxLen=1), fall back to candidate
+			}
+			return candidate
+		}
+	}
+	return string(runes[:1]) // Return at least one char if possible
+}
 func getEnvOrDefault(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value

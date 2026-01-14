@@ -23,4 +23,5 @@ use_repo(
     "com_github_charmbracelet_lipgloss",
     "com_github_charmbracelet_x_ansi",
     "com_github_charmbracelet_x_exp_teatest",
+    "com_github_mattn_go_runewidth",
 )

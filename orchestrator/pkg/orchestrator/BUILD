@@ -20,6 +20,7 @@ go_library(
         "@com_github_charmbracelet_bubbles//viewport",
         "@com_github_charmbracelet_bubbletea//:bubbletea",
         "@com_github_charmbracelet_lipgloss//:lipgloss",
+        "@com_github_mattn_go_runewidth//:go-runewidth",
     ],
 )
 
