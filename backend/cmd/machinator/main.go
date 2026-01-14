@@ -2,14 +2,11 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/bryantinsley/machinator/backend/internal/beads"
@@ -18,6 +15,7 @@ import (
 	"github.com/bryantinsley/machinator/backend/internal/quota"
 	"github.com/bryantinsley/machinator/backend/internal/setup"
 	"github.com/bryantinsley/machinator/backend/internal/state"
+	"github.com/bryantinsley/machinator/backend/internal/tui"
 )
 
 func usage() {
@@ -412,42 +410,38 @@ func runCmd() {
 		st.Save()
 	}
 
-	log.Println("Machinator v3 starting...")
-	log.Printf("  MACHINATOR_DIR: %s", cfg.MachinatorDir)
-	log.Printf("  Project: %s", projectID)
-	log.Printf("  Repo: %s @ %s", projCfg.Repo, projCfg.Branch)
-	log.Printf("  Agents: %d", len(st.Agents))
-	log.Printf("  Simple model: %s", projCfg.SimpleModelName)
-	log.Printf("  Complex model: %s", projCfg.ComplexModelName)
+	// Initial quota fetch
+	q.Refresh()
 
-	// Start watchers
-	go quotaWatcher(q, cfg)
-	go assigner(st, q, cfg, projCfg, repoDir)
-	// TODO: go agentWatcher(st, cfg)
+	// Create TUI
+	ui := tui.New(st, q, repoDir)
+	ui.Log("assign", fmt.Sprintf("Starting with %d agents", len(st.Agents)))
+	ui.Log("assign", fmt.Sprintf("Project: %s @ %s", projCfg.Repo, projCfg.Branch))
 
-	log.Println("Orchestrator running. Press Ctrl+C to stop.")
+	// Start watchers with TUI
+	go quotaWatcherWithTUI(q, cfg, ui)
+	go assignerWithTUI(st, q, cfg, projCfg, repoDir, ui)
 
-	// Wait for signal
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
+	// Run TUI (blocks until quit)
+	if err := ui.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
+	}
 
-	log.Println("Shutting down...")
 	st.Save()
 }
 
-func quotaWatcher(q *quota.Quota, cfg *config.Config) {
+func quotaWatcherWithTUI(q *quota.Quota, cfg *config.Config, ui *tui.TUI) {
 	for {
 		if err := q.Refresh(); err != nil {
-			log.Printf("Quota refresh error: %v", err)
+			ui.Log("quota", fmt.Sprintf("Refresh error: %v", err))
 		} else {
-			log.Printf("Quota refreshed: %d accounts", len(q.Accounts))
+			ui.Log("quota", fmt.Sprintf("Refreshed: %d accounts", len(q.Accounts)))
 		}
 		time.Sleep(cfg.Intervals.QuotaRefresh)
 	}
 }
 
-func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *project.Config, repoDir string) {
+func assignerWithTUI(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *project.Config, repoDir string, ui *tui.TUI) {
 	for {
 		if st.AssignmentPaused {
 			time.Sleep(cfg.Intervals.Assigner)
@@ -463,7 +457,7 @@ func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *proj
 		// Load tasks
 		tasks, err := beads.LoadTasks(repoDir)
 		if err != nil {
-			log.Printf("Error loading tasks: %v", err)
+			ui.Log("assign", fmt.Sprintf("Error loading tasks: %v", err))
 			time.Sleep(cfg.Intervals.Assigner)
 			continue
 		}
@@ -493,12 +487,13 @@ func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *proj
 				model = projCfg.ComplexModelName // Upgrade
 			}
 
-			log.Printf("Agent %d: ASSIGNED task %s (%s) using %s",
-				agent.ID, task.ID, task.Title, model)
+			ui.Log("assign", fmt.Sprintf("[green]Agent %d: ASSIGNED[-] %s (%s) → %s",
+				agent.ID, task.ID, task.Title, model))
 
 			// Update agent state
 			agent.State = "assigned"
 			agent.TaskID = task.ID
+			agent.StartedAt = time.Now()
 			st.Save()
 
 			// Remove task from ready list (for this iteration)
