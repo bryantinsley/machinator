@@ -424,13 +424,7 @@ func runCmd() {
 	}
 	defer logger.Close()
 
-	// Initial quota fetch
-	q.Refresh()
-
-	logger.Log("main", fmt.Sprintf("Machinator starting with %d agents", len(st.Agents)))
-	logger.Log("main", fmt.Sprintf("Project: %s @ %s", projCfg.Repo, projCfg.Branch))
-
-	// Start watchers
+	// Start watchers (quota will be fetched in background)
 	go quotaWatcher(q, cfg, logger)
 	go setupWatcher(st, cfg, projCfg, projectID, logger)
 	go assigner(st, q, cfg, projCfg, repoDir, logger)

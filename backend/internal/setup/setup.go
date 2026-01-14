@@ -177,12 +177,11 @@ func (s *Setup) CreateWorktree(projectID, agentID int, branch string) (string, e
 		os.RemoveAll(agentDir)
 	}
 
-	// Create new worktree
-	cmd := exec.Command("git", "-C", repoDir, "worktree", "add", "--detach", agentDir, "origin/"+branch)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git worktree add: %w", err)
+	// Create new worktree (detached is expected, suppress the advice)
+	cmd := exec.Command("git", "-c", "advice.detachedHead=false", "-C", repoDir, "worktree", "add", "--detach", agentDir, "origin/"+branch)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git worktree add: %w\nOutput: %s", err, string(output))
 	}
 
 	return agentDir, nil

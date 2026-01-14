@@ -15,7 +15,7 @@ type Task struct {
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
 	Status      string   `json:"status"`
-	Priority    string   `json:"priority"`
+	Priority    int      `json:"priority"`
 	BlockedBy   []string `json:"blocked_by"`
 	IsComplex   bool     // Derived from CHALLENGE tag
 }
