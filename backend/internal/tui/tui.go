@@ -39,11 +39,12 @@ type TUI struct {
 	repoDir string
 	paused  bool // Orchestrator paused state
 
-	logs        []LogEntry
-	logMu       sync.Mutex
-	logFilter   string // "assign", "beads", "beads:task-id", "git", "git:hash", "config"
-	selectedIdx int    // Current selection index in list views
-	confirmQuit bool
+	logs          []LogEntry
+	logMu         sync.Mutex
+	logFilter     string // "assign", "beads", "beads:task-id", "git", "git:hash", "config"
+	selectedIdx   int    // Current selection index in list views
+	beadsListType int    // 0=ready, 1=blocked, 2=assigned, 3=closed
+	confirmQuit   bool
 
 	// Cached beads (refresh every 15s)
 	cachedTasks     []*beads.Task
@@ -104,7 +105,7 @@ func New(st *state.State, q *quota.Quota, repoDir string, cfg *config.Config, pr
 
 	// Wrap right header + content in a flex
 	t.rightFlex = tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(t.rightHeader, 1, 0, false).
+		AddItem(t.rightHeader, 2, 0, false). // 2 rows: title + separator
 		AddItem(t.rightContent, 0, 1, true)
 	t.rightFlex.SetBorder(true).SetTitle(" (A)ssignment Log ")
 
@@ -112,7 +113,7 @@ func New(st *state.State, q *quota.Quota, repoDir string, cfg *config.Config, pr
 	t.helpBar = tview.NewTextView().
 		SetDynamicColors(true).
 		SetTextAlign(tview.AlignCenter)
-	t.helpBar.SetText("[yellow]PAUSED[-]  (A)ssign (B)eads (G)it (C)onfig  (+)Add (S)tart (Q)uit")
+	t.helpBar.SetText("(A)ssign (B)eads (G)it (C)onfig  (+)Add (S)tart (Q)uit")
 
 	// Layout
 	mainFlex := tview.NewFlex().
@@ -122,6 +123,16 @@ func New(st *state.State, q *quota.Quota, repoDir string, cfg *config.Config, pr
 	root := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(mainFlex, 0, 1, true).
 		AddItem(t.helpBar, 1, 0, false)
+
+	// Set dark blue-green tinted background on all elements
+	bgColor := tcell.NewRGBColor(22, 26, 28) // #161a1c - very dark with blue-green tint
+	t.leftPane.SetBackgroundColor(bgColor)
+	t.rightHeader.SetBackgroundColor(bgColor)
+	t.rightContent.SetBackgroundColor(bgColor)
+	t.rightFlex.SetBackgroundColor(bgColor)
+	t.helpBar.SetBackgroundColor(bgColor)
+	mainFlex.SetBackgroundColor(bgColor)
+	root.SetBackgroundColor(bgColor)
 
 	t.app.SetRoot(root, true)
 	t.app.SetInputCapture(t.handleInput)
@@ -176,30 +187,28 @@ func (t *TUI) handleInput(event *tcell.EventKey) *tcell.EventKey {
 		return nil
 	}
 
-	// Handle special keys
+	// Delegate screen-specific key handling
+	// If handler returns nil, the key was handled - return nil
+	// If handler returns event, key was NOT handled - continue to global handlers
+	switch {
+	case strings.HasPrefix(t.logFilter, "beads"):
+		if handled := t.handleBeadsKey(event); handled == nil {
+			return nil // Key was handled
+		}
+		// Key not handled by beads, fall through to global handlers
+	case strings.HasPrefix(t.logFilter, "git"):
+		if handled := t.handleGitKey(event); handled == nil {
+			return nil // Key was handled
+		}
+		// Key not handled by git, fall through to global handlers
+	}
+
+	// Default key handling for views without custom handlers
 	switch event.Key() {
-	case tcell.KeyUp:
-		if strings.Contains(t.logFilter, ":") {
-			// In detail view - navigate to previous item
-			t.navigateDetail(-1)
-		} else if t.selectedIdx > 0 {
-			t.selectedIdx--
-		}
-		return nil
-	case tcell.KeyDown:
-		if strings.Contains(t.logFilter, ":") {
-			// In detail view - navigate to next item
-			t.navigateDetail(1)
-		} else {
-			t.selectedIdx++
-		}
-		return nil
 	case tcell.KeyEnter:
-		// Handle Enter for list selection - each view handles this
 		t.handleEnter()
 		return nil
 	case tcell.KeyEscape:
-		// Handle Escape for back navigation
 		t.handleEscape()
 		return nil
 	}
@@ -223,7 +232,7 @@ func (t *TUI) handleInput(event *tcell.EventKey) *tcell.EventKey {
 	case 'b', 'B':
 		t.logFilter = "beads"
 		t.selectedIdx = 0
-		t.rightFlex.SetTitle(" (B)eads Status ")
+		t.rightFlex.SetTitle(" Beads! ")
 	case 'g', 'G':
 		t.logFilter = "git"
 		t.selectedIdx = 0
@@ -277,9 +286,9 @@ func (t *TUI) updateHelpBar() {
 	if t.confirmQuit {
 		text = "[red]Quit? (y/n)[-]"
 	} else if t.state.AssignmentPaused {
-		text = "[yellow]PAUSED[-]  (A)ssign (B)eads (G)it (C)onfig  (+)Add (S)tart (Q)uit"
+		text = "(A)ssign (B)eads (G)it (C)onfig  (+)Add (S)tart (Q)uit"
 	} else {
-		text = "[green]RUNNING[-]  (A)ssign (B)eads (G)it (C)onfig  (+)Add (P)ause (Q)uit"
+		text = "(A)ssign (B)eads (G)it (C)onfig  (+)Add (P)ause (Q)uit"
 	}
 	t.helpBar.SetText(text)
 }
@@ -318,6 +327,7 @@ func (t *TUI) doRefresh() {
 		t.leftPane.SetText(leftContent)
 		t.rightHeader.SetText(rightHeader)
 		t.rightContent.SetText(rightContent)
+		t.updateHelpBar()
 	})
 }
 
@@ -325,9 +335,101 @@ func (t *TUI) getRightHeader() string {
 	switch {
 	case strings.HasPrefix(t.logFilter, "beads"):
 		if strings.Contains(t.logFilter, ":") {
-			return "[yellow]Task Details[-]"
+			// Bead Detail - show short ID + title
+			taskID := strings.TrimPrefix(t.logFilter, "beads:")
+			t.mu.Lock()
+			cachedTasks := t.cachedTasks
+			t.mu.Unlock()
+
+			// Find task for title
+			var taskTitle string
+			shortID := taskID
+			if idx := strings.LastIndex(taskID, "-"); idx >= 0 {
+				shortID = taskID[idx+1:]
+			}
+			for _, task := range cachedTasks {
+				if task.ID == taskID {
+					taskTitle = task.Title
+					break
+				}
+			}
+
+			title := fmt.Sprintf(" [yellow]%s[-] -- %s", shortID, taskTitle)
+			titleLen := 1 + len(shortID) + 4 + len(taskTitle)
+			hint := "[white]<esc>[gray] back [white]←[gray] prev [white]→[gray] next[-]"
+			hintLen := 27
+			padding := t.rightWidth - titleLen - hintLen
+			if padding < 1 {
+				padding = 1
+			}
+			return title + strings.Repeat(" ", padding) + hint + "\n[#333333]" + strings.Repeat("─", t.rightWidth) + "[-]"
 		}
-		return "[yellow]Beads Status[-]"
+		// Beads list - show tabs with counts in header
+		t.mu.Lock()
+		cachedTasks := t.cachedTasks
+		t.mu.Unlock()
+
+		// Count tasks by category
+		closedIDs := make(map[string]bool)
+		for _, task := range cachedTasks {
+			if task.Status == "closed" {
+				closedIDs[task.ID] = true
+			}
+		}
+
+		ready, blocked, assigned, closed := 0, 0, 0, 0
+		for _, task := range cachedTasks {
+			switch task.Status {
+			case "open":
+				isBlocked := false
+				for _, blockerID := range task.BlockedBy {
+					if !closedIDs[blockerID] {
+						isBlocked = true
+						break
+					}
+				}
+				if isBlocked {
+					blocked++
+				} else {
+					ready++
+				}
+			case "in_progress":
+				assigned++
+			case "closed":
+				closed++
+			}
+		}
+
+		counts := []struct {
+			name  string
+			count int
+		}{
+			{"Ready", ready},
+			{"Blocked", blocked},
+			{"Assigned", assigned},
+			{"Closed", closed},
+		}
+
+		// Build tab bar
+		var tabs string
+		tabsLen := 0
+		for i, c := range counts {
+			if i == t.beadsListType {
+				tabs += fmt.Sprintf(" [#AAAAAA::r] %s (%d) [-:-:-]", c.name, c.count)
+				tabsLen += 3 + len(c.name) + 4 + len(fmt.Sprintf("%d", c.count)) // " X (%d) "
+			} else {
+				tabs += fmt.Sprintf(" [gray]%s (%d)[-]", c.name, c.count)
+				tabsLen += 1 + len(c.name) + 3 + len(fmt.Sprintf("%d", c.count)) // " X (%d)"
+			}
+		}
+
+		hint := "[white]←/→[gray] list [white]↑↓[gray] nav [white]⏎[gray] view[-]"
+		hintLen := 26 // visual length of hint
+		padding := t.rightWidth - tabsLen - hintLen
+		if padding < 1 {
+			padding = 1
+		}
+		return tabs + strings.Repeat(" ", padding) + hint + "\n[#333333]" + strings.Repeat("─", t.rightWidth) + "[-]"
 	case strings.HasPrefix(t.logFilter, "git"):
 		return "[yellow]Recent Commits[-]"
 	case t.logFilter == "config":

@@ -5,9 +5,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
+
+// handleGitKey handles all key events for the git view.
+// Currently passes all keys through since git view is read-only.
+func (t *TUI) handleGitKey(event *tcell.EventKey) *tcell.EventKey {
+	// Git view is currently read-only, no custom key handling
+	// Future: could add selection, commit detail view, etc.
+	return event
+}
 
 // CommitInfo holds raw commit data for responsive formatting.
 type CommitInfo struct {

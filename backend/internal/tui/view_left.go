@@ -52,9 +52,17 @@ func (t *TUI) buildLeftContent() string {
 		return strings.Repeat("─", width)
 	}
 
+	// Status indicator at top
+	if t.state.AssignmentPaused {
+		content += "[yellow]⏸ PAUSED[-]\n"
+	} else {
+		content += "[green]▶ RUNNING[-]\n"
+	}
+	content += "\n"
+
 	// Quota section - video game style hearts
 	// Grid format: columns = models (simple, complex), rows = accounts
-	content += "[yellow]Quota[-]\n"
+	content += "[cyan]Quota[-]\n"
 	content += underline(5) + "\n"
 
 	// Get model names from project config
@@ -94,8 +102,8 @@ func (t *TUI) buildLeftContent() string {
 			return accounts[i].Name < accounts[j].Name
 		})
 
-		// Header row with model names
-		content += fmt.Sprintf("%-6s %-12s %-12s\n", "", "[blue]"+simpleLabel+"[-]", "[purple]"+complexLabel+"[-]")
+		// Header row with model names - brighter colors
+		content += fmt.Sprintf("%-6s %-12s %-12s\n", "", "[#00CCCC]"+simpleLabel+"[-]", "[#CC66FF]"+complexLabel+"[-]")
 
 		for _, acc := range accounts {
 			// Get quota percentages (0-100)
@@ -132,7 +140,7 @@ func (t *TUI) buildLeftContent() string {
 	}
 
 	// Agents section - state has its own synchronization
-	content += "\n[yellow]Agents[-]\n"
+	content += "\n[white]Agents[-]\n"
 	content += underline(6) + "\n"
 
 	// Build task lookup for titles
@@ -177,7 +185,7 @@ func (t *TUI) buildLeftContent() string {
 	}
 
 	// Beads section - use the cached copy we made
-	content += "\n[yellow]Beads[-]\n"
+	content += "\n[cyan]Beads[-]\n"
 	content += underline(5) + "\n"
 
 	if len(cachedTasks) == 0 {
@@ -219,7 +227,7 @@ func (t *TUI) buildLeftContent() string {
 	}
 
 	// Recent commits section
-	content += "\n[yellow]Git Commits[-]\n"
+	content += "\n[#CC99FF]Git Commits[-]\n"
 	content += underline(11) + "\n"
 	if len(cachedGitLog) == 0 {
 		content += "[gray]No commits[-]\n"

@@ -1,6 +1,9 @@
 package tui
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // renderQuotaHearts renders 5 hearts that fade from red to grey based on quota percentage.
 // Full hearts are red (#990000), empty hearts are grey (#535360), transitioning hearts blend.
@@ -48,4 +51,68 @@ func renderQuotaHearts(percent int) string {
 	}
 
 	return result
+}
+
+// wrapText wraps text at maxWidth and indents all lines with the given indent.
+// It respects existing newlines and wraps at word boundaries.
+func wrapText(text string, indent string, maxWidth int) string {
+	if maxWidth <= 0 {
+		maxWidth = 80
+	}
+
+	// Account for indent in available width
+	availableWidth := maxWidth - len(indent)
+	if availableWidth < 20 {
+		availableWidth = 20
+	}
+
+	var result strings.Builder
+	lines := strings.Split(text, "\n")
+
+	for lineIdx, line := range lines {
+		if lineIdx > 0 {
+			result.WriteString("\n")
+		}
+
+		// Handle empty lines
+		if strings.TrimSpace(line) == "" {
+			result.WriteString(indent)
+			continue
+		}
+
+		// Wrap this line
+		words := strings.Fields(line)
+		if len(words) == 0 {
+			result.WriteString(indent)
+			continue
+		}
+
+		currentLine := indent
+		currentLen := len(indent)
+
+		for _, word := range words {
+			wordLen := len(word)
+
+			if currentLen+1+wordLen > maxWidth && currentLen > len(indent) {
+				// Need to wrap - start new line
+				result.WriteString(currentLine)
+				result.WriteString("\n")
+				currentLine = indent + word
+				currentLen = len(indent) + wordLen
+			} else {
+				// Add word to current line
+				if currentLen > len(indent) {
+					currentLine += " "
+					currentLen++
+				}
+				currentLine += word
+				currentLen += wordLen
+			}
+		}
+
+		// Write remaining content
+		result.WriteString(currentLine)
+	}
+
+	return result.String()
 }

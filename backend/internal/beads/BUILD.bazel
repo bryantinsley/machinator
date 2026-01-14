@@ -1,8 +1,0 @@
-load("@rules_go//go:def.bzl", "go_library")
-
-go_library(
-    name = "beads",
-    srcs = ["beads.go"],
-    importpath = "github.com/bryantinsley/machinator/backend/internal/beads",
-    visibility = ["//backend:__subpackages__"],
-)

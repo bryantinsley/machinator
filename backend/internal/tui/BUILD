@@ -1,0 +1,29 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "tui",
+    srcs = [
+        "logger.go",
+        "tui.go",
+        "utils.go",
+        "view_beads_detail.go",
+        "view_beads_list.go",
+        "view_config.go",
+        "view_git.go",
+        "view_left.go",
+        "view_logs.go",
+    ],
+    importpath = "github.com/bryantinsley/machinator/backend/internal/tui",
+    visibility = ["//backend:__subpackages__"],
+    deps = [
+        "//backend/internal/beads",
+        "//backend/internal/config",
+        "//backend/internal/project",
+        "//backend/internal/quota",
+        "//backend/internal/state",
+        "@com_github_gdamore_tcell_v2//:tcell",
+        "@com_github_go_git_go_git_v5//:go-git",
+        "@com_github_go_git_go_git_v5//plumbing/object",
+        "@com_github_rivo_tview//:tview",
+    ],
+)
