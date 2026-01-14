@@ -147,29 +147,31 @@ func (t *TUI) handleInput(event *tcell.EventKey) *tcell.EventKey {
 	switch event.Rune() {
 	case 'q', 'Q', 'x', 'X':
 		t.confirmQuit = true
-		t.updateHelpBar()
+		t.app.QueueUpdate(func() { t.updateHelpBar() })
 		return nil
 	case 'p', 'P':
 		t.state.SetPaused(true)
 		t.Log("assign", "[yellow]PAUSED[-] - press 's' to resume")
-		t.updateHelpBar()
+		t.app.QueueUpdate(func() { t.updateHelpBar() })
 	case 's', 'S':
 		t.state.SetPaused(false)
 		t.Log("assign", "[green]RESUMED[-]")
-		t.updateHelpBar()
+		t.app.QueueUpdate(func() { t.updateHelpBar() })
 	case 'a', 'A':
 		t.logFilter = "assign"
-		t.rightPane.SetTitle(" [a] Assignment Log ")
+		t.app.QueueUpdate(func() { t.rightPane.SetTitle(" [a] Assignment Log ") })
 	case 'b', 'B':
 		t.logFilter = "beads"
-		t.rightPane.SetTitle(" [b] Beads Status ")
+		t.app.QueueUpdate(func() { t.rightPane.SetTitle(" [b] Beads Status ") })
 	case '+', '=':
 		agent := t.state.AddAgent()
 		t.Log("main", fmt.Sprintf("[blue]Added agent %d (pending)[-]", agent.ID))
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		agentNum := int(event.Rune() - '0')
 		t.logFilter = fmt.Sprintf("agent-%d", agentNum)
-		t.rightPane.SetTitle(fmt.Sprintf(" [%d] Agent %d Log ", agentNum, agentNum))
+		t.app.QueueUpdate(func() {
+			t.rightPane.SetTitle(fmt.Sprintf(" [%d] Agent %d Log ", agentNum, agentNum))
+		})
 	}
 	// Defer update to avoid blocking input handler
 	go func() {
@@ -187,9 +189,7 @@ func (t *TUI) updateHelpBar() {
 	} else {
 		text = "[green]RUNNING[-] [0-9]Agent [a]Assign [b]Beads [+]Add [p]Pause [q]Quit"
 	}
-	t.app.QueueUpdateDraw(func() {
-		t.helpBar.SetText(text)
-	})
+	t.helpBar.SetText(text)
 }
 
 func (t *TUI) refreshLoop() {
