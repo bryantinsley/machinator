@@ -44,11 +44,11 @@ func TriageWorktree(worktreeDir string, branch string, logger Logger) (string, e
 			// Push agent commits
 			if _, err := runGit(worktreeDir, "push", "origin", "HEAD"); err != nil {
 				if logger != nil {
-					logger.Log("triage", fmt.Sprintf("Warning: push failed: %v", err))
+					logger.Log("triage", fmt.Sprintf("Warning: push failed for branch %s: %v", branch, err))
 				}
 			} else {
 				if logger != nil {
-					logger.Log("triage", "Push successful")
+					logger.Log("triage", fmt.Sprintf("Push successful for branch %s", branch))
 				}
 			}
 
