@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_library(
     name = "machinator_lib",
@@ -23,4 +23,13 @@ go_binary(
     name = "machinator",
     embed = [":machinator_lib"],
     visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "machinator_test",
+    srcs = ["machinator_test.go"],
+    data = [":machinator"],
+    deps = [
+        "@rules_go//go/tools/bazel:go_default_library",
+    ],
 )
