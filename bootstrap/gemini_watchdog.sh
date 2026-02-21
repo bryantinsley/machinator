@@ -40,23 +40,23 @@ while true; do
             # Has days: DD-HH:MM:SS
             DAYS=$(echo "$ELAPSED" | cut -d'-' -f1)
             REST=$(echo "$ELAPSED" | cut -d'-' -f2)
-            SECONDS_RUNNING=$((DAYS * 86400))
+            SECONDS_RUNNING=$((10#$DAYS * 86400))
             ELAPSED="$REST"
         fi
         
         # Count colons to determine format
         COLONS=$(echo "$ELAPSED" | tr -cd ':' | wc -c | tr -d ' ')
         if [ "$COLONS" -eq 2 ]; then
-            # HH:MM:SS
+            # HH:MM:SS (10# forces base-10, avoids octal interpretation of 08/09)
             H=$(echo "$ELAPSED" | cut -d':' -f1)
             M=$(echo "$ELAPSED" | cut -d':' -f2)
             S=$(echo "$ELAPSED" | cut -d':' -f3)
-            SECONDS_RUNNING=$((SECONDS_RUNNING + H * 3600 + M * 60 + S))
+            SECONDS_RUNNING=$((SECONDS_RUNNING + 10#$H * 3600 + 10#$M * 60 + 10#$S))
         elif [ "$COLONS" -eq 1 ]; then
             # MM:SS
             M=$(echo "$ELAPSED" | cut -d':' -f1)
             S=$(echo "$ELAPSED" | cut -d':' -f2)
-            SECONDS_RUNNING=$((SECONDS_RUNNING + M * 60 + S))
+            SECONDS_RUNNING=$((SECONDS_RUNNING + 10#$M * 60 + 10#$S))
         fi
         
         # Get the command for logging
