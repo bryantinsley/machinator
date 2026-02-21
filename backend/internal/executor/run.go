@@ -69,7 +69,24 @@ func ExecuteTask(cfg ExecutionConfig, taskID string, taskDescription string, age
 	logStep("Starting ACP stream parser")
 	eventsChan := make(chan ACPEvent, 100)
 	doneChan := make(chan error, 1)
-	go ParseACPStream(stdout, eventsChan, doneChan)
+	
+	// Create an internal done channel for ParseACPStream
+	parseDoneChan := make(chan error, 1)
+	go ParseACPStream(stdout, eventsChan, parseDoneChan)
+	
+	go func() {
+		// Wait for parser to finish
+		parseErr := <-parseDoneChan
+		// Wait for command to exit
+		waitErr := cmd.Wait()
+		
+		// Prioritize command wait error if parser succeeded
+		if parseErr != nil {
+			doneChan <- parseErr
+		} else {
+			doneChan <- waitErr
+		}
+	}()
 
 	// Create channel for events to be passed to Monitor
 	monitorEventsChan := make(chan ACPEvent, 100)

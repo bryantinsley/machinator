@@ -19,19 +19,8 @@ func NewExecutionID(taskID string) string {
 func CreateLogDir(machinatorDir string, execID string) (string, error) {
 	baseDir := filepath.Join(machinatorDir, "logs", "executions", execID)
 
-	// Create subdirs as specified in requirements
-	subdirs := []string{
-		"orchestrator.log",
-		"gemini.log",
-		"events.jsonl",
-		"directive.md",
-	}
-
-	for _, subdir := range subdirs {
-		path := filepath.Join(baseDir, subdir)
-		if err := os.MkdirAll(path, 0755); err != nil {
-			return "", fmt.Errorf("failed to create directory %s: %w", path, err)
-		}
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create directory %s: %w", baseDir, err)
 	}
 
 	return baseDir, nil

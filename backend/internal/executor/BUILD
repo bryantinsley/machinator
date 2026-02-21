@@ -32,3 +32,15 @@ go_test(
         "//bootstrap:directive_template.txt",
     ],
 )
+
+go_test(
+    name = "executor_integration_test",
+    srcs = ["integration_test.go"],
+    data = [
+        "//:AGENTS.md",
+        "//backend/cmd/dummy-gemini",
+        "//bootstrap:directive_template.txt",
+    ],
+    embed = [":executor"],
+    tags = ["integration"],
+)

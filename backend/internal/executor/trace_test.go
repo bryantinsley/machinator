@@ -42,23 +42,11 @@ func TestCreateLogDir(t *testing.T) {
 		t.Errorf("Expected base dir %s, got %s", expectedBase, baseDir)
 	}
 
-	subdirs := []string{
-		"orchestrator.log",
-		"gemini.log",
-		"events.jsonl",
-		"directive.md",
-	}
-
-	for _, subdir := range subdirs {
-		path := filepath.Join(baseDir, subdir)
-		info, err := os.Stat(path)
-		if err != nil {
-			t.Errorf("Failed to stat subdir %s: %v", path, err)
-			continue
-		}
-		if !info.IsDir() {
-			t.Errorf("Path %s is not a directory", path)
-		}
+	info, err := os.Stat(baseDir)
+	if err != nil {
+		t.Errorf("Failed to stat baseDir %s: %v", baseDir, err)
+	} else if !info.IsDir() {
+		t.Errorf("Path %s is not a directory", baseDir)
 	}
 }
 
