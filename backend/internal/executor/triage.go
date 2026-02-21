@@ -100,6 +100,10 @@ func SalvageWorktree(worktreeDir string, taskID string, logger Logger) error {
 			logger.Log("triage", fmt.Sprintf("Push failed for salvage branch %s: %v", salvageBranch, err))
 		}
 		return fmt.Errorf("git push: %w", err)
+	} else {
+		if logger != nil {
+			logger.Log("triage", fmt.Sprintf("Push successful for salvage branch %s", salvageBranch))
+		}
 	}
 
 	if logger != nil {
