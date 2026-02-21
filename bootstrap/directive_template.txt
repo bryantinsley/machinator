@@ -35,11 +35,22 @@ After setting these variables, run your Go commands normally.
 
 This prevents Go from writing to ~/Library/Caches which is blocked by security restrictions.
 
+=== BUILD SYSTEM ===
+
+- This project uses Bazel as its ONLY build system.
+- FORBIDDEN: go build, go test, go mod tidy, go run — these will fail or cause issues.
+- REQUIRED: bazel build //backend/..., bazel test //backend/...
+- Build files use the name BUILD (not BUILD.bazel) per project convention.
+- To add a new Go package: create a BUILD file with go_library and optionally go_test rules.
+
 === CRITICAL PROTOCOLS ===
 
 **NEVER DELETE THE BOOTSTRAP DIRECTORY**
 The bootstrap/ directory contains the orchestrator scripts that are ACTIVELY RUNNING.
 Deleting it will break the system. Only Bryan may archive or remove bootstrap manually.
+
+- FORBIDDEN: rm command — move files to _archive/ instead
+- FORBIDDEN: find command — use ls, grep, or glob patterns instead
 
 0. **PROTOCOL: TOOL USAGE**
    - ALWAYS use the run_terminal_command tool to invoke bd CLI commands
