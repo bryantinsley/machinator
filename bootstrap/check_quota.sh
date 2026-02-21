@@ -15,14 +15,18 @@ fi
 MODELS=("gemini-3-flash-preview" "gemini-3-pro-preview")
 ANY_LOW=0
 
+# First, test if --dump-quota is supported at all
+RAW_QUOTA=$(node "$GEMINI_CLI" --dump-quota 2>/dev/null)
+if [ -z "$RAW_QUOTA" ] || ! echo "$RAW_QUOTA" | jq '.buckets' >/dev/null 2>&1; then
+    echo "ℹ️  --dump-quota not supported by current gemini CLI - assuming quota available"
+    exit 0
+fi
+
 for MODEL in "${MODELS[@]}"; do
-    # Get quota for the specific model
-    # Note: select argument needs to match exactly in the JSON output
-    QUOTA_DATA=$(node "$GEMINI_CLI" --dump-quota 2>/dev/null | jq --arg model "$MODEL" '.buckets[] | select(.modelId == $model)')
+    QUOTA_DATA=$(echo "$RAW_QUOTA" | jq --arg model "$MODEL" '.buckets[] | select(.modelId == $model)' 2>/dev/null)
 
     if [ -z "$QUOTA_DATA" ]; then
-        echo "⚠️  Could not retrieve quota data for $MODEL"
-        # Don't fail the whole script if just one data point is missing, but maybe warn
+        echo "ℹ️  No quota data for $MODEL - assuming available"
         continue 
     fi
 
