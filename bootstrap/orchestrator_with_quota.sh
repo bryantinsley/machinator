@@ -42,22 +42,24 @@ send_to_gemini() {
 GEMINI_CLI_PATH="/Users/bryantinsley/Code/gemini-cli/packages/cli/dist/index.js"
 
 # Function to check quota for a specific model
-# Returns 0 if available (>2%), 1 if exhausted/error
+# Returns 0 if available (>2%), 1 if exhausted
+# NOTE: If quota can't be checked (e.g. --dump-quota not supported),
+# assume quota is available and let Gemini itself error if it's not.
 check_model_quota() {
     local model="$1"
     
     if [ ! -f "$GEMINI_CLI_PATH" ]; then
-        log "⚠️  Gemini CLI not found at $GEMINI_CLI_PATH"
-        return 1
+        log "⚠️  Gemini CLI not found at $GEMINI_CLI_PATH - assuming quota available"
+        return 0
     fi
 
     # Get quota data
     local quota_data
-    quota_data=$(node "$GEMINI_CLI_PATH" --dump-quota 2>/dev/null | jq --arg m "$model" '.buckets[] | select(.modelId == $m)')
+    quota_data=$(node "$GEMINI_CLI_PATH" --dump-quota 2>/dev/null | jq --arg m "$model" '.buckets[] | select(.modelId == $m)' 2>/dev/null)
     
     if [ -z "$quota_data" ]; then
-        log "⚠️  Could not retrieve quota for $model"
-        return 1
+        log "ℹ️  Quota check unavailable for $model - assuming available"
+        return 0
     fi
     
     local remaining
@@ -67,6 +69,7 @@ check_model_quota() {
     if (( $(echo "$remaining > 0.02" | bc -l) )); then
         return 0
     else
+        log "⚠️  Quota low for $model: ${remaining}"
         return 1
     fi
 }

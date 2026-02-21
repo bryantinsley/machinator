@@ -7,8 +7,8 @@
 GEMINI_CLI="/Users/bryantinsley/Code/gemini-cli/packages/cli/dist/index.js"
 
 if [ ! -f "$GEMINI_CLI" ]; then
-    echo "⚠️  Custom gemini CLI not found at $GEMINI_CLI"
-    exit 2
+    echo "ℹ️  Custom gemini CLI not found at $GEMINI_CLI - assuming quota available"
+    exit 0
 fi
 
 # Models to check
