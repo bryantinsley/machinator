@@ -1,8 +1,14 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "state",
     srcs = ["state.go"],
     importpath = "github.com/bryantinsley/machinator/backend/internal/state",
     visibility = ["//backend:__subpackages__"],
+)
+
+go_test(
+    name = "state_test",
+    srcs = ["state_test.go"],
+    embed = [":state"],
 )
