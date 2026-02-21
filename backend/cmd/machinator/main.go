@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -18,6 +20,8 @@ import (
 	"github.com/bryantinsley/machinator/backend/internal/setup"
 	"github.com/bryantinsley/machinator/backend/internal/state"
 	"github.com/bryantinsley/machinator/backend/internal/tui"
+	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
 )
 
 func usage() {
@@ -373,12 +377,15 @@ func runCmd() {
 	// Parse flags
 	projectID := ""
 	headless := false
+	startUnpaused := false
 	for i := 2; i < len(os.Args); i++ {
 		arg := os.Args[i]
 		if strings.HasPrefix(arg, "--project=") {
 			projectID = strings.TrimPrefix(arg, "--project=")
 		} else if arg == "--headless" {
 			headless = true
+		} else if arg == "--start" {
+			startUnpaused = true
 		}
 	}
 
@@ -388,31 +395,131 @@ func runCmd() {
 		os.Exit(1)
 	}
 
-	// Resolve project
+	// Start preflight checker (unless headless)
+	var checker *tui.StartupChecker
+	var preflightDone chan struct{}
+	if !headless {
+		checker = tui.NewStartupChecker()
+		preflightDone = checker.Start()
+	}
+
+	// Helper to log preflight steps
+	check := func(step string) {
+		if checker != nil {
+			checker.Check(step)
+		}
+	}
+	ok := func() {
+		if checker != nil {
+			checker.OK()
+		}
+	}
+	fixed := func(action string) {
+		if checker != nil {
+			checker.Fixed(action)
+		}
+	}
+	checkErr := func(err string) {
+		if checker != nil {
+			checker.Error(err)
+		}
+	}
+
+	// Check 1: Load project config
+	check("Loading project configuration")
 	if projectID == "" {
-		projectID = "1" // Default to project 1
+		projectID = "1"
 	}
 	projCfg, err := project.Load(cfg.MachinatorDir, projectID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading project: %v\n", err)
+		checkErr(err.Error())
+		if preflightDone != nil {
+			close(preflightDone)
+		}
 		os.Exit(1)
 	}
-	repoDir := project.RepoDir(cfg.MachinatorDir, projectID)
+	ok()
 
+	// Check 2: Verify repo exists
+	check("Checking project repository")
+	repoDir := project.RepoDir(cfg.MachinatorDir, projectID)
+	if _, err := os.Stat(filepath.Join(repoDir, ".git")); os.IsNotExist(err) {
+		checkErr("repo not found")
+		if preflightDone != nil {
+			close(preflightDone)
+		}
+		fmt.Fprintf(os.Stderr, "Project repo not found at %s\n", repoDir)
+		os.Exit(1)
+	}
+	ok()
+
+	// Check 3: Verify correct branch
+	check("Verifying branch")
+	if projCfg.Branch != "" {
+		branchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+		branchCmd.Dir = repoDir
+		output, err := branchCmd.Output()
+		if err != nil {
+			checkErr("failed to check branch")
+			if preflightDone != nil {
+				close(preflightDone)
+			}
+			os.Exit(1)
+		}
+		currentBranch := strings.TrimSpace(string(output))
+		if currentBranch != projCfg.Branch {
+			checkoutCmd := exec.Command("git", "checkout", projCfg.Branch)
+			checkoutCmd.Dir = repoDir
+			if out, err := checkoutCmd.CombinedOutput(); err != nil {
+				checkErr("checkout failed: " + string(out))
+				if preflightDone != nil {
+					close(preflightDone)
+				}
+				os.Exit(1)
+			}
+			fixed("switched to " + projCfg.Branch)
+		} else {
+			ok()
+		}
+	} else {
+		ok()
+	}
+
+	// Check 4: Load state
+	check("Loading system state")
 	st, err := state.Load(cfg.MachinatorDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading state: %v\n", err)
+		checkErr(err.Error())
+		if preflightDone != nil {
+			close(preflightDone)
+		}
 		os.Exit(1)
 	}
+	ok()
 
-	q := quota.New(cfg.MachinatorDir)
-
-	// Ensure we have at least one agent
+	// Check 5: Ensure agents exist
+	check("Checking agents")
 	if len(st.Agents) == 0 {
 		for i := 0; i < cfg.DefaultAgentCount; i++ {
 			st.AddAgent()
 		}
 		st.Save()
+		fixed(fmt.Sprintf("created %d agents", cfg.DefaultAgentCount))
+	} else {
+		ok()
+	}
+
+	// Apply --start flag
+	if startUnpaused && st.AssignmentPaused {
+		st.SetPaused(false)
+	}
+
+	q := quota.New(cfg.MachinatorDir)
+
+	// Close preflight screen
+	if preflightDone != nil {
+		close(preflightDone)
+		time.Sleep(600 * time.Millisecond) // Let splash close gracefully
 	}
 
 	// Create file logger (always writes to files)
@@ -423,6 +530,21 @@ func runCmd() {
 		os.Exit(1)
 	}
 	defer logger.Close()
+
+	// Configure slog to write to file instead of stdout (prevents TUI corruption)
+	slogFile, err := os.OpenFile(filepath.Join(logsDir, "slog.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating slog file: %v\n", err)
+		os.Exit(1)
+	}
+	defer slogFile.Close()
+	if headless {
+		// In headless mode, also write to stderr
+		slog.SetDefault(slog.New(slog.NewTextHandler(io.MultiWriter(slogFile, os.Stderr), nil)))
+	} else {
+		// In TUI mode, only write to file
+		slog.SetDefault(slog.New(slog.NewTextHandler(slogFile, nil)))
+	}
 
 	// Start watchers (quota will be fetched in background)
 	go quotaWatcher(q, cfg, logger)
@@ -646,4 +768,34 @@ func resolveProjectRepo(machinatorDir, projectID string) (string, error) {
 		fmt.Printf("  %s\n", p)
 	}
 	return "", fmt.Errorf("multiple projects found, use --project=<id> to specify")
+}
+
+// showSplash displays a full-screen centered message for a duration.
+func showSplash(message string, duration time.Duration) {
+	app := tview.NewApplication()
+
+	textView := tview.NewTextView().
+		SetTextAlign(tview.AlignCenter).
+		SetDynamicColors(true)
+
+	// Dark blue-green background
+	bgColor := tcell.NewRGBColor(22, 26, 28)
+	textView.SetBackgroundColor(bgColor)
+	textView.SetText("\n\n\n[yellow]" + message + "[-]")
+
+	// Center vertically using a flex
+	flex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(nil, 0, 1, false).
+		AddItem(textView, 3, 0, false).
+		AddItem(nil, 0, 1, false)
+	flex.SetBackgroundColor(bgColor)
+
+	app.SetRoot(flex, true)
+
+	go func() {
+		time.Sleep(duration)
+		app.Stop()
+	}()
+
+	app.Run()
 }

@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"log/slog"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +55,13 @@ type TUI struct {
 	// Cached git log (refresh every 30s) - stores raw data for responsive formatting
 	cachedGitLog     []CommitInfo
 	cachedGitLogTime time.Time
+
+	// Git pull throttle (max once per 30s)
+	lastGitPull      time.Time
+	pausedByGitError bool // True if paused due to git failure (enables auto-unpause)
+
+	// Critical errors to display at top of status panel (key -> message)
+	criticalErrors map[string]string
 
 	// Config for displaying settings
 	cfg               *config.Config
@@ -293,6 +302,23 @@ func (t *TUI) updateHelpBar() {
 	t.helpBar.SetText(text)
 }
 
+// addCriticalError adds an error to display at top of status panel.
+func (t *TUI) addCriticalError(key, msg string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.criticalErrors == nil {
+		t.criticalErrors = make(map[string]string)
+	}
+	t.criticalErrors[key] = msg
+}
+
+// clearCriticalError removes an error by key.
+func (t *TUI) clearCriticalError(key string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.criticalErrors, key)
+}
+
 func (t *TUI) refreshLoop() {
 	// Do initial refresh immediately
 	t.doRefresh()
@@ -455,7 +481,48 @@ func (t *TUI) buildRightContent() string {
 }
 
 // loadTasksWithTimeout loads beads with a timeout to prevent blocking the UI.
+// Runs git pull first (throttled to max once per 30s) to fetch latest changes.
 func (t *TUI) loadTasksWithTimeout(timeout time.Duration) []*beads.Task {
+	// Git pull if 30+ seconds since last pull
+	if time.Since(t.lastGitPull) >= 30*time.Second {
+		t.lastGitPull = time.Now()
+		go func() {
+			// Reset any local changes first (handles dirty repo)
+			resetCmd := exec.Command("git", "reset", "--hard", "HEAD")
+			resetCmd.Dir = t.repoDir
+			if out, err := resetCmd.CombinedOutput(); err != nil {
+				slog.Error("git reset failed", "error", err, "output", strings.TrimSpace(string(out)))
+				t.addCriticalError("git", "reset failed: "+err.Error())
+				return
+			}
+
+			// Now pull
+			pullCmd := exec.Command("git", "pull")
+			pullCmd.Dir = t.repoDir
+			output, err := pullCmd.CombinedOutput()
+			outStr := strings.TrimSpace(string(output))
+			if err != nil {
+				slog.Error("git pull failed", "error", err, "output", outStr)
+				t.addCriticalError("git", "Failed to update beads, git pull failed")
+				if !t.state.AssignmentPaused {
+					t.pausedByGitError = true
+					t.state.SetPaused(true) // Pause to avoid stale beads
+				}
+			} else {
+				t.clearCriticalError("git")
+				// Auto-unpause if we previously paused due to git error
+				if t.pausedByGitError && t.state.AssignmentPaused {
+					t.pausedByGitError = false
+					t.state.SetPaused(false)
+					slog.Info("git pull recovered, resuming")
+				}
+				if outStr != "" && outStr != "Already up to date." {
+					slog.Info("git pull", "output", outStr)
+				}
+			}
+		}()
+	}
+
 	type result struct {
 		tasks []*beads.Task
 		err   error

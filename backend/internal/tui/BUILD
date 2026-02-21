@@ -4,6 +4,7 @@ go_library(
     name = "tui",
     srcs = [
         "logger.go",
+        "splash.go",
         "tui.go",
         "utils.go",
         "view_beads_detail.go",

@@ -52,8 +52,19 @@ func (t *TUI) buildLeftContent() string {
 		return strings.Repeat("─", width)
 	}
 
-	// Status indicator at top
-	if t.state.AssignmentPaused {
+	// Critical errors (copy while holding lock briefly)
+	t.mu.Lock()
+	var firstError string
+	for _, msg := range t.criticalErrors {
+		firstError = msg
+		break
+	}
+	t.mu.Unlock()
+
+	// Status indicator - show error if present, otherwise running/paused
+	if firstError != "" {
+		content += "[red]ERROR: " + firstError + "[-]\n"
+	} else if t.state.AssignmentPaused {
 		content += "[yellow]⏸ PAUSED[-]\n"
 	} else {
 		content += "[green]▶ RUNNING[-]\n"
