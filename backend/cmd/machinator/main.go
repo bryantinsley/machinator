@@ -10,11 +10,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/bryantinsley/machinator/backend/internal/beads"
 	"github.com/bryantinsley/machinator/backend/internal/config"
+	"github.com/bryantinsley/machinator/backend/internal/executor"
 	"github.com/bryantinsley/machinator/backend/internal/project"
 	"github.com/bryantinsley/machinator/backend/internal/quota"
 	"github.com/bryantinsley/machinator/backend/internal/setup"
@@ -549,7 +551,7 @@ func runCmd() {
 	// Start watchers (quota will be fetched in background)
 	go quotaWatcher(q, cfg, logger)
 	go setupWatcher(st, cfg, projCfg, projectID, logger)
-	go assigner(st, q, cfg, projCfg, repoDir, logger)
+	go assigner(st, q, cfg, projCfg, repoDir, projectID, logger)
 
 	if headless {
 		// Headless mode: wait for signal
@@ -627,7 +629,10 @@ func setupWatcher(st *state.State, cfg *config.Config, projCfg *project.Config, 
 	}
 }
 
-func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *project.Config, repoDir string, logger tui.Logger) {
+func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *project.Config, repoDir string, projectID string, logger tui.Logger) {
+	taskFailures := make(map[string]int)
+	var tfMutex sync.Mutex
+
 	for {
 		if st.AssignmentPaused {
 			time.Sleep(cfg.Intervals.Assigner.Duration())
@@ -678,6 +683,55 @@ func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *proj
 
 			// Update agent state (auto-saves)
 			st.AssignTask(agent.ID, task.ID)
+
+			go func(a *state.Agent, t *beads.Task, selModel string) {
+				homeDir, err := q.BestAccountFor(selModel)
+				if err != nil {
+					logger.Log("assign", fmt.Sprintf("Error finding quota for %s: %v", selModel, err))
+					st.CompleteTask(a.ID)
+					return
+				}
+
+				worktreeDir := project.AgentDir(cfg.MachinatorDir, projectID, a.ID)
+				
+				// Read AGENTS.md for context
+				var agentsContext string
+				agentsMDPath := filepath.Join(repoDir, "AGENTS.md")
+				if content, err := os.ReadFile(agentsMDPath); err == nil {
+					lines := strings.Split(string(content), "\n")
+					if len(lines) > 100 {
+						lines = lines[:100]
+					}
+					agentsContext = strings.Join(lines, "\n")
+				}
+
+				execCfg := executor.ExecutionConfig{
+					GeminiPath:  filepath.Join(cfg.MachinatorDir, "gemini"),
+					HomeDir:     homeDir,
+					WorktreeDir: worktreeDir,
+					RepoDir:     repoDir,
+					Model:       selModel,
+					TaskID:      t.ID,
+					AgentID:     a.ID,
+					IdleTimeout: cfg.Timeouts.Idle.Duration(),
+					MaxRuntime:  cfg.Timeouts.MaxRuntime.Duration(),
+				}
+
+				result := executor.ExecuteTask(execCfg, t.ID, t.Description, agentsContext, cfg.MachinatorDir, logger)
+
+				st.CompleteTask(a.ID)
+				if result.Error != nil {
+					logger.Log("assign", fmt.Sprintf("[red]Task %s failed: %v[-]", t.ID, result.Error))
+					
+					tfMutex.Lock()
+					taskFailures[t.ID]++
+					if taskFailures[t.ID] >= 2 {
+						logger.Log("assign", fmt.Sprintf("[red]Task %s barred after 2 failures[-]", t.ID))
+						st.BarTaskAndSave(t.ID)
+					}
+					tfMutex.Unlock()
+				}
+			}(agent, task, model)
 
 			// Remove task from ready list (for this iteration)
 			readyTasks = removeTask(readyTasks, task.ID)

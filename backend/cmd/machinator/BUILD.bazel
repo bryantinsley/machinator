@@ -8,6 +8,7 @@ go_library(
     deps = [
         "//backend/internal/beads",
         "//backend/internal/config",
+        "//backend/internal/executor",
         "//backend/internal/project",
         "//backend/internal/quota",
         "//backend/internal/setup",
