@@ -8,6 +8,7 @@ go_library(
         "executor.go",
         "launch.go",
         "monitor.go",
+        "run.go",
         "trace.go",
         "triage.go",
     ],
