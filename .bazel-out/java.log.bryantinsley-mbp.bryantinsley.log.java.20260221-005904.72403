@@ -1,0 +1,6 @@
+260221 05:59:04.451:I 1 [com.google.devtools.build.lib.analysis.BlazeVersionInfo.logVersionInfo] Bazel version info: Build label: 8.5.0-homebrew
+Build target: @@//src/main/java/com/google/devtools/build/lib/bazel:BazelServer
+Build time: Tue Jan 01 00:00:00 1980 (315532800)
+Build timestamp: 315532800
+Build timestamp as int: 315532800
+260221 05:59:05.112:I 1 [com.google.devtools.build.lib.runtime.BlazeRuntime.main] Starting Bazel server with pid 72403 and , args [--max_idle_secs=10800, --noshutdown_on_low_sys_mem, --connect_timeout_secs=30, --output_user_root=/var/tmp/_bazel_bryantinsley, --install_base=/var/tmp/_bazel_bryantinsley/install/9bb1a7b2cf1200664a0ef0d7e24b3385, --install_md5=9bb1a7b2cf1200664a0ef0d7e24b3385, --lock_install_base, --output_base=/Users/bryantinsley/Code/machinator/.bazel-out, --workspace_directory=/Users/bryantinsley/Code/machinator, --default_system_javabase=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home, --failure_detail_out=/Users/bryantinsley/Code/machinator/.bazel-out/failure_detail.rawproto, --idle_server_tasks, --write_command_log, --nowatchfs, --nofatal_event_bus_exceptions, --nowindows_enable_symlinks, --client_debug=false, --product_name=Bazel, --option_sources=output_Ubase:]

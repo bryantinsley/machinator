@@ -23,6 +23,24 @@ func TriageWorktree(worktreeDir string, branch string, logger Logger) (string, e
 			return "", fmt.Errorf("git log: %w", err)
 		}
 		if logOutput != "" {
+			// Pull --rebase before pushing to handle concurrent changes
+			if _, err := runGit(worktreeDir, "pull", "--rebase", "origin", branch); err != nil {
+				if logger != nil {
+					logger.Log("triage", fmt.Sprintf("Warning: pull --rebase failed: %v", err))
+				}
+			}
+
+			// Push agent commits
+			if _, err := runGit(worktreeDir, "push", "origin", "HEAD"); err != nil {
+				if logger != nil {
+					logger.Log("triage", fmt.Sprintf("Warning: push failed: %v", err))
+				}
+			} else {
+				if logger != nil {
+					logger.Log("triage", "Push successful")
+				}
+			}
+
 			return "committed", nil
 		}
 		return "clean", nil
@@ -78,6 +96,9 @@ func SalvageWorktree(worktreeDir string, taskID string, logger Logger) error {
 		return fmt.Errorf("git commit: %w", err)
 	}
 	if _, err := runGit(worktreeDir, "push", "origin", salvageBranch); err != nil {
+		if logger != nil {
+			logger.Log("triage", fmt.Sprintf("Push failed for salvage branch %s: %v", salvageBranch, err))
+		}
 		return fmt.Errorf("git push: %w", err)
 	}
 
