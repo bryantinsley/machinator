@@ -5,15 +5,58 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
+type executionSummary struct {
+	TaskID         string  `json:"taskID"`
+	AgentID        int     `json:"agentID"`
+	Model          string  `json:"model"`
+	StartTime      string  `json:"startTime"`
+	EndTime        string  `json:"endTime"`
+	Duration       float64 `json:"duration"`
+	ExitCode       int     `json:"exitCode"`
+	Error          string  `json:"error"`
+	TriageAction   string  `json:"triageAction"`
+	CommitsCreated int     `json:"commitsCreated"`
+	ExecutionID    string  `json:"executionID"`
+}
+
 // ExecuteTask creates the top-level function that ties directive building, launching, monitoring, and triage together.
-func ExecuteTask(cfg ExecutionConfig, taskID string, taskDescription string, agentsContext string, machinatorDir string, logger Logger) ExecutionResult {
+func ExecuteTask(cfg ExecutionConfig, taskID string, taskDescription string, agentsContext string, machinatorDir string, logger Logger) (result ExecutionResult) {
+	startTime := time.Now()
 	// 1. Generate execution ID via NewExecutionID(taskID)
 	execID := NewExecutionID(taskID)
 
+	var logDir string
+	var triageAction string
+
+	defer func() {
+		if logDir != "" {
+			summary := executionSummary{
+				TaskID:         taskID,
+				AgentID:        cfg.AgentID,
+				Model:          cfg.Model,
+				StartTime:      startTime.Format(time.RFC3339),
+				EndTime:        time.Now().Format(time.RFC3339),
+				Duration:       time.Since(startTime).Seconds(),
+				ExitCode:       result.ExitCode,
+				TriageAction:   triageAction,
+				CommitsCreated: result.CommitsCreated,
+				ExecutionID:    execID,
+			}
+			if result.Error != nil {
+				summary.Error = result.Error.Error()
+			}
+
+			summaryBytes, _ := json.MarshalIndent(summary, "", "  ")
+			_ = os.WriteFile(filepath.Join(logDir, "result.json"), summaryBytes, 0644)
+		}
+	}()
+
 	// 2. Create log directory via CreateLogDir(machinatorDir, execID)
-	logDir, err := CreateLogDir(machinatorDir, execID)
+	var err error
+	logDir, err = CreateLogDir(machinatorDir, execID)
 	if err != nil {
 		return ExecutionResult{Error: fmt.Errorf("failed to create log dir: %w", err), ExitCode: 1}
 	}
@@ -124,13 +167,13 @@ func ExecuteTask(cfg ExecutionConfig, taskID string, taskDescription string, age
 
 	// 10. Monitor via Monitor() — blocks until completion
 	logStep("Monitoring execution")
-	result := Monitor(cmd, monitorEventsChan, doneChan, cfg, logger)
+	result = Monitor(cmd, monitorEventsChan, doneChan, cfg, logger)
 
 	logStep(fmt.Sprintf("Execution finished with code %d, duration %v", result.ExitCode, result.Duration))
 
 	// 11. Triage worktree via TriageWorktree()
 	logStep("Triaging worktree")
-	triageAction, err := TriageWorktree(cfg.WorktreeDir, taskID, logger)
+	triageAction, err = TriageWorktree(cfg.WorktreeDir, taskID, logger)
 	if err != nil {
 		logStep(fmt.Sprintf("Failed to triage worktree: %v", err))
 		result.Error = fmt.Errorf("triage error: %w", err)
