@@ -11,6 +11,7 @@ go_library(
         "view_beads_detail.go",
         "view_beads_list.go",
         "view_config.go",
+        "view_execution_log.go",
         "view_git.go",
         "view_left.go",
         "view_logs.go",

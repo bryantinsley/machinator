@@ -210,6 +210,10 @@ func (t *TUI) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			return nil // Key was handled
 		}
 		// Key not handled by git, fall through to global handlers
+	case strings.HasPrefix(t.logFilter, "executions"):
+		if handled := t.handleExecutionsKey(event); handled == nil {
+			return nil // Key was handled
+		}
 	}
 
 	// Default key handling for views without custom handlers
@@ -253,6 +257,10 @@ func (t *TUI) handleInput(event *tcell.EventKey) *tcell.EventKey {
 		t.logFilter = "config"
 		t.selectedIdx = 0
 		t.rightFlex.SetTitle(" (C)onfig ")
+	case 'e', 'E':
+		t.logFilter = "executions"
+		t.selectedIdx = 0
+		t.rightFlex.SetTitle(" (E)xecution Logs ")
 	case '+', '=':
 		go t.state.AddAgent()
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
@@ -275,6 +283,7 @@ func (t *TUI) cycleRightView() {
 		{"beads", " Beads! "},
 		{"git", " (G)it Commits "},
 		{"config", " (C)onfig "},
+		{"executions", " (E)xecution Logs "},
 	}
 
 	currentIdx := -1
@@ -299,6 +308,8 @@ func (t *TUI) handleEnter() {
 		t.selectBeadItem()
 	case t.logFilter == "git":
 		t.selectGitItem()
+	case t.logFilter == "executions":
+		t.selectExecutionItem()
 	}
 }
 
@@ -488,6 +499,12 @@ func (t *TUI) getRightHeader() string {
 		return tabs + strings.Repeat(" ", padding) + hint + "\n[#333333]" + strings.Repeat("─", t.rightWidth) + "[-]"
 	case strings.HasPrefix(t.logFilter, "git"):
 		return "[yellow]Recent Commits[-]"
+	case strings.HasPrefix(t.logFilter, "executions"):
+		if strings.Contains(t.logFilter, ":") {
+			id := strings.TrimPrefix(t.logFilter, "executions:")
+			return fmt.Sprintf("[yellow]Execution Log: %s[-]", id)
+		}
+		return "[yellow]Execution Logs[-]"
 	case t.logFilter == "config":
 		return "[yellow]Configuration[-]"
 	case t.logFilter == "activity":
@@ -505,6 +522,8 @@ func (t *TUI) buildRightContent() string {
 		return t.buildBeadsView()
 	case strings.HasPrefix(t.logFilter, "git"):
 		return t.buildGitView()
+	case strings.HasPrefix(t.logFilter, "executions"):
+		return t.buildExecutionLogContent()
 	case t.logFilter == "config":
 		return t.buildConfigView()
 	case t.logFilter == "activity":
