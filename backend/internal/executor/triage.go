@@ -17,16 +17,27 @@ func TriageWorktree(worktreeDir string, branch string, logger Logger) (string, e
 	}
 
 	if statusOutput == "" {
-		// 2. If no output: check 'git -C worktreeDir log origin/{branch}..HEAD --oneline' for commits.
+		// 2. If no output: check if there are any commits that haven't been pushed to origin yet.
 		logOutput, err := runGit(worktreeDir, "log", fmt.Sprintf("origin/%s..HEAD", branch), "--oneline")
 		if err != nil {
-			return "", fmt.Errorf("git log: %w", err)
+			// Fallback: if origin/branch doesn't exist, check for commits not in ANY remote branch.
+			logOutput, err = runGit(worktreeDir, "log", "HEAD", "--oneline", "--not", "--remotes")
+			if err != nil {
+				return "", fmt.Errorf("git log: %w", err)
+			}
 		}
+
 		if logOutput != "" {
 			// Pull --rebase before pushing to handle concurrent changes
 			if _, err := runGit(worktreeDir, "pull", "--rebase", "origin", branch); err != nil {
 				if logger != nil {
-					logger.Log("triage", fmt.Sprintf("Warning: pull --rebase failed: %v", err))
+					logger.Log("triage", fmt.Sprintf("Warning: pull --rebase failed (could be a new branch): %v", err))
+				}
+				// Abort any partial rebase to avoid leaving the worktree in a broken state
+				_, _ = runGit(worktreeDir, "rebase", "--abort")
+			} else {
+				if logger != nil {
+					logger.Log("triage", "Pull --rebase successful")
 				}
 			}
 
