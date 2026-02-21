@@ -17,6 +17,9 @@ func TriageWorktree(worktreeDir string, branch string, logger Logger) (string, e
 	}
 
 	if statusOutput == "" {
+		// Fetch to ensure origin/branch is up to date before checking for unpushed commits
+		_, _ = runGit(worktreeDir, "fetch", "origin")
+
 		// 2. If no output: check if there are any commits that haven't been pushed to origin yet.
 		logOutput, err := runGit(worktreeDir, "log", fmt.Sprintf("origin/%s..HEAD", branch), "--oneline")
 		if err != nil {
