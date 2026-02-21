@@ -41,7 +41,7 @@ func Load(machinatorDir string, projectID string) (*Config, error) {
 		// Defaults
 		Branch:           "main",
 		SimpleModelName:  "gemini-3-flash-preview",
-		ComplexModelName: "gemini-3-pro-preview",
+		ComplexModelName: "gemini-3.1-pro-preview",
 		IdleTimeout:      "5m",
 		MaxRuntime:       "30m",
 		AgentCount:       1,
@@ -122,8 +122,8 @@ func Template() string {
   "simple_model_name": "gemini-3-flash-preview",
 
   // Model for complex tasks (CHALLENGE:complex)
-  // Example: "gemini-3-pro-preview", "gemini-2.5-pro"  
-  "complex_model_name": "gemini-3-pro-preview",
+  // Example: "gemini-3.1-pro-preview", "gemini-2.5-pro"  
+  "complex_model_name": "gemini-3.1-pro-preview",
 
   // How long to wait for new tasks before shutting down an agent (default: "5m")
   "idle_timeout": "5m",

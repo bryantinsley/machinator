@@ -7,19 +7,19 @@
 GEMINI_CLI="/Users/bryantinsley/Code/gemini-cli/packages/cli/dist/index.js"
 
 if [ ! -f "$GEMINI_CLI" ]; then
-    echo "ℹ️  Custom gemini CLI not found at $GEMINI_CLI - assuming quota available"
-    exit 0
+    echo "⚠️  Custom gemini CLI not found at $GEMINI_CLI"
+    exit 2
 fi
 
 # Models to check
-MODELS=("gemini-3-flash-preview" "gemini-3-pro-preview")
+MODELS=("gemini-3-flash-preview" "gemini-3.1-pro-preview")
 ANY_LOW=0
 
 # First, test if --dump-quota is supported at all
 RAW_QUOTA=$(node "$GEMINI_CLI" --dump-quota 2>/dev/null)
 if [ -z "$RAW_QUOTA" ] || ! echo "$RAW_QUOTA" | jq '.buckets' >/dev/null 2>&1; then
-    echo "ℹ️  --dump-quota not supported by current gemini CLI - assuming quota available"
-    exit 0
+    echo "⚠️  --dump-quota failed"
+    exit 2
 fi
 
 for MODEL in "${MODELS[@]}"; do

@@ -42,15 +42,13 @@ send_to_gemini() {
 GEMINI_CLI_PATH="/Users/bryantinsley/Code/gemini-cli/packages/cli/dist/index.js"
 
 # Function to check quota for a specific model
-# Returns 0 if available (>2%), 1 if exhausted
-# NOTE: If quota can't be checked (e.g. --dump-quota not supported),
-# assume quota is available and let Gemini itself error if it's not.
+# Returns 0 if available (>2%), 1 if exhausted or can't check
 check_model_quota() {
     local model="$1"
     
     if [ ! -f "$GEMINI_CLI_PATH" ]; then
-        log "⚠️  Gemini CLI not found at $GEMINI_CLI_PATH - assuming quota available"
-        return 0
+        log "⚠️  Gemini CLI not found at $GEMINI_CLI_PATH"
+        return 1
     fi
 
     # Get quota data
@@ -58,18 +56,20 @@ check_model_quota() {
     quota_data=$(node "$GEMINI_CLI_PATH" --dump-quota 2>/dev/null | jq --arg m "$model" '.buckets[] | select(.modelId == $m)' 2>/dev/null)
     
     if [ -z "$quota_data" ]; then
-        log "ℹ️  Quota check unavailable for $model - assuming available"
-        return 0
+        log "⚠️  Could not retrieve quota for $model"
+        return 1
     fi
     
     local remaining
     remaining=$(echo "$quota_data" | jq -r '.remainingFraction')
+    local pct=$(echo "$remaining * 100" | bc -l | cut -d. -f1)
     
     # Check if > 2%
     if (( $(echo "$remaining > 0.02" | bc -l) )); then
+        log "✅ $model: ${pct}% remaining"
         return 0
     else
-        log "⚠️  Quota low for $model: ${remaining}"
+        log "⚠️  Quota exhausted for $model: ${pct}%"
         return 1
     fi
 }
@@ -108,7 +108,7 @@ while [ $count -lt $MAX_CYCLES ]; do
         
         # Determine strict requirements
         if [[ "$CANDIDATE_DESC" == *"CHALLENGE:complex"* ]]; then
-            REQ_MODEL="gemini-3-pro-preview"
+            REQ_MODEL="gemini-3.1-pro-preview"
             if check_model_quota "$REQ_MODEL"; then
                 TASK_ID="$CANDIDATE_ID"
                 MODEL_ARGS="--model $REQ_MODEL"
@@ -123,9 +123,9 @@ while [ $count -lt $MAX_CYCLES ]; do
                 TASK_ID="$CANDIDATE_ID"
                 MODEL_ARGS="--model $REQ_MODEL"
                 log "🔄 Resuming simple task: $TASK_ID (Flash)"
-            elif check_model_quota "gemini-3-pro-preview"; then
+            elif check_model_quota "gemini-3.1-pro-preview"; then
                  TASK_ID="$CANDIDATE_ID"
-                 MODEL_ARGS="--model gemini-3-pro-preview"
+                 MODEL_ARGS="--model gemini-3.1-pro-preview"
                  log "🔄 Resuming simple task: $TASK_ID (Upgraded to Pro)"
             else
                  log "⏳ Pausing simple task $CANDIDATE_ID - All quotas exhausted"
@@ -155,9 +155,9 @@ while [ $count -lt $MAX_CYCLES ]; do
 
                   if [[ "$CDESC" == *"CHALLENGE:complex"* ]]; then
                       # Complex -> Needs Pro
-                      if check_model_quota "gemini-3-pro-preview"; then
+                      if check_model_quota "gemini-3.1-pro-preview"; then
                           TASK_ID="$CID"
-                          MODEL_ARGS="--model gemini-3-pro-preview"
+                          MODEL_ARGS="--model gemini-3.1-pro-preview"
                           log "⚡ Selected complex task: $TASK_ID (Pro)"
                           break
                       fi
@@ -168,9 +168,9 @@ while [ $count -lt $MAX_CYCLES ]; do
                           MODEL_ARGS="--model gemini-3-flash-preview"
                           log "⚡ Selected simple task: $TASK_ID (Flash)"
                           break
-                      elif check_model_quota "gemini-3-pro-preview"; then
+                      elif check_model_quota "gemini-3.1-pro-preview"; then
                           TASK_ID="$CID"
-                          MODEL_ARGS="--model gemini-3-pro-preview"
+                          MODEL_ARGS="--model gemini-3.1-pro-preview"
                           log "⚡ Selected simple task: $TASK_ID (Upgraded to Pro)"
                           break
                       fi
@@ -193,7 +193,7 @@ while [ $count -lt $MAX_CYCLES ]; do
             log "🔍 No ready tasks selected, but $TOTAL_TASKS tasks exist - checking unblocking mode"
             
             # Check Pro quota for unblocking (reasoning required)
-            if ! check_model_quota "gemini-3-pro-preview"; then
+            if ! check_model_quota "gemini-3.1-pro-preview"; then
                  log "💤 Cannot run unblocking - Pro quota exhausted. Sleeping ${SLEEP_DURATION}s..."
                  sleep "$SLEEP_DURATION"
                  continue
@@ -218,7 +218,7 @@ while [ $count -lt $MAX_CYCLES ]; do
             if [ -n "$GEMINI_PANE" ]; then
                 send_to_gemini "clear"
                 sleep 1
-                GEMINI_CMD="cat $DIRECTIVE_FILE | $GEMINI_CMD_BASE $GEMINI_ARGS --model gemini-3-pro-preview"
+                GEMINI_CMD="cat $DIRECTIVE_FILE | $GEMINI_CMD_BASE $GEMINI_ARGS --model gemini-3.1-pro-preview"
                 send_to_gemini "$GEMINI_CMD"
                 
                 log "⏳ Monitoring unblocking agent..."

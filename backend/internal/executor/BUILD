@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "executor",
     srcs = [
+        "beads_integration.go",
         "directive.go",
         "events.go",
         "executor.go",
@@ -20,6 +21,7 @@ go_library(
 go_test(
     name = "executor_test",
     srcs = [
+        "beads_integration_test.go",
         "directive_test.go",
         "events_test.go",
         "monitor_test.go",

@@ -719,6 +719,14 @@ func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *proj
 
 				result := executor.ExecuteTask(execCfg, t.ID, t.Description, agentsContext, cfg.MachinatorDir, logger)
 
+				// Update bead status via bd CLI
+				if result.Error == nil {
+					_ = executor.CloseBeadTask(worktreeDir, t.ID, logger)
+				} else {
+					_ = executor.BlockBeadTask(worktreeDir, t.ID, result.Error.Error(), logger)
+				}
+				_ = executor.SyncBeads(worktreeDir, logger)
+
 				st.CompleteTask(a.ID)
 				if result.Error != nil {
 					logger.Log("assign", fmt.Sprintf("[red]Task %s failed: %v[-]", t.ID, result.Error))
