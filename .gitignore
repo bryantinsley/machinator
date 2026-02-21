@@ -1,5 +1,9 @@
-bazel-*
-.go-cache
-.go-build-cache
-backend/machinator
+*.log
 .DS_Store
+.beads/beads.db
+.beads/interactions.jsonl
+.go-build-cache/
+.go-cache/
+backend/cmd/dummy-gemini/dummy-gemini
+backend/machinator
+bazel-*
