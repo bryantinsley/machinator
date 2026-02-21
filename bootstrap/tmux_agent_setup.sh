@@ -84,9 +84,9 @@ tmux send-keys -t "$SESSION_NAME:0.3" "./bootstrap/orchestrator_with_quota.sh" C
 tmux send-keys -t "$SESSION_NAME:0.1" "clear" C-m
 tmux send-keys -t "$SESSION_NAME:0.1" "watch -n 30 'echo \"═══ RECENT COMMITS ═══\" && git log --oneline --decorate -8'" C-m
 
-# ─── Pane 2: Task Monitor (bottom-center) ───────────────────────────────────
+# ─── Pane 2: Task + Quota Monitor (bottom-center) ───────────────────────────
 tmux send-keys -t "$SESSION_NAME:0.2" "clear" C-m
-tmux send-keys -t "$SESSION_NAME:0.2" "watch -n 30 'echo \"═══ READY ═══\" && bd ready 2>/dev/null | head -8 && echo && echo \"═══ IN PROGRESS ═══\" && bd list --status=in_progress 2>/dev/null | head -5'" C-m
+tmux send-keys -t "$SESSION_NAME:0.2" "watch -n 30 'echo \"═══ QUOTA ═══\" && ./bootstrap/check_quota.sh 2>/dev/null && echo && echo \"═══ READY ═══\" && bd ready 2>/dev/null | head -6 && echo && echo \"═══ IN PROGRESS ═══\" && bd list --status=in_progress 2>/dev/null | head -5'" C-m
 
 # ─── Pane 4: Watchdog (bottom-right) ────────────────────────────────────────
 tmux send-keys -t "$SESSION_NAME:0.4" "clear" C-m
