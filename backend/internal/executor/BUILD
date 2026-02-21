@@ -8,6 +8,7 @@ go_library(
         "executor.go",
         "launch.go",
         "monitor.go",
+        "triage.go",
     ],
     importpath = "github.com/bryantinsley/machinator/backend/internal/executor",
     visibility = ["//backend:__subpackages__"],
@@ -19,6 +20,7 @@ go_test(
         "directive_test.go",
         "events_test.go",
         "monitor_test.go",
+        "triage_test.go",
     ],
     embed = [":executor"],
     data = [
