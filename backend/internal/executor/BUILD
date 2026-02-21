@@ -7,6 +7,7 @@ go_library(
         "events.go",
         "executor.go",
         "launch.go",
+        "monitor.go",
     ],
     importpath = "github.com/bryantinsley/machinator/backend/internal/executor",
     visibility = ["//backend:__subpackages__"],
@@ -17,6 +18,7 @@ go_test(
     srcs = [
         "directive_test.go",
         "events_test.go",
+        "monitor_test.go",
     ],
     embed = [":executor"],
     data = [
