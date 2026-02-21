@@ -150,51 +150,6 @@ func (t *TUI) buildLeftContent() string {
 		content += "[gray]No quota data[-]\n"
 	}
 
-	// Agents section - state has its own synchronization
-	content += "\n[white]Agents[-]\n"
-	content += underline(6) + "\n"
-
-	// Build task lookup for titles
-	taskTitles := make(map[string]string)
-	for _, task := range cachedTasks {
-		taskTitles[task.ID] = task.Title
-	}
-
-	if t.state != nil {
-		for _, agent := range t.state.Agents {
-			stateColor := "green"
-			if agent.State == "assigned" {
-				stateColor = "blue"
-			} else if agent.State == "pending" {
-				stateColor = "yellow"
-			}
-			// Show elapsed time next to state if assigned
-			elapsed := ""
-			if agent.State == "assigned" && !agent.StartedAt.IsZero() {
-				elapsed = fmt.Sprintf(" %s", time.Since(agent.StartedAt).Round(time.Second))
-			}
-			content += fmt.Sprintf("[white]%d:[-] [%s]%s[-]%s\n", agent.ID, stateColor, agent.State, elapsed)
-			if agent.TaskID != "" {
-				// Show short ID (part after last hyphen) and truncated title
-				shortID := agent.TaskID
-				if idx := strings.LastIndex(agent.TaskID, "-"); idx >= 0 {
-					shortID = agent.TaskID[idx+1:]
-				}
-				title := taskTitles[agent.TaskID]
-				// Truncate based on left panel width
-				// Format: "   shortID: title" = 3 + len(shortID) + 2 + title
-				titleWidth := t.leftWidth - 3 - len(shortID) - 2
-				if titleWidth < 5 {
-					titleWidth = 5
-				}
-				if len(title) > titleWidth {
-					title = title[:titleWidth-1] + "…"
-				}
-				content += fmt.Sprintf("   [gray]%s: %s[-]\n", shortID, title)
-			}
-		}
-	}
-
 	// Beads section - use the cached copy we made
 	content += "\n[cyan]Beads[-]\n"
 	content += underline(5) + "\n"
@@ -235,6 +190,29 @@ func (t *TUI) buildLeftContent() string {
 		}
 		content += fmt.Sprintf("ready:[green]%d[-] assigned:[blue]%d[-]\n", ready, assigned)
 		content += fmt.Sprintf("blocked:[yellow]%d[-] closed:[gray]%d[-]\n", blocked, closed)
+	}
+
+	// Agents summary section
+	content += "\n[cyan]Agents[-]\n"
+	content += underline(6) + "\n"
+	if t.state != nil {
+		assignedCount := 0
+		for _, agent := range t.state.Agents {
+			switch agent.State {
+			case "pending":
+				content += fmt.Sprintf("[gray]◌ Agent %d: setting up...[-]\n", agent.ID)
+			case "ready":
+				content += fmt.Sprintf("[green]● Agent %d: idle[-]\n", agent.ID)
+			case "assigned":
+				assignedCount++
+				elapsed := ""
+				if !agent.StartedAt.IsZero() {
+					elapsed = fmt.Sprintf(" %s", time.Since(agent.StartedAt).Round(time.Second))
+				}
+				content += fmt.Sprintf("[yellow]▶ Agent %d: %s[-]%s\n", agent.ID, agent.TaskID, elapsed)
+			}
+		}
+		content += fmt.Sprintf("%d/%d agents active\n", assignedCount, len(t.state.Agents))
 	}
 
 	// Recent commits section
