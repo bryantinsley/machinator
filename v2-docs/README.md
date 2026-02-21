@@ -30,24 +30,40 @@ The original motivation was pragmatic: while building [FilmSchool.app](https://f
 
 The result: **an orchestrator built by AI agents, orchestrated by a simpler version of itself, standing on the shoulders of Gas Town and Beads.**
 
+## Project Status
+
+Machinator is under active development. Current build and test status:
+
+- **Build:** `bazel build //backend/...`
+- **Test:** `bazel test //backend/...`
+
+### Package Overview
+
+- `backend/internal/beads`: High-level interaction with the Beads task tracking system.
+- `backend/internal/config`: Global configuration management for the Machinator orchestrator.
+- `backend/internal/executor`: Logic for launching, monitoring, and triaging agent task execution.
+- `backend/internal/project`: Management of project metadata and task context generation.
+- `backend/internal/quota`: Monitoring and enforcement of Gemini API usage limits.
+- `backend/internal/setup`: Initialization of the Machinator environment and project state.
+- `backend/internal/state`: Persistent tracking of orchestration progress and agent status.
+- `backend/internal/tui`: Interactive terminal user interface for monitoring and control.
+
 ## Quick Start
 
 ```bash
 # First-time setup (dev environment + git hooks)
 ./scripts/dev_setup.sh
 
-# Build and run with Bazel (Recommended)
-bazel run //:machinator
+# Build the orchestrator
+bazel build //backend/cmd/machinator:machinator
 
-# Alternatively, build and run with Go
-# Ensure you set up the local Go cache first (see AGENTS.md)
-go build -o machinator ./orchestrator/cmd/machinator
-./machinator
+# Run the orchestrator on a specific project
+./bazel-bin/backend/cmd/machinator/machinator_ run --project 1
 ```
 
 ## Architecture
 
-Machinator uses a fetch-execute-loop to maintain continuous operation.
+Machinator uses a fetch-execute-loop to maintain continuous operation. The core execution logic is encapsulated in the `executor` package, which handles agent lifecycles, event streaming, and task triage.
 
 For a detailed breakdown of the system design, see [How It Works](docs/concepts/how-it-works.md).
 
@@ -61,7 +77,8 @@ graph TD
     D -->|includes| F[AGENTS.md context]
     D -->|includes| G[Task details]
 
-    D -->|launches| H[Gemini CLI]
+    D -->|executes via| EX[Executor Package]
+    EX -->|launches| H[Gemini CLI]
     H -->|stream-json| I[ACP Events]
     I -->|displays| A
 
@@ -73,6 +90,12 @@ graph TD
 ```
 
 ## TUI Interface
+
+The interactive TUI provides several views for real-time monitoring and control:
+
+- **Activity:** Real-time stream of agent thoughts and tool calls.
+- **Agent Status:** Detailed breakdown of each agent's current task and progress.
+- **Execution Log:** Historical record of completed tasks and their outcomes.
 
 ```
 ╭─────────────────────────────────────────────────────────────────────╮
@@ -130,13 +153,13 @@ Editing project details and managing agent counts.
 
 Edit `templates/directive_template.txt` to customize agent behavior. The template uses Go text/template syntax with these variables:
 
-| Variable              | Description                        |
-| --------------------- | ---------------------------------- |
-| `{{.AgentName}}`      | Agent identifier                   |
-| `{{.TaskID}}`         | Current task ID                    |
+| Variable               | Description                        |
+| ---------------------- | ---------------------------------- |
+| `{{.AgentName}}`       | Agent identifier                   |
+| `{{.TaskID}}`          | Current task ID                    |
 | `{{.BranchProtection}}`| PR workflow enforcement status      |
-| `{{.TaskContext}}`    | Output of `bd show <task-id>`      |
-| `{{.ProjectContext}}` | First 100 lines of AGENTS.md       |
+| `{{.TaskContext}}`     | Output of `bd show <task-id>`      |
+| `{{.ProjectContext}}`  | First 100 lines of AGENTS.md       |
 
 ## Development
 
@@ -156,45 +179,37 @@ cd machinator
 ./scripts/dev_setup.sh
 
 # Build (Bazel)
-bazel build :machinator
-
-# Build (Go)
-go build -o machinator ./orchestrator/cmd/machinator
+bazel build //backend/cmd/machinator:machinator
 
 # Run (Bazel)
-bazel run :machinator
-
-# Run (Go)
-./machinator
+./bazel-bin/backend/cmd/machinator/machinator_ run --project 1
 
 # Run in debug mode
-bazel run :machinator -- --debug
-# or
-./machinator --debug
+./bazel-bin/backend/cmd/machinator/machinator_ run --project 1 --debug
 ```
 
 ### Testing
 
 ```bash
 # Run all tests with Bazel
-bazel test //...
-
-# Run all tests with Go
-# Ensure local Go cache is configured!
-go test ./...
+bazel test //backend/...
 ```
 
 ### Project Structure
 
 ```
 .
-├── orchestrator/                # Go source code
+├── backend/                     # Go source code
 │   ├── cmd/machinator/          # Main entry point (main.go)
-│   └── pkg/                     # Core logic
-│       ├── orchestrator/        # TUI and orchestration loop
-│       ├── ui/                  # TUI components and styles
-│       ├── accountpool/         # Multi-account quota management
-│       └── setup/               # Project initialization
+│   └── internal/                # Core logic
+│       ├── beads/               # Beads integration
+│       ├── config/              # Configuration management
+│       ├── executor/            # Execution logic
+│       ├── project/             # Project management
+│       ├── quota/               # Quota management
+│       ├── setup/               # Environment setup
+│       ├── state/               # State tracking
+│       └── tui/                 # TUI components
 ├── templates/                   # Agent directive templates
 │   ├── directive_template.txt   # Main agent instructions
 │   ├── unblocking_directive.txt # Unblocking mode template
