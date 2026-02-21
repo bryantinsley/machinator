@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "tui",
@@ -27,5 +27,19 @@ go_library(
         "@com_github_go_git_go_git_v5//:go-git",
         "@com_github_go_git_go_git_v5//plumbing/object",
         "@com_github_rivo_tview//:tview",
+    ],
+)
+
+go_test(
+    name = "tui_test",
+    srcs = ["tui_test.go"],
+    embed = [":tui"],
+    data = glob(["testdata/**"]),
+    deps = [
+        "//backend/internal/beads",
+        "//backend/internal/config",
+        "//backend/internal/project",
+        "//backend/internal/quota",
+        "//backend/internal/state",
     ],
 )
