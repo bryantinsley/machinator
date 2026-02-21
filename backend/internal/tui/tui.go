@@ -44,6 +44,7 @@ type TUI struct {
 	logs          []LogEntry
 	logMu         sync.Mutex
 	logFilter     string // "assign", "beads", "beads:task-id", "git", "git:hash", "config"
+	prevLogFilter string // Previous filter to toggle back from help
 	selectedIdx   int    // Current selection index in list views
 	beadsListType int    // 0=ready, 1=blocked, 2=assigned, 3=closed
 	confirmQuit   bool
@@ -222,6 +223,14 @@ func (t *TUI) handleInput(event *tcell.EventKey) *tcell.EventKey {
 		t.handleEnter()
 		return nil
 	case tcell.KeyEscape:
+		if t.logFilter == "help" {
+			t.logFilter = t.prevLogFilter
+			if t.logFilter == "" {
+				t.logFilter = "assign"
+			}
+			t.rightFlex.SetTitle(t.getFilterTitle(t.logFilter))
+			return nil
+		}
 		t.handleEscape()
 		return nil
 	case tcell.KeyTab:
@@ -230,6 +239,21 @@ func (t *TUI) handleInput(event *tcell.EventKey) *tcell.EventKey {
 	}
 
 	switch event.Rune() {
+	case '?':
+		if t.logFilter == "help" {
+			t.logFilter = t.prevLogFilter
+			if t.logFilter == "" {
+				t.logFilter = "assign"
+			}
+		} else {
+			t.prevLogFilter = t.logFilter
+			t.logFilter = "help"
+		}
+		t.rightFlex.SetTitle(t.getFilterTitle(t.logFilter))
+		return nil
+	case 'r', 'R':
+		go t.doRefresh()
+		return nil
 	case 'q', 'Q', 'x', 'X':
 		t.confirmQuit = true
 		t.updateHelpBar()
@@ -244,60 +268,83 @@ func (t *TUI) handleInput(event *tcell.EventKey) *tcell.EventKey {
 	case 'a', 'A':
 		t.logFilter = "assign"
 		t.selectedIdx = 0
-		t.rightFlex.SetTitle(" (A)ssignment Log ")
+		t.rightFlex.SetTitle(t.getFilterTitle(t.logFilter))
 	case 'b', 'B':
 		t.logFilter = "beads"
 		t.selectedIdx = 0
-		t.rightFlex.SetTitle(" Beads! ")
+		t.rightFlex.SetTitle(t.getFilterTitle(t.logFilter))
 	case 'g', 'G':
 		t.logFilter = "git"
 		t.selectedIdx = 0
-		t.rightFlex.SetTitle(" (G)it Commits ")
+		t.rightFlex.SetTitle(t.getFilterTitle(t.logFilter))
 	case 'c', 'C':
 		t.logFilter = "config"
 		t.selectedIdx = 0
-		t.rightFlex.SetTitle(" (C)onfig ")
+		t.rightFlex.SetTitle(t.getFilterTitle(t.logFilter))
 	case 'e', 'E':
 		t.logFilter = "executions"
 		t.selectedIdx = 0
-		t.rightFlex.SetTitle(" (E)xecution Logs ")
+		t.rightFlex.SetTitle(t.getFilterTitle(t.logFilter))
 	case '+', '=':
 		go t.state.AddAgent()
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		agentNum := int(event.Rune() - '0')
 		t.logFilter = fmt.Sprintf("agent-%d", agentNum)
 		t.selectedIdx = 0
-		t.rightFlex.SetTitle(fmt.Sprintf(" [%d] Agent %d Log ", agentNum, agentNum))
+		t.rightFlex.SetTitle(t.getFilterTitle(t.logFilter))
 	}
 	return event
 }
 
+// getFilterTitle returns the title for a given log filter
+func (t *TUI) getFilterTitle(filter string) string {
+	switch {
+	case filter == "assign":
+		return " (A)ssignment Log "
+	case filter == "activity":
+		return " (A)gent Activity "
+	case filter == "beads":
+		return " Beads! "
+	case filter == "git":
+		return " (G)it Commits "
+	case filter == "config":
+		return " (C)onfig "
+	case filter == "executions":
+		return " (E)xecution Logs "
+	case filter == "help":
+		return " Keyboard Shortcuts (?) "
+	case strings.HasPrefix(filter, "agent-"):
+		agentNum := strings.TrimPrefix(filter, "agent-")
+		return fmt.Sprintf(" [%s] Agent %s Log ", agentNum, agentNum)
+	default:
+		return " Machinator "
+	}
+}
+
 // cycleRightView cycles between main right-panel views.
 func (t *TUI) cycleRightView() {
-	views := []struct {
-		filter string
-		title  string
-	}{
-		{"assign", " (A)ssignment Log "},
-		{"activity", " (A)gent Activity "},
-		{"beads", " Beads! "},
-		{"git", " (G)it Commits "},
-		{"config", " (C)onfig "},
-		{"executions", " (E)xecution Logs "},
+	views := []string{
+		"assign",
+		"activity",
+		"beads",
+		"git",
+		"config",
+		"executions",
+		"help",
 	}
 
 	currentIdx := -1
 	for i, v := range views {
-		if t.logFilter == v.filter {
+		if t.logFilter == v {
 			currentIdx = i
 			break
 		}
 	}
 
 	nextIdx := (currentIdx + 1) % len(views)
-	t.logFilter = views[nextIdx].filter
+	t.logFilter = views[nextIdx]
 	t.selectedIdx = 0
-	t.rightFlex.SetTitle(views[nextIdx].title)
+	t.rightFlex.SetTitle(t.getFilterTitle(t.logFilter))
 }
 
 // handleEnter processes Enter key for list selection
@@ -336,9 +383,9 @@ func (t *TUI) updateHelpBar() {
 	if t.confirmQuit {
 		text = "[red]Quit? (y/n)[-]"
 	} else if t.state.AssignmentPaused {
-		text = "(A)ssign (B)eads (G)it (C)onfig  (+)Add (S)tart (Q)uit"
+		text = "(A)ssign (B)eads (G)it (C)onfig  (+)Add (S)tart (Q)uit (?)Help"
 	} else {
-		text = "(A)ssign (B)eads (G)it (C)onfig  (+)Add (P)ause (Q)uit"
+		text = "(A)ssign (B)eads (G)it (C)onfig  (+)Add (P)ause (Q)uit (?)Help"
 	}
 	t.helpBar.SetText(text)
 }
@@ -507,6 +554,8 @@ func (t *TUI) getRightHeader() string {
 		return "[yellow]Execution Logs[-]"
 	case t.logFilter == "config":
 		return "[yellow]Configuration[-]"
+	case t.logFilter == "help":
+		return "[yellow]Keyboard Shortcuts[-]"
 	case t.logFilter == "activity":
 		return "[yellow]Agent Activity[-]"
 	case strings.HasPrefix(t.logFilter, "agent-"):
@@ -518,6 +567,8 @@ func (t *TUI) getRightHeader() string {
 
 func (t *TUI) buildRightContent() string {
 	switch {
+	case t.logFilter == "help":
+		return t.buildHelpContent()
 	case strings.HasPrefix(t.logFilter, "beads"):
 		return t.buildBeadsView()
 	case strings.HasPrefix(t.logFilter, "git"):

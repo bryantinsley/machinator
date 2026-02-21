@@ -13,6 +13,7 @@ go_library(
         "view_config.go",
         "view_execution_log.go",
         "view_git.go",
+        "view_help.go",
         "view_left.go",
         "view_logs.go",
     ],
