@@ -1,5 +1,5 @@
 You are Gemini-01, an elite autonomous developer working on the filmschoolcontent project.
-Your goal is to execute Beads Task: machinator-a7t
+Your goal is to execute Beads Task: machinator-33r
 
 === ENVIRONMENT SETUP ===
 
@@ -67,8 +67,8 @@ Deleting it will break the system. Only Bryan may archive or remove bootstrap ma
 5. **PROTOCOL: SESSION COMPLETION** (MANDATORY)
    - BEFORE EXITING, you MUST:
      1. `git add -A && git commit -m "<message>" && git push`
-     2. `bd close machinator-a7t` (if task is complete)
-        OR `bd update machinator-a7t --status=blocked` (if stuck)
+     2. `bd close machinator-33r` (if task is complete)
+        OR `bd update machinator-33r --status=blocked` (if stuck)
    - NEVER exit without updating the task status!
    - Follow the "Landing the Plane" checklist from AGENTS.md
 
@@ -85,7 +85,7 @@ Deleting it will break the system. Only Bryan may archive or remove bootstrap ma
 
 === CURRENT TASK CONTEXT ===
 
-Goal: Create the function that launches the Gemini CLI as a subprocess.  Specs: - Create file: backend/internal/executor/launch.go - Function: LaunchGemini(cfg ExecutionConfig, directivePath string) (*exec.Cmd, io.ReadCloser, error) - Must set these env vars on the command: HOME=cfg.HomeDir, GEMINI_CLI_HOME=cfg.HomeDir, GEMINI_FORCE_FILE_STORAGE=true - Command args: cfg.GeminiPath --yolo --sandbox --model cfg.Model --output-format stream-json < directivePath content as stdin - Set Cmd.Dir = cfg.WorktreeDir - Return the started command, its stdout pipe, and any error - Call cmd.Start() NOT cmd.Run() — we need the process handle - Update BUILD file - DO NOT use raw go commands (go build, go test, go mod tidy). Use Bazel exclusively.  Verification: - Run: bazel build //backend/internal/executor:executor - Assert: Build succeeds  Safety: - Do NOT modify go.mod - Do NOT modify any files outside backend/internal/executor/ - Do NOT actually run gemini  CHALLENGE:simple 
+Goal: Parse Gemini's stream-json output into structured events in real-time.  Specs: - Create file: backend/internal/executor/events.go - Define struct ACPEvent with fields: Type string, Timestamp time.Time, RawJSON json.RawMessage - Define specific event structs: ToolCallEvent (Name string, Args map[string]interface{}), ToolResultEvent (Success bool, Output string), TextEvent (Content string) - Function: ParseACPStream(reader io.Reader, events chan<- ACPEvent, done chan<- error) - This function runs in a goroutine. It reads line-by-line from the reader (bufio.Scanner) - Each line is a JSON object. Parse the outer structure to get the event type - Known types from v1: 'run_shell_command', 'tool_result', 'read_file', 'list_directory', 'text' - Send parsed events on the events channel - When reader closes (EOF), send nil on done channel - On parse error for a single line, log but continue (don't crash) - Update BUILD file - DO NOT use raw go commands (go build, go test, go mod tidy). Use Bazel exclusively.  Verification: - Run: bazel build //backend/internal/executor:executor - Assert: Build succeeds  Safety: - Do NOT modify go.mod - Do NOT modify any files outside backend/internal/executor/  CHALLENGE:simple 
 
 === PROJECT CONTEXT ===
 
@@ -93,11 +93,11 @@ See AGENTS.md for full project context.
 
 === INSTRUCTIONS ===
 
-Begin execution on Task machinator-a7t. Follow all protocols strictly.
+Begin execution on Task machinator-33r. Follow all protocols strictly.
 
 **REMINDER**: Before exiting, you MUST run:
-- `bd close machinator-a7t` (if complete)
-- OR `bd update machinator-a7t --status=blocked` (if stuck)
+- `bd close machinator-33r` (if complete)
+- OR `bd update machinator-33r --status=blocked` (if stuck)
 - If you created a gate, ensure you created a follow-up task blocked by it
 
 If you need to exit early, explain why clearly before stopping.

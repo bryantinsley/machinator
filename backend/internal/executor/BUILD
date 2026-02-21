@@ -4,6 +4,7 @@ go_library(
     name = "executor",
     srcs = [
         "directive.go",
+        "events.go",
         "executor.go",
         "launch.go",
     ],
@@ -13,7 +14,10 @@ go_library(
 
 go_test(
     name = "executor_test",
-    srcs = ["directive_test.go"],
+    srcs = [
+        "directive_test.go",
+        "events_test.go",
+    ],
     embed = [":executor"],
     data = [
         "//:AGENTS.md",
