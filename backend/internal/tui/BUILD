@@ -7,6 +7,7 @@ go_library(
         "splash.go",
         "tui.go",
         "utils.go",
+        "view_agent_activity.go",
         "view_beads_detail.go",
         "view_beads_list.go",
         "view_config.go",

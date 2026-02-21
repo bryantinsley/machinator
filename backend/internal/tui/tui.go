@@ -220,6 +220,9 @@ func (t *TUI) handleInput(event *tcell.EventKey) *tcell.EventKey {
 	case tcell.KeyEscape:
 		t.handleEscape()
 		return nil
+	case tcell.KeyTab:
+		t.cycleRightView()
+		return nil
 	}
 
 	switch event.Rune() {
@@ -259,6 +262,33 @@ func (t *TUI) handleInput(event *tcell.EventKey) *tcell.EventKey {
 		t.rightFlex.SetTitle(fmt.Sprintf(" [%d] Agent %d Log ", agentNum, agentNum))
 	}
 	return event
+}
+
+// cycleRightView cycles between main right-panel views.
+func (t *TUI) cycleRightView() {
+	views := []struct {
+		filter string
+		title  string
+	}{
+		{"assign", " (A)ssignment Log "},
+		{"activity", " (A)gent Activity "},
+		{"beads", " Beads! "},
+		{"git", " (G)it Commits "},
+		{"config", " (C)onfig "},
+	}
+
+	currentIdx := -1
+	for i, v := range views {
+		if t.logFilter == v.filter {
+			currentIdx = i
+			break
+		}
+	}
+
+	nextIdx := (currentIdx + 1) % len(views)
+	t.logFilter = views[nextIdx].filter
+	t.selectedIdx = 0
+	t.rightFlex.SetTitle(views[nextIdx].title)
 }
 
 // handleEnter processes Enter key for list selection
@@ -460,6 +490,8 @@ func (t *TUI) getRightHeader() string {
 		return "[yellow]Recent Commits[-]"
 	case t.logFilter == "config":
 		return "[yellow]Configuration[-]"
+	case t.logFilter == "activity":
+		return "[yellow]Agent Activity[-]"
 	case strings.HasPrefix(t.logFilter, "agent-"):
 		return fmt.Sprintf("[yellow]Agent %s Log[-]", strings.TrimPrefix(t.logFilter, "agent-"))
 	default:
@@ -475,6 +507,8 @@ func (t *TUI) buildRightContent() string {
 		return t.buildGitView()
 	case t.logFilter == "config":
 		return t.buildConfigView()
+	case t.logFilter == "activity":
+		return t.buildAgentActivityContent()
 	default:
 		return t.buildLogsView()
 	}
