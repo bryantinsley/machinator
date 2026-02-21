@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +25,15 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
+
+var colorTagRegex = regexp.MustCompile(`\[[a-zA-Z]+\]|\[-\]`)
+
+type headlessLogger struct{}
+
+func (l *headlessLogger) Log(source, message string) {
+	clean := colorTagRegex.ReplaceAllString(message, "")
+	fmt.Fprintf(os.Stderr, "[%s] [%s] %s\n", time.Now().Format("2006-01-02 15:04:05"), source, clean)
+}
 
 func usage() {
 	fmt.Println(`machinator - Autonomous Agent Orchestration System
@@ -380,6 +389,7 @@ func runCmd() {
 	projectID := ""
 	headless := false
 	startUnpaused := false
+	maxTasks := -1
 	for i := 2; i < len(os.Args); i++ {
 		arg := os.Args[i]
 		if strings.HasPrefix(arg, "--project=") {
@@ -388,6 +398,13 @@ func runCmd() {
 			headless = true
 		} else if arg == "--start" {
 			startUnpaused = true
+		} else if arg == "--once" {
+			maxTasks = 1
+		} else if strings.HasPrefix(arg, "--max-tasks=") {
+			n, err := strconv.Atoi(strings.TrimPrefix(arg, "--max-tasks="))
+			if err == nil {
+				maxTasks = n
+			}
 		}
 	}
 
@@ -525,33 +542,36 @@ func runCmd() {
 	}
 
 	// Create file logger (always writes to files)
+	var logger tui.Logger
 	logsDir := filepath.Join(cfg.MachinatorDir, "logs")
-	logger, err := tui.NewFileLogger(logsDir, headless)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating logger: %v\n", err)
-		os.Exit(1)
-	}
-	defer logger.Close()
-
-	// Configure slog to write to file instead of stdout (prevents TUI corruption)
-	slogFile, err := os.OpenFile(filepath.Join(logsDir, "slog.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating slog file: %v\n", err)
-		os.Exit(1)
-	}
-	defer slogFile.Close()
+	
 	if headless {
-		// In headless mode, also write to stderr
-		slog.SetDefault(slog.New(slog.NewTextHandler(io.MultiWriter(slogFile, os.Stderr), nil)))
+		logger = &headlessLogger{}
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	} else {
-		// In TUI mode, only write to file
+		fl, err := tui.NewFileLogger(logsDir, headless)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating logger: %v\n", err)
+			os.Exit(1)
+		}
+		defer fl.Close()
+		logger = fl
+
+		// Configure slog to write to file instead of stdout (prevents TUI corruption)
+		slogFile, err := os.OpenFile(filepath.Join(logsDir, "slog.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating slog file: %v\n", err)
+			os.Exit(1)
+		}
+		defer slogFile.Close()
 		slog.SetDefault(slog.New(slog.NewTextHandler(slogFile, nil)))
 	}
 
 	// Start watchers (quota will be fetched in background)
 	go quotaWatcher(q, cfg, logger)
 	go setupWatcher(st, cfg, projCfg, projectID, logger)
-	go assigner(st, q, cfg, projCfg, repoDir, projectID, logger)
+	completedCh := make(chan struct{}, 100)
+	go assigner(st, q, cfg, projCfg, repoDir, projectID, logger, completedCh)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
@@ -579,9 +599,20 @@ func runCmd() {
 	}()
 
 	if headless {
-		// Headless mode: wait for signal
 		logger.Log("main", "Running in headless mode (Ctrl+C to stop)")
-		select {}
+		tasksCompleted := 0
+		if maxTasks == 0 {
+			logger.Log("main", "max-tasks is 0, exiting immediately.")
+			sigCh <- syscall.SIGTERM
+		}
+		for {
+			<-completedCh
+			tasksCompleted++
+			if maxTasks > 0 && tasksCompleted >= maxTasks {
+				logger.Log("main", fmt.Sprintf("Completed %d task(s), exiting...", tasksCompleted))
+				sigCh <- syscall.SIGTERM
+			}
+		}
 	} else {
 		// TUI mode
 		projectConfigPath := project.ConfigPath(cfg.MachinatorDir, projectID)
@@ -651,7 +682,7 @@ func setupWatcher(st *state.State, cfg *config.Config, projCfg *project.Config, 
 	}
 }
 
-func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *project.Config, repoDir string, projectID string, logger tui.Logger) {
+func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *project.Config, repoDir string, projectID string, logger tui.Logger, completedCh chan<- struct{}) {
 	taskFailures := make(map[string]int)
 	var tfMutex sync.Mutex
 
@@ -743,6 +774,7 @@ func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *proj
 
 				// Update bead status via bd CLI
 				if result.Error == nil {
+					logger.Log("assign", fmt.Sprintf("[green]Task %s completed successfully[-]", t.ID))
 					_ = executor.CloseBeadTask(worktreeDir, t.ID, logger)
 				} else {
 					_ = executor.BlockBeadTask(worktreeDir, t.ID, result.Error.Error(), logger)
@@ -752,7 +784,7 @@ func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *proj
 				st.CompleteTask(a.ID)
 				if result.Error != nil {
 					logger.Log("assign", fmt.Sprintf("[red]Task %s failed: %v[-]", t.ID, result.Error))
-					
+
 					tfMutex.Lock()
 					taskFailures[t.ID]++
 					if taskFailures[t.ID] >= 2 {
@@ -761,8 +793,11 @@ func assigner(st *state.State, q *quota.Quota, cfg *config.Config, projCfg *proj
 					}
 					tfMutex.Unlock()
 				}
-			}(agent, task, model)
 
+				if completedCh != nil {
+					completedCh <- struct{}{}
+				}
+				}(agent, task, model)
 			// Remove task from ready list (for this iteration)
 			readyTasks = removeTask(readyTasks, task.ID)
 		}

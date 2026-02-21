@@ -1,5 +1,5 @@
 You are Gemini-01, an elite autonomous developer working on the filmschoolcontent project.
-Your goal is to execute Beads Task: machinator-y5x
+Your goal is to execute Beads Task: machinator-9xi
 
 === ENVIRONMENT SETUP ===
 
@@ -78,8 +78,8 @@ Deleting it will break the system. Only Bryan may archive or remove bootstrap ma
 5. **PROTOCOL: SESSION COMPLETION** (MANDATORY)
    - BEFORE EXITING, you MUST:
      1. `git add -A && git commit -m "<message>" && git push`
-     2. `bd close machinator-y5x` (if task is complete)
-        OR `bd update machinator-y5x --status=blocked` (if stuck)
+     2. `bd close machinator-9xi` (if task is complete)
+        OR `bd update machinator-9xi --status=blocked` (if stuck)
    - NEVER exit without updating the task status!
    - Follow the "Landing the Plane" checklist from AGENTS.md
 
@@ -96,7 +96,7 @@ Deleting it will break the system. Only Bryan may archive or remove bootstrap ma
 
 === CURRENT TASK CONTEXT ===
 
-Goal: After each execution, save a structured result.json to the execution log directory.  Specs: - Modify file: backend/internal/executor/run.go - At the end of ExecuteTask, after triage, write a result.json to the log dir containing:   - taskID, agentID, model   - startTime, endTime, duration (seconds)   - exitCode   - error (string, empty if nil)   - triageAction (clean/committed/minor_discard/salvage)   - commitsCreated   - executionID - Use json.MarshalIndent for readable output - Update BUILD file if needed - DO NOT use raw go commands. Use Bazel exclusively.  Verification: - Run: bazel build //backend/internal/executor:executor - Assert: Build succeeds  Safety: - ONLY modify backend/internal/executor/run.go and BUILD - Do NOT modify go.mod  CHALLENGE:simple 
+Goal: Make the machinator binary's run command work properly in --headless mode by printing structured log output.  Specs: - Modify file: backend/cmd/machinator/main.go - When --headless is passed:   - Skip TUI initialization entirely   - Print structured logs to stderr with timestamps   - Still run the assigner, quotaWatcher, and setupWatcher goroutines   - Print task assignments and completions as they happen   - Exit gracefully on SIGINT/SIGTERM - Add a --max-tasks flag: exit after completing N tasks (useful for CI) - Add a --once flag: process one task and exit (useful for testing) - DO NOT use raw go commands. Use Bazel exclusively.  Verification: - Run: bazel build //backend/cmd/machinator:machinator - Assert: Build succeeds  Safety: - ONLY modify backend/cmd/machinator/main.go and BUILD.bazel - Do NOT modify go.mod - Do NOT run machinator  CHALLENGE:complex 
 
 === PROJECT CONTEXT ===
 
@@ -104,11 +104,11 @@ See AGENTS.md for full project context.
 
 === INSTRUCTIONS ===
 
-Begin execution on Task machinator-y5x. Follow all protocols strictly.
+Begin execution on Task machinator-9xi. Follow all protocols strictly.
 
 **REMINDER**: Before exiting, you MUST run:
-- `bd close machinator-y5x` (if complete)
-- OR `bd update machinator-y5x --status=blocked` (if stuck)
+- `bd close machinator-9xi` (if complete)
+- OR `bd update machinator-9xi --status=blocked` (if stuck)
 - If you created a gate, ensure you created a follow-up task blocked by it
 
 If you need to exit early, explain why clearly before stopping.
