@@ -1,3 +1,5 @@
 bazel-*
 .go-cache
 .go-build-cache
+backend/machinator
+.DS_Store
