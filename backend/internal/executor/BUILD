@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "directive.go",
         "executor.go",
+        "launch.go",
     ],
     importpath = "github.com/bryantinsley/machinator/backend/internal/executor",
     visibility = ["//backend:__subpackages__"],
