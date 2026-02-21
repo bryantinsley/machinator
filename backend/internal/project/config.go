@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/bryantinsley/machinator/backend/internal/config"
 )
@@ -15,6 +16,10 @@ type Config struct {
 	Branch           string `json:"branch"`
 	SimpleModelName  string `json:"simple_model_name"`
 	ComplexModelName string `json:"complex_model_name"`
+	IdleTimeout      string `json:"idle_timeout"`
+	MaxRuntime       string `json:"max_runtime"`
+	AgentCount       int    `json:"agent_count"`
+	WorktreeStrategy string `json:"worktree_strategy"`
 }
 
 // Load loads project config from disk.
@@ -37,6 +42,10 @@ func Load(machinatorDir string, projectID string) (*Config, error) {
 		Branch:           "main",
 		SimpleModelName:  "gemini-3-flash-preview",
 		ComplexModelName: "gemini-3-pro-preview",
+		IdleTimeout:      "5m",
+		MaxRuntime:       "30m",
+		AgentCount:       1,
+		WorktreeStrategy: "per-task",
 	}
 
 	if err := json.Unmarshal(data, cfg); err != nil {
@@ -85,6 +94,19 @@ func ConfigPath(machinatorDir, projectID string) string {
 	return filepath.Join(machinatorDir, "projects", projectID, "config.json")
 }
 
+// ParseDurations parses the duration strings.
+func (c *Config) ParseDurations() (time.Duration, time.Duration, error) {
+	idle, err := time.ParseDuration(c.IdleTimeout)
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse idle_timeout: %w", err)
+	}
+	max, err := time.ParseDuration(c.MaxRuntime)
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse max_runtime: %w", err)
+	}
+	return idle, max, nil
+}
+
 // Template returns a documented config template.
 func Template() string {
 	return `{
@@ -101,7 +123,20 @@ func Template() string {
 
   // Model for complex tasks (CHALLENGE:complex)
   // Example: "gemini-3-pro-preview", "gemini-2.5-pro"  
-  "complex_model_name": "gemini-3-pro-preview"
+  "complex_model_name": "gemini-3-pro-preview",
+
+  // How long to wait for new tasks before shutting down an agent (default: "5m")
+  "idle_timeout": "5m",
+
+  // Maximum time an agent can run a single task (default: "30m")
+  "max_runtime": "30m",
+
+  // Number of concurrent agents to run (default: 1)
+  "agent_count": 1,
+
+  // Strategy for managing worktrees: "per-task" (new worktree for each task)
+  // or "persistent" (reuse the same worktree) (default: "per-task")
+  "worktree_strategy": "per-task"
 }
 `
 }

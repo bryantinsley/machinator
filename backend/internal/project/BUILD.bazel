@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "project",
@@ -6,4 +6,10 @@ go_library(
     importpath = "github.com/bryantinsley/machinator/backend/internal/project",
     visibility = ["//backend:__subpackages__"],
     deps = ["//backend/internal/config"],
+)
+
+go_test(
+    name = "project_test",
+    srcs = ["config_test.go"],
+    embed = [":project"],
 )
