@@ -7,3 +7,4 @@
 backend/cmd/dummy-gemini/dummy-gemini
 backend/machinator
 bazel-*
+.bazel-user-root/.bazel-user-root/
