@@ -1,58 +1,132 @@
 package executor
 
 import (
-	"bytes"
+	"strings"
 	"testing"
 	"time"
 )
 
-func TestParseACPStream(t *testing.T) {
-	input := `{"type": "text", "timestamp": "2023-01-01T00:00:00Z"}
-{"type": "run_shell_command", "timestamp": "2023-01-01T00:00:01Z"}
-invalid json
-{"type": "tool_result", "timestamp": "2023-01-01T00:00:02Z"}
-`
-	reader := bytes.NewReader([]byte(input))
+func TestParseACPStream_EmptyInput(t *testing.T) {
+	reader := strings.NewReader("")
 	events := make(chan ACPEvent, 10)
 	done := make(chan error, 1)
 
 	go ParseACPStream(reader, events, done)
 
-	var received []ACPEvent
-Loop:
-	for {
+	select {
+	case event := <-events:
+		t.Errorf("expected no events, got %v", event)
+	case err := <-done:
+		if err != nil {
+			t.Errorf("expected nil error, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Error("timeout")
+	}
+}
+
+func TestParseACPStream_SingleToolCall(t *testing.T) {
+	input := `{"type": "run_shell_command", "timestamp": "2023-01-01T00:00:00Z"}`
+	reader := strings.NewReader(input)
+	events := make(chan ACPEvent, 10)
+	done := make(chan error, 1)
+
+	go ParseACPStream(reader, events, done)
+
+	select {
+	case event := <-events:
+		if event.Type != "run_shell_command" {
+			t.Errorf("expected type run_shell_command, got %s", event.Type)
+		}
+	case <-time.After(time.Second):
+		t.Error("timeout")
+	}
+
+	if err := <-done; err != nil {
+		t.Errorf("expected nil error, got %v", err)
+	}
+}
+
+func TestParseACPStream_MalformedLine(t *testing.T) {
+	input := "invalid json\n{\"type\": \"text\", \"timestamp\": \"2023-01-01T00:00:00Z\"}"
+	reader := strings.NewReader(input)
+	events := make(chan ACPEvent, 10)
+	done := make(chan error, 1)
+
+	go ParseACPStream(reader, events, done)
+
+	select {
+	case event := <-events:
+		if event.Type != "text" {
+			t.Errorf("expected type text, got %s", event.Type)
+		}
+	case <-time.After(time.Second):
+		t.Error("timeout")
+	}
+
+	if err := <-done; err != nil {
+		t.Errorf("expected nil error, got %v", err)
+	}
+}
+
+func TestParseACPStream_MultipleEvents(t *testing.T) {
+	input := `{"type": "text"}
+{"type": "run_shell_command"}
+{"type": "tool_result"}
+{"type": "text"}
+{"type": "run_shell_command"}`
+	reader := strings.NewReader(input)
+	events := make(chan ACPEvent, 10)
+	done := make(chan error, 1)
+
+	go ParseACPStream(reader, events, done)
+
+	count := 0
+	expectedTypes := []string{"text", "run_shell_command", "tool_result", "text", "run_shell_command"}
+
+	for i := 0; i < 5; i++ {
 		select {
 		case event := <-events:
-			received = append(received, event)
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("ParseACPStream failed with error: %v", err)
+			if event.Type != expectedTypes[i] {
+				t.Errorf("event %d: expected type %s, got %s", i, expectedTypes[i], event.Type)
 			}
-			// Drain any remaining events in the buffered channel
-			for {
-				select {
-				case event := <-events:
-					received = append(received, event)
-				default:
-					break Loop
-				}
-			}
-		case <-time.After(2 * time.Second):
-			t.Fatal("Timeout waiting for ParseACPStream to complete")
+			count++
+		case <-time.After(time.Second):
+			t.Errorf("timeout waiting for event %d", i)
 		}
 	}
 
-	if len(received) != 3 {
-		t.Errorf("Expected 3 events, got %d", len(received))
+	if count != 5 {
+		t.Errorf("expected 5 events, got %d", count)
 	}
 
-	expectedTypes := []string{"text", "run_shell_command", "tool_result"}
-	for i, event := range received {
-		if event.Type != expectedTypes[i] {
-			t.Errorf("Event %d: expected type %s, got %s", i, expectedTypes[i], event.Type)
+	if err := <-done; err != nil {
+		t.Errorf("expected nil error, got %v", err)
+	}
+}
+
+func TestParseACPStream_TextEvent(t *testing.T) {
+	input := `{"type": "text", "timestamp": "2023-01-01T00:00:00Z", "content": "hello"}`
+	reader := strings.NewReader(input)
+	events := make(chan ACPEvent, 10)
+	done := make(chan error, 1)
+
+	go ParseACPStream(reader, events, done)
+
+	select {
+	case event := <-events:
+		if event.Type != "text" {
+			t.Errorf("expected type text, got %s", event.Type)
 		}
+		// Since ParseACPStream only populates ACPEvent, we check the RawJSON if we wanted specific details.
 		if len(event.RawJSON) == 0 {
-			t.Errorf("Event %d: RawJSON is empty", i)
+			t.Error("expected RawJSON to be populated")
 		}
+	case <-time.After(time.Second):
+		t.Error("timeout")
+	}
+
+	if err := <-done; err != nil {
+		t.Errorf("expected nil error, got %v", err)
 	}
 }
