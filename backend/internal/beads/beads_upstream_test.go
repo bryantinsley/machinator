@@ -156,6 +156,9 @@ func getLocalTaskFields() map[string]bool {
 		"Status":    true,
 		"Priority":  true,
 		"IssueType": true,
+		"WispType":  true,
+		"SpecID":    true,
+		"Metadata":  true,
 		// Assignment
 		"Assignee":         true,
 		"Owner":            true,

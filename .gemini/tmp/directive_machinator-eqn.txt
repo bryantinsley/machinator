@@ -1,5 +1,5 @@
 You are Gemini-01, an elite autonomous developer working on the filmschoolcontent project.
-Your goal is to execute Beads Task: machinator-an4
+Your goal is to execute Beads Task: machinator-eqn
 
 === ENVIRONMENT SETUP ===
 
@@ -78,8 +78,8 @@ Deleting it will break the system. Only Bryan may archive or remove bootstrap ma
 5. **PROTOCOL: SESSION COMPLETION** (MANDATORY)
    - BEFORE EXITING, you MUST:
      1. `git add -A && git commit -m "<message>" && git push`
-     2. `bd close machinator-an4` (if task is complete)
-        OR `bd update machinator-an4 --status=blocked` (if stuck)
+     2. `bd close machinator-eqn` (if task is complete)
+        OR `bd update machinator-eqn --status=blocked` (if stuck)
    - NEVER exit without updating the task status!
    - Follow the "Landing the Plane" checklist from AGENTS.md
 
@@ -96,7 +96,7 @@ Deleting it will break the system. Only Bryan may archive or remove bootstrap ma
 
 === CURRENT TASK CONTEXT ===
 
-Goal: After ExecuteTask completes, automatically update the bead status via bd CLI.  Specs: - Create file: backend/internal/executor/beads_integration.go - Function: CloseBeadTask(worktreeDir string, taskID string, logger Logger) error   - Runs: bd close {taskID} --reason 'Completed by agent' in the worktree dir   - Logs the result - Function: BlockBeadTask(worktreeDir string, taskID string, reason string, logger Logger) error   - Runs: bd update {taskID} --status=blocked in the worktree dir   - Logs the result - Function: SyncBeads(worktreeDir string, logger Logger) error   - Runs: bd sync in the worktree dir   - Logs the result - Update BUILD file - DO NOT use raw go commands. Use Bazel exclusively.  Verification: - Run: bazel build //backend/internal/executor:executor - Assert: Build succeeds  Safety: - Do NOT modify go.mod - Do NOT modify existing executor files - Do NOT run bd commands during build  CHALLENGE:simple 
+Goal: Fix the failing beads_upstream_test so bazel test //backend/... passes clean.  Specs: - Run: bazel test //backend/internal/beads:beads_upstream_test --test_output=all - Read the test output to understand what's failing - Fix the test or the code so it passes - Common issues: path assumptions, missing test fixtures, upstream API changes - If the test is testing against an external beads binary (bd), it may need to be tagged as integration or skipped when bd is unavailable - DO NOT use raw go commands. Use Bazel exclusively.  Verification: - Run: bazel test //backend/internal/beads:beads_upstream_test - Assert: Test passes (exit code 0) - Run: bazel test //backend/... - Assert: ALL tests pass  Safety: - Only modify files in backend/internal/beads/ - Do NOT modify go.mod - Do NOT delete test files — fix them  CHALLENGE:complex 
 
 === PROJECT CONTEXT ===
 
@@ -104,11 +104,11 @@ See AGENTS.md for full project context.
 
 === INSTRUCTIONS ===
 
-Begin execution on Task machinator-an4. Follow all protocols strictly.
+Begin execution on Task machinator-eqn. Follow all protocols strictly.
 
 **REMINDER**: Before exiting, you MUST run:
-- `bd close machinator-an4` (if complete)
-- OR `bd update machinator-an4 --status=blocked` (if stuck)
+- `bd close machinator-eqn` (if complete)
+- OR `bd update machinator-eqn --status=blocked` (if stuck)
 - If you created a gate, ensure you created a follow-up task blocked by it
 
 If you need to exit early, explain why clearly before stopping.

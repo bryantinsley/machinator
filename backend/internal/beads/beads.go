@@ -50,6 +50,9 @@ type Task struct {
 	Status    string `json:"status,omitempty"`
 	Priority  int    `json:"priority"`
 	IssueType string `json:"issue_type,omitempty"`
+	WispType  string `json:"wisp_type,omitempty"`
+	SpecID    string `json:"spec_id,omitempty"`
+	Metadata  json.RawMessage `json:"metadata,omitempty"`
 
 	// Assignment
 	Assignee         string `json:"assignee,omitempty"`
