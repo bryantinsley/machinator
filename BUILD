@@ -3,6 +3,8 @@ load("@gazelle//:def.bzl", "gazelle")
 # gazelle:prefix github.com/bryantinsley/machinator
 gazelle(name = "gazelle")
 
+exports_files(["AGENTS.md"])
+
 gazelle(
     name = "gazelle-update-repos",
     args = [

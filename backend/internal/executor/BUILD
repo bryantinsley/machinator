@@ -1,8 +1,21 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "executor",
-    srcs = ["executor.go"],
+    srcs = [
+        "directive.go",
+        "executor.go",
+    ],
     importpath = "github.com/bryantinsley/machinator/backend/internal/executor",
     visibility = ["//backend:__subpackages__"],
+)
+
+go_test(
+    name = "executor_test",
+    srcs = ["directive_test.go"],
+    embed = [":executor"],
+    data = [
+        "//:AGENTS.md",
+        "//bootstrap:directive_template.txt",
+    ],
 )
