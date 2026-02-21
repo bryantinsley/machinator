@@ -15,6 +15,14 @@ User-wide configuration and resources, shared across all projects.
 ├── settings.json           # Global settings (default model, preferences)
 ├── gemini                   # Managed Gemini CLI binary
 │
+├── logs/                    # Global execution logs
+│   └── executions/          # Archived logs by execution ID
+│       └── {execID}/        # Specific execution artifacts
+│           ├── orchestrator.log/
+│           ├── gemini.log/
+│           ├── events.jsonl/
+│           └── directive.md/
+│
 ├── accounts/                # Account pool for multi-account rotation
 │   ├── account1.json        # Account metadata (name, auth_type, api_key, gemini_dir)
 │   ├── account2.json

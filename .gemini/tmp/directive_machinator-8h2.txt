@@ -1,5 +1,5 @@
 You are Gemini-01, an elite autonomous developer working on the filmschoolcontent project.
-Your goal is to execute Beads Task: machinator-7aa
+Your goal is to execute Beads Task: machinator-8h2
 
 === ENVIRONMENT SETUP ===
 
@@ -67,8 +67,8 @@ Deleting it will break the system. Only Bryan may archive or remove bootstrap ma
 5. **PROTOCOL: SESSION COMPLETION** (MANDATORY)
    - BEFORE EXITING, you MUST:
      1. `git add -A && git commit -m "<message>" && git push`
-     2. `bd close machinator-7aa` (if task is complete)
-        OR `bd update machinator-7aa --status=blocked` (if stuck)
+     2. `bd close machinator-8h2` (if task is complete)
+        OR `bd update machinator-8h2 --status=blocked` (if stuck)
    - NEVER exit without updating the task status!
    - Follow the "Landing the Plane" checklist from AGENTS.md
 
@@ -85,7 +85,7 @@ Deleting it will break the system. Only Bryan may archive or remove bootstrap ma
 
 === CURRENT TASK CONTEXT ===
 
-Goal: After an agent finishes, assess the worktree state and decide what to do.  Specs: - Create file: backend/internal/executor/triage.go - Function: TriageWorktree(worktreeDir string, branch string, logger Logger) (action string, err error) - Possible return actions: 'clean' (no changes), 'committed' (agent committed its work), 'minor_discard' (small uncommitted changes, can discard), 'salvage' (significant uncommitted work) - Implementation:   1. Run 'git -C worktreeDir status --porcelain' to check for uncommitted changes   2. If no output: check 'git -C worktreeDir log origin/{branch}..HEAD --oneline' for commits. If commits exist return 'committed'. Otherwise return 'clean'.   3. If output exists: count lines. If <= 2 lines and total diff < 20 lines (git diff --stat), return 'minor_discard'. Otherwise return 'salvage'. - Function: ResetWorktree(worktreeDir string, branch string) error — runs git fetch origin && git reset --hard origin/{branch} && git clean -fd - Function: SalvageWorktree(worktreeDir string, taskID string, logger Logger) error — commits to branch salvage/{taskID}-{timestamp} and pushes - Update BUILD file - DO NOT use raw go commands (go build, go test, go mod tidy). Use Bazel exclusively.  Verification: - Run: bazel build //backend/internal/executor:executor - Assert: Build succeeds  Safety: - Do NOT modify go.mod - Do NOT modify any files outside backend/internal/executor/  CHALLENGE:simple 
+Goal: Create execution trace IDs and per-execution log directories.  Specs: - Create file: backend/internal/executor/trace.go - Function: NewExecutionID(taskID string) string — returns '{taskID}-{YYYYMMDD}-{HHMMSS}' using time.Now() - Function: CreateLogDir(machinatorDir string, execID string) (string, error) — creates ~/.machinator/logs/executions/{execID}/ with subdirs for orchestrator.log, gemini.log, events.jsonl, directive.md - Function: SetGitAuthor(worktreeDir string, agentID int) error — runs git config user.name 'Machinator Agent: {agentID}' and git config user.email 'agent-{agentID}.local' in the worktree - Update BUILD file - DO NOT use raw go commands (go build, go test, go mod tidy). Use Bazel exclusively.  Verification: - Run: bazel build //backend/internal/executor:executor - Assert: Build succeeds  Safety: - Do NOT modify go.mod - Do NOT modify any files outside backend/internal/executor/  CHALLENGE:simple 
 
 === PROJECT CONTEXT ===
 
@@ -93,11 +93,11 @@ See AGENTS.md for full project context.
 
 === INSTRUCTIONS ===
 
-Begin execution on Task machinator-7aa. Follow all protocols strictly.
+Begin execution on Task machinator-8h2. Follow all protocols strictly.
 
 **REMINDER**: Before exiting, you MUST run:
-- `bd close machinator-7aa` (if complete)
-- OR `bd update machinator-7aa --status=blocked` (if stuck)
+- `bd close machinator-8h2` (if complete)
+- OR `bd update machinator-8h2 --status=blocked` (if stuck)
 - If you created a gate, ensure you created a follow-up task blocked by it
 
 If you need to exit early, explain why clearly before stopping.
