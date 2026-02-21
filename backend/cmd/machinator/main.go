@@ -553,13 +553,35 @@ func runCmd() {
 	go setupWatcher(st, cfg, projCfg, projectID, logger)
 	go assigner(st, q, cfg, projCfg, repoDir, projectID, logger)
 
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-sigCh
+		logger.Log("main", "Shutting down gracefully...")
+		st.SetPaused(true)
+
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			if len(st.AssignedAgents()) == 0 {
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		if len(st.AssignedAgents()) > 0 {
+			logger.Log("main", "Warning: agents still running after 10s. Killing their Gemini processes.")
+			exec.Command("pkill", "-f", "gemini").Run()
+		}
+
+		st.Save()
+		os.Exit(0)
+	}()
+
 	if headless {
 		// Headless mode: wait for signal
 		logger.Log("main", "Running in headless mode (Ctrl+C to stop)")
-		sig := make(chan os.Signal, 1)
-		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-		<-sig
-		logger.Log("main", "Shutting down...")
+		select {}
 	} else {
 		// TUI mode
 		projectConfigPath := project.ConfigPath(cfg.MachinatorDir, projectID)
